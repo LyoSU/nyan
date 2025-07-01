@@ -7,7 +7,7 @@ from nyan.document import Document
 
 
 def filter_ru_only(doc: Document) -> bool:
-    return doc.language == "ru"
+    return doc.language == "uk"
 
 
 def filter_not_obscene(doc: Document) -> bool:

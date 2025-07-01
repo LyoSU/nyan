@@ -17,7 +17,7 @@ def main(
 ):
     random.seed(seed)
     docs = list(read_jsonl(documents_path))
-    docs = [doc for doc in docs if doc["language"] == "ru" and doc["category"] != "not_news"]
+    docs = [doc for doc in docs if doc["language"] == "uk" and doc["category"] != "not_news"]
 
     existing_records = {(r["first_url"], r["second_url"]) for r in read_jsonl(existing_path)}
     existing_records |= {(r["second_url"], r["first_url"]) for r in read_jsonl(existing_path)}

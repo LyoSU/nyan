@@ -29,7 +29,7 @@ class Ranker:
             for cluster in clusters:
                 unique_channels = {d.channel_id for d in cluster.docs}
                 is_big_cluster = len(unique_channels) >= min_channels
-                has_ru_doc = any(doc.language == "ru" for doc in cluster.docs)
+                has_ru_doc = any(doc.language == "uk" for doc in cluster.docs)
                 is_fresh = cluster.age < max_age_minutes * 60
                 if is_big_cluster and has_ru_doc and is_fresh:
                     filtered_clusters.append(cluster)

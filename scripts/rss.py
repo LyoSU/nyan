@@ -22,7 +22,7 @@ def create_feed():
     feed.link(href="https://t.me/UAliveNews")
     feed.description(DESCRIPTION)
     feed.logo("https://nyannyanovich.github.io/nyan/logo.jpg")
-    feed.language("ru")
+    feed.language("uk")
     return feed
 
 

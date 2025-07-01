@@ -14,7 +14,7 @@ input_path = sys.argv[1]
 output_path = sys.argv[2]
 
 docs = list(tqdm(read_jsonl(input_path)))
-docs = [doc for doc in docs if doc["patched_text"] and doc["language"] == "ru"]
+docs = [doc for doc in docs if doc["patched_text"] and doc["language"] == "uk"]
 docs.sort(key=lambda x: x["pub_time"])
 print(len(docs))
 
