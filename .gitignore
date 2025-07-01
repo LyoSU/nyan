@@ -130,6 +130,7 @@ dmypy.json
 
 # Project specific
 mongo_config.json
+mongo_config.json.backup
 models/
 data/
 mongo/
