@@ -129,7 +129,7 @@ dmypy.json
 .pyre/
 
 # Project specific
-/mongo_config.json
+mongo_config.json
 models/
 data/
 mongo/
