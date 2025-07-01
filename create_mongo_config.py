@@ -10,7 +10,10 @@ def create_mongo_config():
     config = {
         "client": {
             "host": os.getenv("MONGO_HOST", "localhost"),
-            "port": int(os.getenv("MONGO_PORT", "27017"))
+            "port": int(os.getenv("MONGO_PORT", "27017")),
+            "readPreference": os.getenv("MONGO_READ_PREFERENCE", "primary"),
+            "ssl": os.getenv("MONGO_SSL", "false").lower() == "true",
+            "directConnection": os.getenv("MONGO_DIRECT_CONNECTION", "true").lower() == "true"
         },
         "database_name": os.getenv("MONGO_DATABASE", "main"),
         "documents_collection_name": "documents", 
