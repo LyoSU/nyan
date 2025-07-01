@@ -19,6 +19,9 @@ services:
       - MONGO_USERNAME=${MONGO_USERNAME:-}
       - MONGO_PASSWORD=${MONGO_PASSWORD:-}
       - MONGO_AUTH_SOURCE=${MONGO_AUTH_SOURCE:-admin}
+      - MONGO_READ_PREFERENCE=${MONGO_READ_PREFERENCE:-primary}
+      - MONGO_SSL=${MONGO_SSL:-false}
+      - MONGO_DIRECT_CONNECTION=${MONGO_DIRECT_CONNECTION:-true}
     restart: unless-stopped
     command: tail -f /dev/null  # Тримає контейнер запущеним
     
@@ -40,6 +43,9 @@ services:
       - MONGO_USERNAME=${MONGO_USERNAME:-}
       - MONGO_PASSWORD=${MONGO_PASSWORD:-}
       - MONGO_AUTH_SOURCE=${MONGO_AUTH_SOURCE:-admin}
+      - MONGO_READ_PREFERENCE=${MONGO_READ_PREFERENCE:-primary}
+      - MONGO_SSL=${MONGO_SSL:-false}
+      - MONGO_DIRECT_CONNECTION=${MONGO_DIRECT_CONNECTION:-true}
     restart: unless-stopped
     command: >
       bash -c "while true; do
@@ -65,6 +71,9 @@ services:
       - MONGO_USERNAME=${MONGO_USERNAME:-}
       - MONGO_PASSWORD=${MONGO_PASSWORD:-}
       - MONGO_AUTH_SOURCE=${MONGO_AUTH_SOURCE:-admin}
+      - MONGO_READ_PREFERENCE=${MONGO_READ_PREFERENCE:-primary}
+      - MONGO_SSL=${MONGO_SSL:-false}
+      - MONGO_DIRECT_CONNECTION=${MONGO_DIRECT_CONNECTION:-true}
     restart: unless-stopped
     command: >
       bash -c "mkdir -p data && while true; do
