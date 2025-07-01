@@ -1,5 +1,5 @@
 {
     "cluster_template": "nyan/templates/cluster.html",
     "tz_offset": 3,
-    "tz_name": "MSK"
+    "tz_name": "Europe/Kyiv"
 }
