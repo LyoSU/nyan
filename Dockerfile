@@ -13,16 +13,15 @@ WORKDIR /app
 
 # Копіюємо файли з залежностями
 COPY requirements.txt .
-COPY download_models.sh .
 
 # Встановлюємо Python залежності
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Завантажуємо моделі
-RUN chmod +x download_models.sh && ./download_models.sh
-
 # Копіюємо весь код проекту
 COPY . .
+
+# Завантажуємо моделі
+RUN chmod +x download_models.sh && ./download_models.sh
 
 # Створюємо директорію для даних
 RUN mkdir -p data
