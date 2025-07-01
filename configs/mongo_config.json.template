@@ -6,7 +6,7 @@
         "password": "${MONGO_PASSWORD:-}",
         "authSource": "${MONGO_AUTH_SOURCE:-admin}"
     },
-    "database_name": "main",
+    "database_name": "nyan",
     "documents_collection_name": "documents",
     "annotated_documents_collection_name": "annotated_documents",
     "clusters_collection_name": "clusters"
