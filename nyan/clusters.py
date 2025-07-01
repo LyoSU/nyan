@@ -158,7 +158,7 @@ class Cluster:
 
         differences: List[Dict[str, Any]] = []
         try:
-            content = openai_completion(messages=messages, model_name="gpt-4o")
+            content = openai_completion(messages=messages, model_name="gpt-4.1")
             content = content[content.find("{") : content.rfind("}") + 1]
             parsed_content: Dict[str, List[Dict[str, Any]]] = json.loads(content)
             differences = parsed_content["differences"]

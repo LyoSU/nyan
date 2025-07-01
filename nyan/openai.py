@@ -25,7 +25,7 @@ DEFAULT_ARGS = OpenAIDecodingArguments()
 def openai_completion(
     messages: List[Dict[str, Any]],
     decoding_args: OpenAIDecodingArguments = DEFAULT_ARGS,
-    model_name: str = "gpt-4",
+    model_name: str = "gpt-4.1",
     sleep_time: int = 2,
 ) -> str:
     decoding_args = copy.deepcopy(decoding_args)
@@ -52,7 +52,7 @@ def openai_completion(
 def openai_batch_completion(
     batch: List[List[Dict[str, Any]]],
     decoding_args: OpenAIDecodingArguments = DEFAULT_ARGS,
-    model_name: str = "gpt-4",
+    model_name: str = "gpt-4.1",
     sleep_time: int = 2,
 ) -> List[str]:
     completions = []
