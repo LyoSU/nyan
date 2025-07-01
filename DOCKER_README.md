@@ -48,6 +48,7 @@ docker-compose down
 ```env
 MONGO_HOST=your-mongo-server.com
 MONGO_PORT=27017
+MONGO_DATABASE=main
 MONGO_USERNAME=your_username
 MONGO_PASSWORD=your_password
 MONGO_AUTH_SOURCE=admin
@@ -58,6 +59,8 @@ MONGO_AUTH_SOURCE=admin
 - `configs/client_config.json` - Telegram API credentials
 - `channels.json` - список каналів для парсингу
 - `.env` - налаштування MongoDB та інші змінні
+
+**Важливо:** `configs/mongo_config.json` автоматично генерується з `.env` змінних, тому його не потрібно створювати вручну.
 
 ## 📦 Сервіси
 

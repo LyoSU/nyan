@@ -6,7 +6,6 @@ RUN apt-get update && apt-get install -y \
     wget \
     curl \
     build-essential \
-    gettext-base \
     && rm -rf /var/lib/apt/lists/*
 
 # Створюємо робочу директорію
@@ -28,8 +27,9 @@ COPY . .
 # Створюємо директорію для даних
 RUN mkdir -p data
 
-# Копіюємо та налаштовуємо entrypoint
+# Копіюємо та налаштовуємо entrypoint і скрипти
 COPY docker-entrypoint.sh /usr/local/bin/
+COPY create_mongo_config.py /app/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Експортуємо порти (якщо потрібно)

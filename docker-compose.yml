@@ -15,6 +15,7 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - MONGO_HOST=${MONGO_HOST:-}
       - MONGO_PORT=${MONGO_PORT:-27017}
+      - MONGO_DATABASE=${MONGO_DATABASE:-main}
       - MONGO_USERNAME=${MONGO_USERNAME:-}
       - MONGO_PASSWORD=${MONGO_PASSWORD:-}
       - MONGO_AUTH_SOURCE=${MONGO_AUTH_SOURCE:-admin}
@@ -35,9 +36,11 @@ services:
       - PYTHONPATH=/app
       - MONGO_HOST=${MONGO_HOST:-}
       - MONGO_PORT=${MONGO_PORT:-27017}
+      - MONGO_DATABASE=${MONGO_DATABASE:-main}
       - MONGO_USERNAME=${MONGO_USERNAME:-}
       - MONGO_PASSWORD=${MONGO_PASSWORD:-}
       - MONGO_AUTH_SOURCE=${MONGO_AUTH_SOURCE:-admin}
+    restart: unless-stopped
     command: >
       bash -c "while true; do
         scrapy crawl telegram -a channels_file=channels.json -a fetch_times=crawler/fetch_times.json -a hours=24;
@@ -58,6 +61,7 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - MONGO_HOST=${MONGO_HOST:-}
       - MONGO_PORT=${MONGO_PORT:-27017}
+      - MONGO_DATABASE=${MONGO_DATABASE:-main}
       - MONGO_USERNAME=${MONGO_USERNAME:-}
       - MONGO_PASSWORD=${MONGO_PASSWORD:-}
       - MONGO_AUTH_SOURCE=${MONGO_AUTH_SOURCE:-admin}

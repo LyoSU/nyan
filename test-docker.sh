@@ -52,17 +52,30 @@ fi
 
 # Тестуємо MongoDB підключення
 echo "🔌 Тестування MongoDB підключення..."
-docker-compose run --rm nyan-app python3 -c "
-import os
+docker-compose run --rm nyan-app bash -c "
+echo 'Змінні середовища:'
+echo 'MONGO_HOST='$MONGO_HOST
+echo 'MONGO_PORT='$MONGO_PORT
+echo 'MONGO_USERNAME='${MONGO_USERNAME:+***}
+echo 'MONGO_PASSWORD='${MONGO_PASSWORD:+***}
+echo ''
+echo 'Створена конфігурація:'
+cat configs/mongo_config.json
+echo ''
+echo 'Тестування підключення...'
+python3 -c \"
 from nyan.mongo import get_documents_collection
 try:
     collection = get_documents_collection('configs/mongo_config.json')
     count = collection.count_documents({})
-    print(f'✅ MongoDB з\'єднання успішне')
+    print(f'✅ MongoDB з\\'єднання успішне')
     print(f'📊 Документів у колекції: {count}')
 except Exception as e:
-    print(f'❌ Помилка з\'єднання з MongoDB: {e}')
-    exit(1)
+    print(f'❌ Помилка з\\'єднання з MongoDB: {e}')
+    import traceback
+    traceback.print_exc()
+    raise
+\"
 "
 
 if [ $? -eq 0 ]; then

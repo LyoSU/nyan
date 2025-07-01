@@ -12,7 +12,7 @@ def create_mongo_config():
             "host": os.getenv("MONGO_HOST", "localhost"),
             "port": int(os.getenv("MONGO_PORT", "27017"))
         },
-        "database_name": "main",
+        "database_name": os.getenv("MONGO_DATABASE", "main"),
         "documents_collection_name": "documents", 
         "annotated_documents_collection_name": "annotated_documents",
         "clusters_collection_name": "clusters"

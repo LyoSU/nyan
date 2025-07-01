@@ -127,3 +127,12 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Project specific
+/mongo_config.json
+models/
+data/
+mongo/
+
+# Docker
+.env

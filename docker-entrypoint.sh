@@ -1,15 +1,19 @@
 #!/bin/bash
 
-# Скрипт для підстановки змінних середовища в mongo_config.json
+# Скрипт для створення правильної mongo_config.json з типами даних
 
-CONFIG_FILE="/app/configs/mongo_config.json"
-TEMPLATE_FILE="/app/configs/mongo_config.json.template"
+echo "🔧 Створення MongoDB конфігурації..."
 
-# Створюємо конфігурацію з підстановкою змінних
-envsubst < "$TEMPLATE_FILE" > "$CONFIG_FILE"
+# Запускаємо Python скрипт для створення конфігурації
+python3 /app/create_mongo_config.py
 
-echo "📝 MongoDB конфігурація створена:"
-cat "$CONFIG_FILE"
+# Перевіряємо чи файл створено
+if [ ! -f "/app/configs/mongo_config.json" ]; then
+    echo "❌ Не вдалося створити mongo_config.json"
+    exit 1
+fi
+
+echo "✅ MongoDB конфігурація готова"
 
 # Запускаємо команду, передану як аргументи
 exec "$@"
