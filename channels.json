@@ -777,6 +777,14 @@
     "economy":"💰",
     "other": "🎙"
   },
+  "colors": {
+    "red": "#FF0000",
+    "purple": "#800080",
+    "blue": "#0000FF",
+    "tech": "#008000",
+    "economy": "#FFD700",
+    "other": "#808080"
+  },
   "default_groups": {
     "main": "purple"
   }
