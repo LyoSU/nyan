@@ -1,11 +1,75 @@
-version: '3.1'
+version: '3.8'
+
 services:
-  mongodb:
-    image: mongo:4.4.0
-    container_name: mongo
-    environment:
-        MONGO_INITDB_DATABASE: main
+  # Основний контейнер НЯН
+  nyan-app:
+    build: .
+    container_name: nyan-app
     volumes:
-      - ./mongo:/data/db
-    ports:
-      - 27017:27017
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./configs:/app/configs
+      - ./channels.json:/app/channels.json
+    environment:
+      - PYTHONPATH=/app
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - MONGO_HOST=${MONGO_HOST:-}
+      - MONGO_PORT=${MONGO_PORT:-27017}
+      - MONGO_USERNAME=${MONGO_USERNAME:-}
+      - MONGO_PASSWORD=${MONGO_PASSWORD:-}
+      - MONGO_AUTH_SOURCE=${MONGO_AUTH_SOURCE:-admin}
+    restart: unless-stopped
+    command: tail -f /dev/null  # Тримає контейнер запущеним
+    
+  # Crawler сервіс
+  nyan-crawler:
+    build: .
+    container_name: nyan-crawler  
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./configs:/app/configs
+      - ./channels.json:/app/channels.json
+      - ./crawler:/app/crawler
+    environment:
+      - PYTHONPATH=/app
+      - MONGO_HOST=${MONGO_HOST:-}
+      - MONGO_PORT=${MONGO_PORT:-27017}
+      - MONGO_USERNAME=${MONGO_USERNAME:-}
+      - MONGO_PASSWORD=${MONGO_PASSWORD:-}
+      - MONGO_AUTH_SOURCE=${MONGO_AUTH_SOURCE:-admin}
+    command: >
+      bash -c "while true; do
+        scrapy crawl telegram -a channels_file=channels.json -a fetch_times=crawler/fetch_times.json -a hours=24;
+        sleep 60;
+      done"
+
+  # Sender сервіс  
+  nyan-sender:
+    build: .
+    container_name: nyan-sender
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./configs:/app/configs
+      - ./channels.json:/app/channels.json
+    environment:
+      - PYTHONPATH=/app
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - MONGO_HOST=${MONGO_HOST:-}
+      - MONGO_PORT=${MONGO_PORT:-27017}
+      - MONGO_USERNAME=${MONGO_USERNAME:-}
+      - MONGO_PASSWORD=${MONGO_PASSWORD:-}
+      - MONGO_AUTH_SOURCE=${MONGO_AUTH_SOURCE:-admin}
+    restart: unless-stopped
+    command: >
+      bash -c "mkdir -p data && while true; do
+        python3 -m nyan.send \
+          --channels-info-path channels.json \
+          --client-config-path configs/client_config.json \
+          --mongo-config-path configs/mongo_config.json \
+          --annotator-config-path configs/annotator_config.json \
+          --renderer-config-path configs/renderer_config.json \
+          --daemon-config-path configs/daemon_config.json;
+        sleep 30;
+      done"

@@ -1,0 +1,46 @@
+# Git
+.git
+.gitignore
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info
+.pytest_cache
+.coverage
+
+# Environments
+.env
+.env.example
+.venv
+env/
+venv/
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local data that shouldn't be in image
+data/
+mongo/
+models/nyan_models.tar.gz
+
+# Logs
+*.log
+
+# Old MongoDB configs
+docker-compose.yml.old
