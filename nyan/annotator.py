@@ -40,6 +40,7 @@ class Annotator:
         self.channels = channels
 
     def __call__(self, docs: List[Document]) -> List[Document]:
+        print(f"Starting annotation of {len(docs)} documents")
         pre_pipeline = (
             self.process_channels_info,
             self.clean_text,
@@ -55,9 +56,12 @@ class Annotator:
                 doc = step(doc)
             processed_docs.append(doc)
         docs = processed_docs
+        print(f"Pre-embeddings pipeline completed for {len(docs)} documents")
 
         if self.embedder is not None:
+            print("Starting embeddings calculation...")
             docs = self.calc_embeddings(docs)
+            print(f"Embeddings calculated for {len(docs)} documents")
 
         post_pipeline = (self.predict_category,)
         processed_docs = list()
@@ -65,6 +69,7 @@ class Annotator:
             for step in post_pipeline:
                 doc = step(doc)
             processed_docs.append(doc)
+        print(f"Annotation completed for {len(processed_docs)} documents")
         return processed_docs
 
     def postprocess(self, docs: List[Document]) -> List[Document]:
