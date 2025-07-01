@@ -44,7 +44,6 @@ if __name__ == "__main__":
             json.dump(config, f, indent=4)
         
         print("📝 MongoDB конфігурація створена:")
-        print(json.dumps(config, indent=4))
         
     except Exception as e:
         print(f"❌ Помилка створення конфігурації: {e}")
