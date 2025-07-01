@@ -5,7 +5,6 @@
 Інші подробиці:{% for d in diff %}
 ▪{{d["text"].rstrip(".")}} — {{d["channels"]}}{% endfor %}
 {% endif %}
-
 👁️{{views}}
 {% for group, sources in groups %}
 {{-emojis[group]-}}{%- for source in sources %}<a href="{{source.url}}">{{source.channel_title}}</a>{% if not loop.last %} • {% endif %}{% endfor %}
