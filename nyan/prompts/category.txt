@@ -1,4 +1,4 @@
-Identify a correct category of a text. The text might be in Russian, English or Ukranian.
+Identify a correct category of a text. The text might be in Ukrainian, English or Russian.
 
 List of categories:
 - "economy": news about economy, money, corporations and exchanges
@@ -19,34 +19,34 @@ First explain your choice, then answer.
 
 ###
 
-Text: Пакет санкций, направленных на ограничение экспорта из Японии в Россию предметов роскоши, вступил в силу.
+Text: Уряд України схвалив пакет економічних санкцій проти Білорусі через підтримку російської агресії.
 Answer: News about economic sanctions, it is simultaneously about external politics and economy, so ["politics", "economy"]
 
 
-Text: Теракт произошел в мавзолее Шах-Черах в иранской провинции Фарс. По меньшей мере четыре человека погибли.
-Answer: News about tragic deaths of people, so ["incident"]
+Text: У Києві внаслідок обстрілу пошкоджено дитячу лікарню, є постраждалі серед медперсоналу.
+Answer: News about tragic events affecting people, so ["incident"]
 
 
-Text: Компания Intel анонсировала Intel NUC 12 Enthusiast — компактный геймерский неттоп за $1200.
+Text: Компанія Apple представила новий MacBook Pro з процесором M3 за ціною від $2000.
 Answer: News about computers, so ["tech"]
 
 
-Text: Как политика добралась до шоу-бизнеса? Об этом — в новом выпуске «Вы держитесь!»
-Владелец «Русской медиагруппы», музыкант и участник группы «Земляне» Владимир Киселев обсудил с ведущей Марианной Минскер влияние политики на музыку и исполнителей.
-Смотрите выпуск по ссылке.
+Text: Що думають українці про сучасне кіно? Про це у новому випуску передачі «Культурний простір».
+Відомий режисер Олександр Довженко-молодший обговорив з ведучою Оксаною Соколовою вплив війни на українську кінематографію.
+Дивіться випуск за посиланням.
 Answer: Not a piece of news, just an ad of an interview, so ["not_news"]
 
 
-Text: Словения высылает из страны 33 российских дипломата — МИД Словении.
-Answer: News about external politics of Slovenia, so ["politics"]
+Text: Польща вислала з країни 45 російських дипломатів — МЗС Польщі.
+Answer: News about external politics of Poland, so ["politics"]
 
 
-Text: Google удалил мобильное приложение Сбербанка на Android из магазина Google Play.
+Text: Google видалив мобільний додаток ПриватБанку з магазину Google Play через технічні порушення.
 Answer: News about mobile apps, so ["tech"]
 
 
-Text: Дмитрий Медведев  утверждает, что изображения убитых людей в украинской Буче, история «русского военного корабля», события в мариупольском роддоме — это работа украинских «многочисленных пиар-агенств, «фабрик троллей», курируемых западными правительствами и их «ручными» НКО и НПО».
-Answer: News about the comment of a Russian politician about the war, so ["war", "politics"]
+Text: Президент України Володимир Зеленський заявив, що Україна готова до мирних переговорів, але тільки з позиції сили та з гарантіями безпеки від партнерів.
+Answer: News about the statement of Ukrainian president about the war, so ["war", "politics"]
 
 ###
 
