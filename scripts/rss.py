@@ -16,10 +16,10 @@ DESCRIPTION = """НЯН. Умный агрегатор новостных кан
 
 def create_feed():
     feed = FeedGenerator()
-    feed.id("nyannews")
+    feed.id("UAliveNews")
     feed.title("НЯН - Агрегатор новостей – Telegram")
     feed.author({"name": "Nyan Nyanovich", "email": "nyan_news@protonmail.com"})
-    feed.link(href="https://t.me/nyannews")
+    feed.link(href="https://t.me/UAliveNews")
     feed.description(DESCRIPTION)
     feed.logo("https://nyannyanovich.github.io/nyan/logo.jpg")
     feed.language("ru")
@@ -33,7 +33,7 @@ def add_cluster(feed, cluster, renderer, issue_name):
     text = renderer.render_cluster(cluster, issue_name)
     text = text.replace("\n", "</br>")
     entry.description(text)
-    entry.link(href=cluster.get_url("https://t.me/nyannews", "main"))
+    entry.link(href=cluster.get_url("https://t.me/UAliveNews", "main"))
     entry.published(ts_to_dt(cluster.create_time))
     if cluster.images:
         photo = cluster.images[0]

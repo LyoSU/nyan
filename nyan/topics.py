@@ -77,7 +77,7 @@ def main(
             date_str = dt.strftime("%B %d, %H:%M")
         fixed_clusters.append(
             {
-                "url": f"https://t.me/nyannews/{message.message_id}",
+                "url": f"https://t.me/UAliveNews/{message.message_id}",
                 "dt": date_str,
                 "views": cluster.views,
                 "sources_count": len([doc.channel_title for doc in cluster.docs]),
