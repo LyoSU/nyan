@@ -473,7 +473,7 @@
       "issue": "main"
     },
     {
-      "name": "GeneralStaffZSU",
+      "name": "generalstaffzsu",
       "groups": {
         "main": "red"
       },
@@ -481,7 +481,7 @@
       "issue": "main"
     },
     {
-      "name": "M_Podolyak",
+      "name": "m_podolyak",
       "groups": {
         "main": "red"
       },
@@ -513,7 +513,7 @@
       "issue": "main"
     },
     {
-      "name": "RUSanctions",
+      "name": "rusanctions",
       "groups": {
         "main": "economy"
       },
@@ -577,7 +577,7 @@
       "issue": "main"
     },
     {
-      "name": "Forbes_Ukraine_official",
+      "name": "forbes_ukraine_official",
       "groups": {
         "main": "economy"
       },
@@ -609,7 +609,7 @@
       "issue": "main"
     },
     {
-      "name": "XGTV1",
+      "name": "xgtv1",
       "groups": {
         "main": "tech"
       },
@@ -649,7 +649,7 @@
       "issue": "main"
     },
     {
-      "name": "ITUkraineNow",
+      "name": "itukrainenow",
       "groups": {
         "main": "tech"
       },
@@ -697,7 +697,7 @@
       "issue": "main"
     },
     {
-      "name": "OstanniyCapitalist",
+      "name": "ostanniycapitalist",
       "groups": {
         "main": "economy"
       },
@@ -713,7 +713,7 @@
       "issue": "main"
     },
     {
-      "name": "tyzhdenUA",
+      "name": "tyzhdenua",
       "groups": {
         "main": "purple"
       },
@@ -774,7 +774,7 @@
     "purple": "✅",
     "blue": "📰",
     "tech": "💻",
-    "economy":"💰",
+    "economy": "💰",
     "other": "🎙"
   },
   "colors": {
@@ -788,4 +788,4 @@
   "default_groups": {
     "main": "purple"
   }
-}  
+}
