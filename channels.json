@@ -6,7 +6,7 @@
         "main": "red"
       },
       "alias": "Zelenskiy",
-      "issue": "main"
+      "issue": "politics"
     },
     {
       "name": "novinach",
@@ -118,7 +118,7 @@
         "main": "red"
       },
       "alias": "Служба безпеки України",
-      "issue": "main"
+      "issue": "war"
     },
     {
       "name": "cincafu",
@@ -126,7 +126,7 @@
         "main": "red"
       },
       "alias": "Головнокомандувач ЗСУ",
-      "issue": "main"
+      "issue": "war"
     },
     {
       "name": "verkhovnaradaukrainy",
@@ -134,7 +134,7 @@
         "main": "red"
       },
       "alias": "Верховна Рада України",
-      "issue": "main"
+      "issue": "politics"
     },
     {
       "name": "op_ua",
@@ -142,7 +142,7 @@
         "main": "red"
       },
       "alias": "Офіс Президента",
-      "issue": "main"
+      "issue": "politics"
     },
     {
       "name": "ua_national_police",
@@ -166,7 +166,7 @@
         "main": "other"
       },
       "alias": "ГОНЧАРЕНКО",
-      "issue": "main"
+      "issue": "politics"
     },
     {
       "name": "yzheleznyak",
@@ -174,7 +174,7 @@
         "main": "other"
       },
       "alias": "Залізний нардеп",
-      "issue": "main"
+      "issue": "politics"
     },
     {
       "name": "vitaliy_klitschko",
@@ -182,7 +182,7 @@
         "main": "red"
       },
       "alias": "Віталій Кличко",
-      "issue": "main"
+      "issue": "politics"
     },
     {
       "name": "presidentporoshenko",
@@ -190,7 +190,7 @@
         "main": "other"
       },
       "alias": "Петро Порошенко",
-      "issue": "main"
+      "issue": "politics"
     },
     {
       "name": "diukraine",
@@ -198,7 +198,7 @@
         "main": "red"
       },
       "alias": "Головне управління розвідки МО України",
-      "issue": "main"
+      "issue": "war"
     },
     {
       "name": "azov_media",
@@ -206,7 +206,7 @@
         "main": "blue"
       },
       "alias": "АЗОВ",
-      "issue": "main"
+      "issue": "war"
     },
     {
       "name": "dsszzi_official",
@@ -238,7 +238,7 @@
         "main": "other"
       },
       "alias": "Андрій Білецький",
-      "issue": "main"
+      "issue": "politics"
     },
     {
       "name": "ministry_of_defense_ua",
@@ -246,7 +246,7 @@
         "main": "red"
       },
       "alias": "Міністерство оборони України",
-      "issue": "main"
+      "issue": "war"
     },
     {
       "name": "vereshchuk_iryna",
@@ -278,7 +278,7 @@
         "main": "blue"
       },
       "alias": "Жорін з Азову",
-      "issue": "main"
+      "issue": "war"
     },
     {
       "name": "kyivcityofficial",
@@ -302,7 +302,7 @@
         "main": "blue"
       },
       "alias": "Реальна Війна",
-      "issue": "main"
+      "issue": "war"
     },
     {
       "name": "censor_net",
@@ -334,7 +334,7 @@
         "main": "tech"
       },
       "alias": "Mezha.Media",
-      "issue": "main"
+      "issue": "tech"
     },
     {
       "name": "itcua",
@@ -342,7 +342,7 @@
         "main": "tech"
       },
       "alias": "ITC.ua",
-      "issue": "main"
+      "issue": "tech"
     },
     {
       "name": "ain_ua_tg",
@@ -414,7 +414,7 @@
         "main": "blue"
       },
       "alias": "DOU",
-      "issue": "main"
+      "issue": "tech"
     },
     {
       "name": "bbcukrainian",
@@ -478,7 +478,7 @@
         "main": "red"
       },
       "alias": "Генеральний штаб ЗСУ",
-      "issue": "main"
+      "issue": "war"
     },
     {
       "name": "m_podolyak",
@@ -486,7 +486,7 @@
         "main": "red"
       },
       "alias": "Михайло Подоляк",
-      "issue": "main"
+      "issue": "politics"
     },
     {
       "name": "ab3army",
@@ -494,7 +494,7 @@
         "main": "other"
       },
       "alias": "3-тя штурмова",
-      "issue": "main"
+      "issue": "war"
     },
     {
       "name": "uawarinfographics",
@@ -502,7 +502,7 @@
         "main": "other"
       },
       "alias": "UA War Infographics",
-      "issue": "main"
+      "issue": "war"
     },
     {
       "name": "hackyourmom",
@@ -526,7 +526,7 @@
         "main": "tech"
       },
       "alias": "dev.ua",
-      "issue": "main"
+      "issue": "tech"
     },
     {
       "name": "othernot",
@@ -566,7 +566,7 @@
         "main": "tech"
       },
       "alias": "Olena Kirichok's tech",
-      "issue": "main"
+      "issue": "tech"
     },
     {
       "name": "full_of_hatred",
@@ -598,7 +598,7 @@
         "main": "tech"
       },
       "alias": "КІБЕРБЕЗ",
-      "issue": "main"
+      "issue": "tech"
     },
     {
       "name": "highloadtoday",
@@ -606,7 +606,7 @@
         "main": "tech"
       },
       "alias": "Highload",
-      "issue": "main"
+      "issue": "tech"
     },
     {
       "name": "xgtv1",
@@ -614,7 +614,7 @@
         "main": "tech"
       },
       "alias": "XGTV",
-      "issue": "main"
+      "issue": "tech"
     },
     {
       "name": "fixabug",
@@ -622,7 +622,7 @@
         "main": "tech"
       },
       "alias": "Це не баг, а фіча",
-      "issue": "main"
+      "issue": "tech"
     },
     {
       "name": "mintsyfra",
@@ -646,7 +646,7 @@
         "main": "tech"
       },
       "alias": "Стартапенко",
-      "issue": "main"
+      "issue": "tech"
     },
     {
       "name": "itukrainenow",
@@ -654,7 +654,7 @@
         "main": "tech"
       },
       "alias": "IT Ukraine",
-      "issue": "main"
+      "issue": "tech"
     },
     {
       "name": "uamoyo",
@@ -662,7 +662,7 @@
         "main": "tech"
       },
       "alias": "MOYO",
-      "issue": "main"
+      "issue": "tech"
     },
     {
       "name": "andro_price",
@@ -670,7 +670,7 @@
         "main": "tech"
       },
       "alias": "Аndroprice",
-      "issue": "main"
+      "issue": "tech"
     },
     {
       "name": "spekamedia",
@@ -678,7 +678,7 @@
         "main": "tech"
       },
       "alias": "SPEKA",
-      "issue": "main"
+      "issue": "tech"
     },
     {
       "name": "gamedev_dou",
@@ -686,7 +686,7 @@
         "main": "tech"
       },
       "alias": "GameDev DOU",
-      "issue": "main"
+      "issue": "tech"
     },
     {
       "name": "bihusinfo",
@@ -726,7 +726,7 @@
         "main": "tech"
       },
       "alias": "MSI",
-      "issue": "main"
+      "issue": "tech"
     },
     {
       "name": "andronews_official",
@@ -734,7 +734,7 @@
         "main": "tech"
       },
       "alias": "Andro News",
-      "issue": "main"
+      "issue": "tech"
     },
     {
       "name": "it_news_in_ua",
@@ -742,7 +742,7 @@
         "main": "tech"
       },
       "alias": "Новини у світі іТ",
-      "issue": "main"
+      "issue": "tech"
     },
     {
       "name": "ivanluchkovchanel",
@@ -750,7 +750,7 @@
         "main": "tech"
       },
       "alias": "Канал Лучкова",
-      "issue": "main"
+      "issue": "tech"
     },
     {
       "name": "wtf_ukr",
@@ -758,7 +758,7 @@
         "main": "tech"
       },
       "alias": "WTF",
-      "issue": "main"
+      "issue": "tech"
     },
     {
       "name": "keddr",
@@ -766,7 +766,7 @@
         "main": "tech"
       },
       "alias": "Keddr",
-      "issue": "main"
+      "issue": "tech"
     }
   ],
   "emojis": {
