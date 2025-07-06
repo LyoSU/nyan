@@ -7,6 +7,30 @@
             "views_percentile": 30,
             "higher_views_percentile": 30,
             "higher_trigger_age_minutes": 15
+        },
+        {
+            "issue_name": "war",
+            "min_channels": 6,
+            "max_age_minutes": 360,
+            "views_percentile": 50,
+            "higher_views_percentile": 60,
+            "higher_trigger_age_minutes": 10
+        },
+        {
+            "issue_name": "politics",
+            "min_channels": 5,
+            "max_age_minutes": 360,
+            "views_percentile": 45,
+            "higher_views_percentile": 55,
+            "higher_trigger_age_minutes": 10
+        },
+        {
+            "issue_name": "tech",
+            "min_channels": 3,
+            "max_age_minutes": 360,
+            "views_percentile": 20,
+            "higher_views_percentile": 25,
+            "higher_trigger_age_minutes": 20
         }
     ]
 }
