@@ -41,13 +41,13 @@ class Cluster:
 
     def add(self, doc: Document) -> None:
         self.docs.append(doc)
-        self.url2doc[doc.url] = doc
+        self.url2doc[doc.url.lower()] = doc
 
     def save_distances(self, distances: List[float]) -> None:
         self.distances = distances
 
     def has(self, doc: Document) -> bool:
-        return doc.url in self.url2doc
+        return doc.url.lower() in self.url2doc
 
     def changed(self) -> bool:
         return self.hash != self.saved_hash
@@ -340,7 +340,7 @@ class Clusters:
     ) -> Optional[Cluster]:
         messages = list()
         for url in cluster.urls:
-            message = self.urls2messages[issue_name].get(url)
+            message = self.urls2messages[issue_name].get(url.lower())
             if message is None:
                 continue
             messages.append(message)
@@ -397,15 +397,15 @@ class Clusters:
         for _, cluster in self.clid2cluster.items():
             for url in cluster.urls:
                 for message in cluster.messages:
-                    result[message.issue][url] = message
+                    result[message.issue][url.lower()] = message
         return result
 
     def update_documents(self, documents: List[Document]) -> int:
-        url2doc = {doc.url: doc for doc in documents}
+        url2doc = {doc.url.lower(): doc for doc in documents}
         updates_count = 0
         for _, cluster in self.clid2cluster.items():
             for doc_index, doc in enumerate(cluster.docs):
-                url = doc.url
+                url = doc.url.lower()
                 if url not in url2doc:
                     continue
                 new_doc = url2doc[url]
@@ -418,7 +418,7 @@ class Clusters:
                 cluster.url2doc[url] = new_doc
                 if (
                     cluster.saved_annotation_doc
-                    and cluster.saved_annotation_doc.url == url
+                    and cluster.saved_annotation_doc.url.lower() == url
                 ):
                     cluster.saved_annotation_doc = new_doc
                 updates_count += 1
