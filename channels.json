@@ -81,7 +81,8 @@
     {
       "name": "ukrainenow",
       "groups": {
-        "main": "red"
+        "main": "red",
+        "war": "red"
       },
       "alias": "Ukraine NOW",
       "issue": "main"
@@ -431,7 +432,8 @@
     {
       "name": "bbcukrainian",
       "groups": {
-        "main": "blue"
+        "main": "blue",
+        "war": "blue"
       },
       "alias": "BBC NEWS Україна",
       "issue": "main"
