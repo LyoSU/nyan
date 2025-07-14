@@ -57,9 +57,8 @@ class Renderer:
         # Check if we have any documents left after filtering
         total_docs_after_filter = sum(len(docs) for docs in groups.values())
         if total_docs_after_filter == 0:
-            print(f"Warning: No documents left after filtering for issue '{issue_name}', cluster may be empty")
-            # Return a minimal template or raise an exception
-            return f"Error: No valid documents for issue '{issue_name}'"
+            print(f"Warning: No documents left after filtering for issue '{issue_name}', skipping cluster")
+            return None
 
         sorted_groups = sorted(groups.items(), key=lambda x: x[0])
         first_doc = copy.deepcopy(cluster.first_doc)

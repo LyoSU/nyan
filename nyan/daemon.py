@@ -219,7 +219,7 @@ class Daemon:
             discussion_message = self.client.get_discussion(message)
 
             new_docs_pub_time = 0
-            new_docs_count = 0
+            print(f"Checking {len(cluster.docs)} docs for cluster discussion")
             for doc in cluster.docs:
                 if not posted_cluster.has(doc):
                     print(f"Adding new doc to discussion: {doc.url}")
@@ -229,14 +229,17 @@ class Daemon:
                         discussion_text, discussion_message
                     )
                     new_docs_pub_time = max(doc.pub_time, new_docs_pub_time)
-                    new_docs_count += 1
                     sleep(sleep_time)
-            print(f"Added {new_docs_count} new docs to discussion out of {len(cluster.docs)} total docs")
+                else:
+                    print(f"Doc already exists in cluster: {doc.url}")
 
             current_ts = get_current_ts()
             time_diff = abs(current_ts - posted_cluster.pub_time_percentile)
             if time_diff < max_time_updated and posted_cluster.changed():
                 cluster_text = self.renderer.render_cluster(posted_cluster, issue_name)
+                if cluster_text is None:
+                    print("Skipping cluster update due to rendering issues: {}".format(posted_cluster.cropped_title))
+                    return
                 print(
                     "Update message {} at {}: {}".format(
                         message.message_id, message.issue, posted_cluster.cropped_title
@@ -256,6 +259,9 @@ class Daemon:
             return
 
         cluster_text = self.renderer.render_cluster(cluster, issue_name)
+        if cluster_text is None:
+            print("Skipping cluster due to rendering issues: {}".format(cluster.cropped_title))
+            return
         print("New cluster in {}: {}".format(issue_name, cluster.cropped_title))
 
         self.client.update_discussion_mapping(issue_name)
