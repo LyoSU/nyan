@@ -32,6 +32,10 @@ class Renderer:
         colors = dict()
         for doc in cluster.docs:
             channel = self.channels[doc.channel_id]
+            # Skip documents from channels that don't have this issue configured
+            if issue_name not in channel.groups:
+                print(f"Warning: Channel {doc.channel_id} doesn't have group configured for issue '{issue_name}', skipping doc {doc.url}")
+                continue
             group = channel.groups[issue_name]
             groups[group].append(doc)
             if channel.emojis:
@@ -49,6 +53,13 @@ class Renderer:
                 used_channels.add(doc.channel_id)
                 filtered_group.append(doc)
             groups[group_name] = filtered_group
+
+        # Check if we have any documents left after filtering
+        total_docs_after_filter = sum(len(docs) for docs in groups.values())
+        if total_docs_after_filter == 0:
+            print(f"Warning: No documents left after filtering for issue '{issue_name}', cluster may be empty")
+            # Return a minimal template or raise an exception
+            return f"Error: No valid documents for issue '{issue_name}'"
 
         sorted_groups = sorted(groups.items(), key=lambda x: x[0])
         first_doc = copy.deepcopy(cluster.first_doc)

@@ -18,6 +18,11 @@ from nyan.title import choose_title
 from nyan.openai import openai_completion
 
 
+def normalize_url(url: str) -> str:
+    """Normalize URL for consistent comparison."""
+    return url.lower().strip()
+
+
 BASE_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
 T = TypeVar("T")
 
@@ -41,13 +46,16 @@ class Cluster:
 
     def add(self, doc: Document) -> None:
         self.docs.append(doc)
-        self.url2doc[doc.url.lower()] = doc
+        url_normalized = normalize_url(doc.url)
+        self.url2doc[url_normalized] = doc
 
     def save_distances(self, distances: List[float]) -> None:
         self.distances = distances
 
     def has(self, doc: Document) -> bool:
-        return doc.url.lower() in self.url2doc
+        url_normalized = normalize_url(doc.url)
+        result = url_normalized in self.url2doc
+        return result
 
     def changed(self) -> bool:
         return self.hash != self.saved_hash
@@ -294,8 +302,14 @@ class Cluster:
         cluster = cls()
         cluster.clid = d.get("clid")
 
-        for doc in d["docs"]:
-            cluster.add(Document.fromdict(doc))
+        # Deduplicate documents by normalized URL
+        seen_urls = set()
+        for doc_dict in d["docs"]:
+            doc = Document.fromdict(doc_dict)
+            url_normalized = normalize_url(doc.url)
+            if url_normalized not in seen_urls:
+                cluster.add(doc)
+                seen_urls.add(url_normalized)
 
         if "message" in d:
             cluster.messages = [MessageId.fromdict(d["message"])]
@@ -340,7 +354,7 @@ class Clusters:
     ) -> Optional[Cluster]:
         messages = list()
         for url in cluster.urls:
-            message = self.urls2messages[issue_name].get(url.lower())
+            message = self.urls2messages[issue_name].get(normalize_url(url))
             if message is None:
                 continue
             messages.append(message)
@@ -397,15 +411,15 @@ class Clusters:
         for _, cluster in self.clid2cluster.items():
             for url in cluster.urls:
                 for message in cluster.messages:
-                    result[message.issue][url.lower()] = message
+                    result[message.issue][normalize_url(url)] = message
         return result
 
     def update_documents(self, documents: List[Document]) -> int:
-        url2doc = {doc.url.lower(): doc for doc in documents}
+        url2doc = {normalize_url(doc.url): doc for doc in documents}
         updates_count = 0
         for _, cluster in self.clid2cluster.items():
             for doc_index, doc in enumerate(cluster.docs):
-                url = doc.url.lower()
+                url = normalize_url(doc.url)
                 if url not in url2doc:
                     continue
                 new_doc = url2doc[url]
@@ -418,7 +432,7 @@ class Clusters:
                 cluster.url2doc[url] = new_doc
                 if (
                     cluster.saved_annotation_doc
-                    and cluster.saved_annotation_doc.url.lower() == url
+                    and normalize_url(cluster.saved_annotation_doc.url) == url
                 ):
                     cluster.saved_annotation_doc = new_doc
                 updates_count += 1

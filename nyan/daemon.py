@@ -219,15 +219,19 @@ class Daemon:
             discussion_message = self.client.get_discussion(message)
 
             new_docs_pub_time = 0
+            new_docs_count = 0
             for doc in cluster.docs:
                 if not posted_cluster.has(doc):
+                    print(f"Adding new doc to discussion: {doc.url}")
                     posted_cluster.add(doc)
                     discussion_text = self.renderer.render_discussion_message(doc)
                     self.client.send_discussion_message(
                         discussion_text, discussion_message
                     )
                     new_docs_pub_time = max(doc.pub_time, new_docs_pub_time)
+                    new_docs_count += 1
                     sleep(sleep_time)
+            print(f"Added {new_docs_count} new docs to discussion out of {len(cluster.docs)} total docs")
 
             current_ts = get_current_ts()
             time_diff = abs(current_ts - posted_cluster.pub_time_percentile)
