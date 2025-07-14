@@ -19,7 +19,8 @@
     {
       "name": "suspilnenews",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "war": "purple"
       },
       "alias": "СУСПІЛЬНЕ",
       "issue": "main"
@@ -35,7 +36,8 @@
     {
       "name": "babel",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "war": "purple"
       },
       "alias": "Бабель",
       "issue": "main"
@@ -43,7 +45,8 @@
     {
       "name": "ukrpravda_news",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "war": "purple"
       },
       "alias": "Українська правда",
       "issue": "main"
@@ -51,7 +54,8 @@
     {
       "name": "svoboda_radio",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "war": "purple"
       },
       "alias": "Радіо Свобода",
       "issue": "main"
@@ -59,7 +63,8 @@
     {
       "name": "gruntmedia",
       "groups": {
-        "main": "blue"
+        "main": "blue",
+        "war": "blue"
       },
       "alias": "ҐРУНТ",
       "issue": "main"
@@ -67,7 +72,8 @@
     {
       "name": "tch_channel",
       "groups": {
-        "main": "blue"
+        "main": "blue",
+        "war": "blue"
       },
       "alias": "ТСН",
       "issue": "main"
@@ -91,7 +97,8 @@
     {
       "name": "hromadske_ua",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "war": "purple"
       },
       "alias": "hromadske",
       "issue": "main"
@@ -99,7 +106,8 @@
     {
       "name": "channel24_ua",
       "groups": {
-        "main": "blue"
+        "main": "blue",
+        "war": "blue"
       },
       "alias": "24 Канал",
       "issue": "main"
@@ -291,7 +299,8 @@
     {
       "name": "torontotv",
       "groups": {
-        "main": "blue"
+        "main": "blue",
+        "war": "blue"
       },
       "alias": "Телебачення Торонто",
       "issue": "main"
@@ -307,7 +316,8 @@
     {
       "name": "censor_net",
       "groups": {
-        "main": "blue"
+        "main": "blue",
+        "war": "blue"
       },
       "alias": "Цензор.НЕТ",
       "issue": "main"
@@ -371,7 +381,8 @@
     {
       "name": "rbc_ua_news",
       "groups": {
-        "main": "blue"
+        "main": "blue",
+        "war": "blue"
       },
       "alias": "РБК-Україна",
       "issue": "main"
@@ -379,7 +390,8 @@
     {
       "name": "espresotb",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "war": "purple"
       },
       "alias": "Еспресо.TV",
       "issue": "main"
@@ -427,7 +439,8 @@
     {
       "name": "nvua_official",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "war": "purple"
       },
       "alias": "NV",
       "issue": "main"
@@ -435,7 +448,8 @@
     {
       "name": "ukrinform_news",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "war": "purple"
       },
       "alias": "Укрінформ",
       "issue": "main"
@@ -443,7 +457,8 @@
     {
       "name": "liganet",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "war": "purple"
       },
       "alias": "LIGA.net",
       "issue": "main"
@@ -451,7 +466,8 @@
     {
       "name": "znua_live",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "war": "purple"
       },
       "alias": "ZN.UA",
       "issue": "main"
