@@ -129,7 +129,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--template-path", type=str, default="nyan/templates/topics.html"
     )
-    parser.add_argument("--model-name", type=str, default="gpt-4.1")
+    parser.add_argument("--model-name", type=str, default="google/gemini-2.5-flash")
     parser.add_argument("--auto", default=False, action="store_true")
     args = parser.parse_args()
     main(**vars(args))

@@ -1,4 +1,5 @@
 import logging
+import os
 from dataclasses import dataclass
 from typing import Optional, Sequence, List, Dict, Any, cast
 from multiprocessing.pool import ThreadPool
@@ -25,14 +26,19 @@ DEFAULT_ARGS = OpenAIDecodingArguments()
 def openai_completion(
     messages: List[Dict[str, Any]],
     decoding_args: OpenAIDecodingArguments = DEFAULT_ARGS,
-    model_name: str = "gpt-4.1",
+    model_name: str = "google/gemini-2.5-flash",
     sleep_time: int = 2,
 ) -> str:
     decoding_args = copy.deepcopy(decoding_args)
     assert decoding_args.n == 1
+    
+    # Configure OpenAI client for OpenRouter
+    openai.api_base = "https://openrouter.ai/api/v1"
+    openai.api_key = os.getenv("OPENROUTER_API_KEY")
+    
     while True:
         try:
-            completions = openai.ChatCompletion.create(  # type: ignore
+            completions = openai.ChatCompletion.create(
                 messages=messages, model=model_name, **decoding_args.__dict__
             )
             break
@@ -52,7 +58,7 @@ def openai_completion(
 def openai_batch_completion(
     batch: List[List[Dict[str, Any]]],
     decoding_args: OpenAIDecodingArguments = DEFAULT_ARGS,
-    model_name: str = "gpt-4.1",
+    model_name: str = "google/gemini-2.5-flash",
     sleep_time: int = 2,
 ) -> List[str]:
     completions = []
