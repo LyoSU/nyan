@@ -11,11 +11,15 @@ def list_channels(client_config_path, channels_path):
 
     groups = defaultdict(list)
     for _, ch in channels:
-        groups[ch.groups["main"]].append(ch)
+        main_group = ch.groups.get("main", "unknown")
+        groups[main_group].append(ch)
 
     text = ""
     for _, group in groups.items():
-        emoji = group[0].emojis["main"]
+        if not group:
+            continue
+        first_channel = group[0]
+        emoji = first_channel.emojis.get("main", "") if first_channel.emojis else ""
         text += emoji
         for ch in group:
             text += '<a href="https://t.me/{}">{}</a> • '.format(ch.name, ch.alias)

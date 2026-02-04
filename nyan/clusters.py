@@ -16,11 +16,7 @@ from nyan.document import Document
 from nyan.mongo import get_clusters_collection
 from nyan.title import choose_title
 from nyan.openai import openai_completion
-
-
-def normalize_url(url: str) -> str:
-    """Normalize URL for consistent comparison."""
-    return url.lower().strip()
+from nyan.util import normalize_url
 
 
 BASE_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
@@ -94,7 +90,10 @@ class Cluster:
 
     @property
     def views_per_hour(self) -> int:
-        return int(self.debiased_views / (self.age / 3600))
+        age_hours = self.age / 3600
+        if age_hours == 0:
+            return 0
+        return int(self.debiased_views / age_hours)
 
     @property
     def embedding(self) -> Optional[List[float]]:
@@ -172,7 +171,10 @@ class Cluster:
             differences = parsed_content["differences"]
 
             channel_titles = {doc.channel_id: doc.channel_title for doc in self.docs}
-            doc_urls = {doc.channel_id: doc.url for doc in self.docs}
+            doc_urls = {}
+            for doc in self.docs:
+                if doc.channel_id not in doc_urls:
+                    doc_urls[doc.channel_id] = doc.url
             for diff in differences:
                 ids = diff["channel_ids"][:3]
                 ids = [i for i in ids if i in channel_titles and i in doc_urls]
@@ -220,15 +222,15 @@ class Cluster:
 
     @property
     def group(self) -> str:
-        groups = [doc.groups["main"] for doc in self.docs if doc.groups]
+        groups = [doc.groups.get("main") for doc in self.docs if doc.groups and doc.groups.get("main")]
         if not groups:
             return "purple"
 
         groups_count = Counter(groups)
 
         all_count = len(groups)
-        blue_part = groups_count["blue"] / all_count
-        red_part = groups_count["red"] / all_count
+        blue_part = groups_count.get("blue", 0) / all_count
+        red_part = groups_count.get("red", 0) / all_count
 
         if blue_part == 0.0 and red_part > 0.5:
             return "red"
@@ -361,7 +363,10 @@ class Clusters:
         if not messages:
             return None
 
-        message, intersection_count = Counter(messages).most_common()[0]
+        most_common_result = Counter(messages).most_common()
+        if not most_common_result:
+            return None
+        message, intersection_count = most_common_result[0]
         old_cluster = self.message2cluster.get(message)
         if old_cluster is None:
             return None

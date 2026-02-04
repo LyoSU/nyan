@@ -66,10 +66,12 @@ class Renderer:
 
         external_link = None
         if cluster.external_links:
-            external_link_url, el_cnt = cluster.external_links.most_common()[0]
-            external_link_host = urlsplit(external_link_url).netloc
-            if el_cnt >= 2:
-                external_link = {"url": external_link_url, "host": external_link_host}
+            most_common = cluster.external_links.most_common()
+            if most_common:
+                external_link_url, el_cnt = most_common[0]
+                external_link_host = urlsplit(external_link_url).netloc
+                if el_cnt >= 2:
+                    external_link = {"url": external_link_url, "host": external_link_host}
 
         views = self.views_to_str(cluster.views)
         return self.cluster_template.render(

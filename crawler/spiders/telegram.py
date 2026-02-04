@@ -11,29 +11,40 @@ def get_current_ts():
 
 
 def process_views(views):
-    if "K" in views:
-        views = int(float(views.replace("K", "")) * 1000)
-    elif "M" in views:
-        views = int(float(views.replace("M", "")) * 1000000)
-    else:
-        views = int(views)
-    return views
+    if not views:
+        return 0
+    try:
+        views = views.strip()
+        if "K" in views:
+            return int(float(views.replace("K", "")) * 1000)
+        elif "M" in views:
+            return int(float(views.replace("M", "")) * 1000000)
+        else:
+            return int(views)
+    except (ValueError, AttributeError):
+        return 0
 
 
 def parse_post_url(url):
-    url = url.split("?")[0]
+    url = url.split("?")[0].lower()
     channel_id, post_id = url.split("/")[-2:]
     return {
         "url": url,
-        "channel_id": channel_id.lower(),
+        "channel_id": channel_id,
         "post_id": int(post_id)
     }
 
 
 def to_timestamp(dt_str):
-    dt = datetime.strptime(dt_str, "%Y-%m-%dT%H:%M:%S+00:00")
-    dt = dt.replace(tzinfo=timezone.utc)
-    return int(dt.timestamp())
+    if not dt_str:
+        return 0
+    try:
+        dt = datetime.strptime(dt_str, "%Y-%m-%dT%H:%M:%S+00:00")
+        dt = dt.replace(tzinfo=timezone.utc)
+        return int(dt.timestamp())
+    except (ValueError, TypeError):
+        print(f"Warning: Invalid datetime string: {dt_str}")
+        return 0
 
 
 def html2text_setup():
@@ -55,7 +66,7 @@ class TelegramSpider(scrapy.Spider):
         assert "channels_file" in kwargs
         with open(kwargs.pop("channels_file")) as r:
             self.channels = json.load(r)["channels"]
-            self.channels = {ch["name"]: ch for ch in self.channels}
+            self.channels = {ch["name"].lower(): ch for ch in self.channels}
         assert "fetch_times" in kwargs
         self.fetch_times_path = kwargs.pop("fetch_times")
         with open(self.fetch_times_path) as r:
@@ -76,7 +87,7 @@ class TelegramSpider(scrapy.Spider):
         urls = {self.channel_url_template.format(ch["name"]) for ch in channels}
         current_ts = get_current_ts()
         for url in urls:
-            channel_name = url.split("/")[-1]
+            channel_name = url.split("/")[-1].lower()
             last_fetch_time = self.fetch_times.get(channel_name, 0)
             recrawl_time = self.channels[channel_name].get("recrawl_time", 0)
             assert current_ts >= last_fetch_time
@@ -95,7 +106,7 @@ class TelegramSpider(scrapy.Spider):
 
     def parse_channel(self, response):
         url = response.url
-        channel_name = url.split("/")[-1].split("?")[0]
+        channel_name = url.split("/")[-1].split("?")[0].lower()
         history_path = "//body/main/div/section[contains(@class, 'tgme_channel_history')]/div"
         posts = response.xpath(history_path + "/div")
 

@@ -110,7 +110,7 @@ class TelegramClient:
         print("Send status code:", response.status_code)
         if response.status_code == 400 and "description" in response.text:
             response_dict = response.json()
-            description = response_dict["description"]
+            description = response_dict.get("description", "")
             if description == "Bad Request: message caption is too long":
                 response = self._send_text(text, issue=issue)
                 print("Text only send status code:", response.status_code)
@@ -119,10 +119,19 @@ class TelegramClient:
             print("Send error:", response.text)
             return None
 
-        result = response.json()["result"]
-        message_id = int(
-            result["message_id"] if "message_id" in result else result[0]["message_id"]
-        )
+        result = response.json().get("result")
+        if not result:
+            return None
+
+        if isinstance(result, list):
+            if not result:
+                return None
+            message_id = int(result[0].get("message_id", 0))
+        else:
+            message_id = int(result.get("message_id", 0))
+
+        if message_id == 0:
+            return None
         return MessageId(message_id=message_id, issue=issue_name, from_discussion=False)
 
     def send_poll(

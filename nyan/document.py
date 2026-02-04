@@ -6,7 +6,7 @@ from datetime import datetime
 from tqdm import tqdm
 
 from nyan.mongo import get_documents_collection, get_annotated_documents_collection
-from nyan.util import Serializable
+from nyan.util import Serializable, normalize_url
 
 
 CURRENT_VERSION = 6
@@ -106,7 +106,7 @@ def read_annotated_documents_mongo(
     annotated_docs = []
     remaining_docs = []
     for doc in tqdm(docs, desc="Reading annotated docs from Mongo"):
-        annotated_doc = collection.find_one({"url": doc.url})
+        annotated_doc = collection.find_one({"url": normalize_url(doc.url)})
         if not annotated_doc:
             remaining_docs.append(doc)
             continue
@@ -135,4 +135,4 @@ def write_annotated_documents_mongo(
     for doc in docs:
         assert doc.embedding is not None
         assert doc.patched_text is not None
-        collection.replace_one({"url": doc.url}, doc.asdict(), upsert=True)
+        collection.replace_one({"url": normalize_url(doc.url)}, doc.asdict(), upsert=True)

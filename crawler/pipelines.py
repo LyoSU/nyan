@@ -28,7 +28,8 @@ class MongoPipeline:
         check_item(item)
         adapter = ItemAdapter(item)
         url = adapter.get("url")
-        self.collection.replace_one({"url": url}, adapter.asdict(), upsert=True)
+        normalized_url = url.lower().strip() if url else ""
+        self.collection.replace_one({"url": normalized_url}, adapter.asdict(), upsert=True)
         return item
 
 
@@ -45,5 +46,6 @@ class JsonlPipeline:
         check_item(item)
         adapter = ItemAdapter(item)
         url = adapter.get("url")
-        self.items[url] = adapter.asdict()
+        normalized_url = url.lower().strip() if url else ""
+        self.items[normalized_url] = adapter.asdict()
         return item

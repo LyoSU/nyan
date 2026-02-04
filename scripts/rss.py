@@ -37,11 +37,13 @@ def add_cluster(feed, cluster, renderer, issue_name):
     entry.published(ts_to_dt(cluster.create_time))
     if cluster.images:
         photo = cluster.images[0]
-        mimetype = mimetypes.guess_type(photo)[0]
+        mimetype_result = mimetypes.guess_type(photo)
+        mimetype = mimetype_result[0] if mimetype_result[0] else "image/jpeg"
         entry.enclosure(url=photo, type=mimetype)
     if cluster.videos:
         video = cluster.videos[0]
-        mimetype = mimetypes.guess_type(video.split("?")[0])[0]
+        mimetype_result = mimetypes.guess_type(video.split("?")[0])
+        mimetype = mimetype_result[0] if mimetype_result[0] else "video/mp4"
         entry.enclosure(url=video, type=mimetype)
     return entry
 

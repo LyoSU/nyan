@@ -27,7 +27,9 @@ def filter_fresh(doc: Document) -> bool:
 
 
 def filter_purple(doc: Document) -> bool:
-    return doc.groups["main"] == "purple"
+    if not doc.groups:
+        return False
+    return doc.groups.get("main") == "purple"
 
 
 def choose_title(docs: List[Document], issues: List[str]) -> Document:
@@ -46,7 +48,8 @@ def choose_title(docs: List[Document], issues: List[str]) -> Document:
 
     # Choosing documents specific for issues
     issue_filters = []
-    possible_issues = set(docs[0].groups.keys())
+    first_doc_groups = docs[0].groups if docs[0].groups else {}
+    possible_issues = set(first_doc_groups.keys())
     for issue in issues:
         if issue == "main":
             continue

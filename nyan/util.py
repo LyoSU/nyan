@@ -78,3 +78,17 @@ def gen_batch(records: List[Any], batch_size: int) -> Iterable[List[Any]]:
         batch = records[batch_start:batch_end]
         batch_start = batch_end
         yield batch
+
+
+def normalize_url(url: str) -> str:
+    """Normalize URL for consistent comparison and storage."""
+    if not url:
+        return ""
+    return url.split("?")[0].lower().strip()
+
+
+def normalize_channel_id(channel_id: str) -> str:
+    """Normalize channel_id for consistent comparison and storage."""
+    if not channel_id:
+        return ""
+    return channel_id.lower().strip()

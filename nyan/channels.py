@@ -2,7 +2,7 @@ import json
 from typing import Dict, Optional, Iterator, Tuple
 from dataclasses import dataclass
 
-from nyan.util import Serializable
+from nyan.util import Serializable, normalize_channel_id
 
 
 @dataclass
@@ -34,21 +34,21 @@ class Channels:
                 if issue not in channel.groups:
                     channel.groups[issue] = group
             channel.emojis = {
-                issue: emojis[group] for issue, group in channel.groups.items()
+                issue: emojis.get(group, "") for issue, group in channel.groups.items()
             }
             channel.colors = {
-                issue: colors[group] for issue, group in channel.groups.items()
+                issue: colors.get(group, "#808080") for issue, group in channel.groups.items()
             }
             self.add(channel)
 
     def add(self, channel: Channel) -> None:
-        self.channels[channel.name] = channel
+        self.channels[normalize_channel_id(channel.name)] = channel
 
     def __getitem__(self, chid: str) -> Channel:
-        return self.channels[chid]
+        return self.channels[normalize_channel_id(chid)]
 
     def __contains__(self, chid: str) -> bool:
-        return chid in self.channels
+        return normalize_channel_id(chid) in self.channels
 
     def __iter__(self) -> Iterator[Tuple[str, Channel]]:
         return iter(self.channels.items())
