@@ -4,6 +4,7 @@ from statistics import mean
 from scipy.spatial.distance import cosine  # type: ignore
 
 from nyan.document import Document
+from nyan.util import normalize_url
 
 
 def filter_ru_only(doc: Document) -> bool:
@@ -38,7 +39,7 @@ def choose_title(docs: List[Document], issues: List[str]) -> Document:
     avg_distances = dict()
     for doc1 in docs:
         distances = [cosine(doc1.embedding, doc2.embedding) for doc2 in docs]
-        avg_distances[doc1.url] = mean(distances)
+        avg_distances[normalize_url(doc1.url)] = mean(distances)
 
     hard_filters = (filter_ru_only, filter_not_obscene, filter_fresh)
     for flt in hard_filters:
@@ -68,4 +69,4 @@ def choose_title(docs: List[Document], issues: List[str]) -> Document:
         if len(filtered_docs) >= 2:
             docs = filtered_docs
 
-    return min(docs, key=lambda x: avg_distances[x.url])
+    return min(docs, key=lambda x: avg_distances[normalize_url(x.url)])

@@ -44,7 +44,7 @@ class Document(Serializable):
     version: int = CURRENT_VERSION
 
     def is_reannotation_needed(self, new_doc: "Document") -> bool:
-        assert new_doc.url == self.url
+        assert normalize_url(new_doc.url) == normalize_url(self.url)
         if self.version != CURRENT_VERSION:
             return True
         return new_doc.text != self.text
@@ -135,4 +135,6 @@ def write_annotated_documents_mongo(
     for doc in docs:
         assert doc.embedding is not None
         assert doc.patched_text is not None
-        collection.replace_one({"url": normalize_url(doc.url)}, doc.asdict(), upsert=True)
+        doc_dict = doc.asdict()
+        doc_dict["url"] = normalize_url(doc.url)
+        collection.replace_one({"url": doc_dict["url"]}, doc_dict, upsert=True)
