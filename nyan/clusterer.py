@@ -127,7 +127,7 @@ class Clusterer:
 
         clustering = AgglomerativeClustering(
             n_clusters=None,
-            affinity="cosine",
+            metric="cosine",
             linkage="average",
             distance_threshold=0.02,
         )
