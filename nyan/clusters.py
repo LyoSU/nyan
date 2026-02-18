@@ -255,19 +255,18 @@ class Cluster:
             [doc.category for doc in self.docs if doc.category]
         )
 
-        final_issues: List[str] = []
-        
-        # Add categories as separate issues
-        final_issues.extend(categories)
-        
-        # Only add main if no politics or war categories present
-        if "politics" not in categories and "war" not in categories:
-            final_issues.append("main")
-        
-        # Add any non-main issues from documents (though currently all are "main")
         non_main_issues = [issue for issue in issues if issue != "main"]
-        final_issues.extend(non_main_issues)
-        
+        if non_main_issues:
+            # Cluster is dominated by specialized channels (war/politics/tech) —
+            # route there only to avoid cross-posting when all issues share one channel.
+            return list(set(non_main_issues))
+
+        # All-main channels: use ML categories to route war/politics/tech stories
+        # to their feeds; fall back to main for everything else.
+        final_issues: List[str] = list(categories)
+        feed_categories = {"war", "politics", "tech"}
+        if not any(cat in feed_categories for cat in categories):
+            final_issues.append("main")
         return list(set(final_issues))
 
     def get_issue_message(self, issue: str) -> Optional[MessageId]:
