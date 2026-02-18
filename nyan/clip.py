@@ -91,11 +91,17 @@ class ClipEmbedder:
             images=images, return_tensors="pt"
         )
         inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
-        return cast(torch.Tensor, self.model.get_image_features(**inputs))
+        result = self.model.get_image_features(**inputs)
+        if not isinstance(result, torch.Tensor):
+            result = result.pooler_output
+        return cast(torch.Tensor, result)
 
     def _process_texts_batch(self, texts: List[str]) -> torch.Tensor:
         inputs: Dict[str, torch.Tensor] = self.processor(
             text=texts, return_tensors="pt", padding=True
         )
         inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
-        return cast(torch.Tensor, self.model.get_text_features(**inputs))
+        result = self.model.get_text_features(**inputs)
+        if not isinstance(result, torch.Tensor):
+            result = result.pooler_output
+        return cast(torch.Tensor, result)

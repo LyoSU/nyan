@@ -39,9 +39,14 @@ class Clusterer:
         embeddings = np.zeros((len(docs), dim), dtype=np.float32)
         for i, doc in enumerate(docs):
             embeddings[i, :] = doc.embedding
-        distances = pairwise_distances(
-            embeddings, metric="cosine", force_all_finite=False
-        )
+        try:
+            distances = pairwise_distances(
+                embeddings, metric="cosine", ensure_all_finite=False
+            )
+        except TypeError:
+            distances = pairwise_distances(
+                embeddings, metric="cosine", force_all_finite=False
+            )
         for i1, doc1 in enumerate(docs):
             for i2, doc2 in enumerate(docs):
                 if i1 == i2:

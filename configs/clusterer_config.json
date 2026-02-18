@@ -1,7 +1,7 @@
 {
     "clustering": {
         "n_clusters": null,
-        "affinity": "precomputed",
+        "metric": "precomputed",
         "linkage": "average",
         "distance_threshold": 0.10
     },

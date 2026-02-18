@@ -1,4 +1,5 @@
 {
+    "required_language": "ru",
     "issues" : [
         {
             "issue_name": "main",
