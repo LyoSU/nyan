@@ -5,6 +5,8 @@ from itemadapter import ItemAdapter
 from scrapy.exceptions import DropItem
 from pymongo import MongoClient
 
+from nyan.util import normalize_url
+
 
 def check_item(item):
     adapter = ItemAdapter(item)
@@ -28,7 +30,7 @@ class MongoPipeline:
         check_item(item)
         adapter = ItemAdapter(item)
         url = adapter.get("url")
-        normalized_url = url.lower().strip() if url else ""
+        normalized_url = normalize_url(url)
         item_dict = adapter.asdict()
         item_dict["url"] = normalized_url
         self.collection.replace_one({"url": normalized_url}, item_dict, upsert=True)
@@ -48,7 +50,7 @@ class JsonlPipeline:
         check_item(item)
         adapter = ItemAdapter(item)
         url = adapter.get("url")
-        normalized_url = url.lower().strip() if url else ""
+        normalized_url = normalize_url(url)
         item_dict = adapter.asdict()
         item_dict["url"] = normalized_url
         self.items[normalized_url] = item_dict

@@ -186,10 +186,9 @@ class Daemon:
         if remaining_docs:
             annotated_docs = self.annotator(remaining_docs)
             print("{} docs annotated".format(len(annotated_docs)))
-
-        if mongo_config_path and remaining_docs:
-            write_annotated_documents_mongo(mongo_config_path, annotated_docs)
             all_annotated_docs += annotated_docs
+            if mongo_config_path:
+                write_annotated_documents_mongo(mongo_config_path, annotated_docs)
 
         final_docs = self.annotator.postprocess(all_annotated_docs)
         print("{} docs before clustering".format(len(final_docs)))
@@ -210,7 +209,6 @@ class Daemon:
         posted_cluster = posted_clusters.find_similar(
             cluster,
             issue_name,
-            min_size_ratio=self.config["similar_min_size_ratio"],
             min_intersection_ratio=self.config["similar_min_intersection_ratio"],
         )
         if posted_cluster:
@@ -232,6 +230,7 @@ class Daemon:
                     sleep(sleep_time)
                 else:
                     print(f"Doc already exists in cluster: {doc.url}")
+            posted_clusters._invalidate_caches()
 
             current_ts = get_current_ts()
             time_diff = abs(current_ts - posted_cluster.pub_time_percentile)

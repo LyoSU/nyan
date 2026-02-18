@@ -4,9 +4,7 @@ import random
 from typing import TypeVar, List, Any, Iterable, Dict, Type
 from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass, asdict, fields
-
-import numpy as np
-import torch
+from urllib.parse import urlparse
 
 
 def read_jsonl(file_path: str, sample_rate: float = 1.0) -> Iterable[Dict[str, Any]]:
@@ -59,6 +57,9 @@ class Serializable:
 
 
 def set_random_seed(seed: int) -> None:
+    import numpy as np
+    import torch
+
     random.seed(seed)
     np.random.seed(seed)
     os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:2"
@@ -84,11 +85,27 @@ def normalize_url(url: str) -> str:
     """Normalize URL for consistent comparison and storage."""
     if not url:
         return ""
-    return url.split("?")[0].lower().strip()
+    normalized = url.strip()
+    normalized = normalized.split("#", 1)[0]
+    normalized = normalized.split("?", 1)[0]
+    normalized = normalized.rstrip("/")
+    return normalized.lower()
 
 
 def normalize_channel_id(channel_id: str) -> str:
     """Normalize channel_id for consistent comparison and storage."""
     if not channel_id:
         return ""
-    return channel_id.lower().strip()
+    normalized = channel_id.lower().strip()
+
+    if normalized.startswith("http://") or normalized.startswith("https://"):
+        parsed = urlparse(normalized)
+        path_parts = [part for part in parsed.path.split("/") if part]
+        if path_parts:
+            if path_parts[0] == "s" and len(path_parts) > 1:
+                normalized = path_parts[1]
+            else:
+                normalized = path_parts[0]
+
+    normalized = normalized.lstrip("@")
+    return normalized

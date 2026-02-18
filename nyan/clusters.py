@@ -347,11 +347,13 @@ class Clusters:
         self.message2cluster: Dict[MessageId, Cluster] = dict()
         self.max_clid: int = 60000
 
+    def _invalidate_caches(self) -> None:
+        self.__dict__.pop("urls2messages", None)
+
     def find_similar(
         self,
         cluster: Cluster,
         issue_name: str,
-        min_size_ratio: float = 0.25,
         min_intersection_ratio: float = 0.25,
     ) -> Optional[Cluster]:
         messages = list()
@@ -371,15 +373,8 @@ class Clusters:
         if old_cluster is None:
             return None
 
-        new_cluster_size = len(cluster.urls)
-        old_cluster_size = len(old_cluster.urls)
-        intersection_ratio = intersection_count / new_cluster_size
-        intersection_ratio = min(
-            intersection_ratio, intersection_count / old_cluster_size
-        )
-        size_ratio = new_cluster_size / old_cluster_size
-
-        if size_ratio < min_size_ratio or intersection_ratio < min_intersection_ratio:
+        intersection_ratio = intersection_count / len(cluster.urls)
+        if intersection_ratio < min_intersection_ratio:
             return None
         return old_cluster
 
@@ -406,6 +401,7 @@ class Clusters:
             self.message2cluster[message] = cluster
         self.clid2cluster[cluster.clid] = cluster
         self.max_clid = max(self.max_clid, cluster.clid)
+        self._invalidate_caches()
 
     def __len__(self) -> int:
         return len(self.clid2cluster)
@@ -441,6 +437,8 @@ class Clusters:
                 ):
                     cluster.saved_annotation_doc = new_doc
                 updates_count += 1
+        if updates_count > 0:
+            self._invalidate_caches()
         return updates_count
 
     def save(self, path: str) -> None:

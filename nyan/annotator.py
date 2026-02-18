@@ -13,6 +13,7 @@ from nyan.embedder import Embedder
 from nyan.text import TextProcessor
 from nyan.image import ImageProcessor
 from nyan.tokenizer import Tokenizer
+from nyan.util import normalize_channel_id
 
 
 class Annotator:
@@ -76,7 +77,8 @@ class Annotator:
         return [doc for doc in docs if not doc.is_discarded()]
 
     def process_channels_info(self, doc: Document) -> Document:
-        channel_id = doc.channel_id.strip().lower()
+        channel_id = normalize_channel_id(doc.channel_id)
+        doc.channel_id = channel_id
         if channel_id not in self.channels:
             return doc
 
