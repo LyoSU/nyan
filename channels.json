@@ -3,7 +3,8 @@
     {
       "name": "v_zelenskiy_official",
       "groups": {
-        "main": "red"
+        "main": "red",
+        "politics": "red"
       },
       "alias": "Zelenskiy",
       "issue": "politics"
@@ -124,7 +125,8 @@
     {
       "name": "sbukr",
       "groups": {
-        "main": "red"
+        "main": "red",
+        "war": "red"
       },
       "alias": "Служба безпеки України",
       "issue": "war"
@@ -132,7 +134,8 @@
     {
       "name": "cincafu",
       "groups": {
-        "main": "red"
+        "main": "red",
+        "war": "red"
       },
       "alias": "Головнокомандувач ЗСУ",
       "issue": "war"
@@ -140,7 +143,8 @@
     {
       "name": "verkhovnaradaukrainy",
       "groups": {
-        "main": "red"
+        "main": "red",
+        "politics": "red"
       },
       "alias": "Верховна Рада України",
       "issue": "politics"
@@ -148,7 +152,8 @@
     {
       "name": "op_ua",
       "groups": {
-        "main": "red"
+        "main": "red",
+        "politics": "red"
       },
       "alias": "Офіс Президента",
       "issue": "politics"
@@ -172,7 +177,8 @@
     {
       "name": "oleksiihoncharenko",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "politics": "purple"
       },
       "alias": "ГОНЧАРЕНКО",
       "issue": "politics"
@@ -180,7 +186,8 @@
     {
       "name": "yzheleznyak",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "politics": "purple"
       },
       "alias": "Залізний нардеп",
       "issue": "politics"
@@ -188,7 +195,8 @@
     {
       "name": "vitaliy_klitschko",
       "groups": {
-        "main": "red"
+        "main": "red",
+        "politics": "red"
       },
       "alias": "Віталій Кличко",
       "issue": "politics"
@@ -196,7 +204,8 @@
     {
       "name": "presidentporoshenko",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "politics": "purple"
       },
       "alias": "Петро Порошенко",
       "issue": "politics"
@@ -204,7 +213,8 @@
     {
       "name": "diukraine",
       "groups": {
-        "main": "red"
+        "main": "red",
+        "war": "red"
       },
       "alias": "Головне управління розвідки МО України",
       "issue": "war"
@@ -212,7 +222,8 @@
     {
       "name": "azov_media",
       "groups": {
-        "main": "blue"
+        "main": "blue",
+        "war": "blue"
       },
       "alias": "АЗОВ",
       "issue": "war"
@@ -244,7 +255,8 @@
     {
       "name": "biletskyandriy",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "politics": "purple"
       },
       "alias": "Андрій Білецький",
       "issue": "politics"
@@ -252,7 +264,8 @@
     {
       "name": "ministry_of_defense_ua",
       "groups": {
-        "main": "red"
+        "main": "red",
+        "war": "red"
       },
       "alias": "Міністерство оборони України",
       "issue": "war"
@@ -284,7 +297,8 @@
     {
       "name": "maksymzhorin",
       "groups": {
-        "main": "blue"
+        "main": "blue",
+        "war": "blue"
       },
       "alias": "Жорін з Азову",
       "issue": "war"
@@ -309,7 +323,8 @@
     {
       "name": "voynareal",
       "groups": {
-        "main": "blue"
+        "main": "blue",
+        "war": "blue"
       },
       "alias": "Реальна Війна",
       "issue": "war"
@@ -342,7 +357,8 @@
     {
       "name": "mezhamedia",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "tech": "purple"
       },
       "alias": "Mezha.Media",
       "issue": "tech"
@@ -350,7 +366,8 @@
     {
       "name": "itcua",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "tech": "purple"
       },
       "alias": "ITC.ua",
       "issue": "tech"
@@ -424,7 +441,8 @@
     {
       "name": "doucommunity",
       "groups": {
-        "main": "blue"
+        "main": "blue",
+        "tech": "blue"
       },
       "alias": "DOU",
       "issue": "tech"
@@ -493,7 +511,8 @@
     {
       "name": "generalstaffzsu",
       "groups": {
-        "main": "red"
+        "main": "red",
+        "war": "red"
       },
       "alias": "Генеральний штаб ЗСУ",
       "issue": "war"
@@ -501,7 +520,8 @@
     {
       "name": "m_podolyak",
       "groups": {
-        "main": "red"
+        "main": "red",
+        "politics": "red"
       },
       "alias": "Михайло Подоляк",
       "issue": "politics"
@@ -509,7 +529,8 @@
     {
       "name": "ab3army",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "war": "purple"
       },
       "alias": "3-тя штурмова",
       "issue": "war"
@@ -517,7 +538,8 @@
     {
       "name": "uawarinfographics",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "war": "purple"
       },
       "alias": "UA War Infographics",
       "issue": "war"
@@ -542,7 +564,8 @@
     {
       "name": "devukraine",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "tech": "purple"
       },
       "alias": "dev.ua",
       "issue": "tech"
@@ -582,7 +605,8 @@
     {
       "name": "girlintech",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "tech": "purple"
       },
       "alias": "Olena Kirichok's tech",
       "issue": "tech"
@@ -614,7 +638,8 @@
     {
       "name": "cybersecurity_ua",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "tech": "purple"
       },
       "alias": "КІБЕРБЕЗ",
       "issue": "tech"
@@ -622,7 +647,8 @@
     {
       "name": "highloadtoday",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "tech": "purple"
       },
       "alias": "Highload",
       "issue": "tech"
@@ -630,7 +656,8 @@
     {
       "name": "xgtv1",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "tech": "purple"
       },
       "alias": "XGTV",
       "issue": "tech"
@@ -638,7 +665,8 @@
     {
       "name": "fixabug",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "tech": "purple"
       },
       "alias": "Це не баг, а фіча",
       "issue": "tech"
@@ -662,7 +690,8 @@
     {
       "name": "startup_ukr",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "tech": "purple"
       },
       "alias": "Стартапенко",
       "issue": "tech"
@@ -670,7 +699,8 @@
     {
       "name": "itukrainenow",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "tech": "purple"
       },
       "alias": "IT Ukraine",
       "issue": "tech"
@@ -678,7 +708,8 @@
     {
       "name": "uamoyo",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "tech": "purple"
       },
       "alias": "MOYO",
       "issue": "tech"
@@ -686,7 +717,8 @@
     {
       "name": "andro_price",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "tech": "purple"
       },
       "alias": "Аndroprice",
       "issue": "tech"
@@ -694,7 +726,8 @@
     {
       "name": "spekamedia",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "tech": "purple"
       },
       "alias": "SPEKA",
       "issue": "tech"
@@ -702,7 +735,8 @@
     {
       "name": "gamedev_dou",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "tech": "purple"
       },
       "alias": "GameDev DOU",
       "issue": "tech"
@@ -742,7 +776,8 @@
     {
       "name": "msi_ukraine",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "tech": "purple"
       },
       "alias": "MSI",
       "issue": "tech"
@@ -750,7 +785,8 @@
     {
       "name": "andronews_official",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "tech": "purple"
       },
       "alias": "Andro News",
       "issue": "tech"
@@ -758,7 +794,8 @@
     {
       "name": "it_news_in_ua",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "tech": "purple"
       },
       "alias": "Новини у світі іТ",
       "issue": "tech"
@@ -766,7 +803,8 @@
     {
       "name": "ivanluchkovchanel",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "tech": "purple"
       },
       "alias": "Канал Лучкова",
       "issue": "tech"
@@ -774,7 +812,8 @@
     {
       "name": "wtf_ukr",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "tech": "purple"
       },
       "alias": "WTF",
       "issue": "tech"
@@ -782,7 +821,8 @@
     {
       "name": "keddr",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "tech": "purple"
       },
       "alias": "Keddr",
       "issue": "tech"
