@@ -28,7 +28,7 @@
     {
       "name": "lachentyt",
       "groups": {
-        "main": "other"
+        "main": "purple"
       },
       "alias": "Лачен пише",
       "issue": "main"
@@ -116,7 +116,7 @@
     {
       "name": "ssternenko",
       "groups": {
-        "main": "other"
+        "main": "purple"
       },
       "alias": "STERNENKO",
       "issue": "main"
@@ -172,7 +172,7 @@
     {
       "name": "oleksiihoncharenko",
       "groups": {
-        "main": "other"
+        "main": "purple"
       },
       "alias": "ГОНЧАРЕНКО",
       "issue": "politics"
@@ -180,7 +180,7 @@
     {
       "name": "yzheleznyak",
       "groups": {
-        "main": "other"
+        "main": "purple"
       },
       "alias": "Залізний нардеп",
       "issue": "politics"
@@ -196,7 +196,7 @@
     {
       "name": "presidentporoshenko",
       "groups": {
-        "main": "other"
+        "main": "purple"
       },
       "alias": "Петро Порошенко",
       "issue": "politics"
@@ -244,7 +244,7 @@
     {
       "name": "biletskyandriy",
       "groups": {
-        "main": "other"
+        "main": "purple"
       },
       "alias": "Андрій Білецький",
       "issue": "politics"
@@ -342,7 +342,7 @@
     {
       "name": "mezhamedia",
       "groups": {
-        "main": "tech"
+        "main": "purple"
       },
       "alias": "Mezha.Media",
       "issue": "tech"
@@ -350,7 +350,7 @@
     {
       "name": "itcua",
       "groups": {
-        "main": "tech"
+        "main": "purple"
       },
       "alias": "ITC.ua",
       "issue": "tech"
@@ -400,7 +400,7 @@
     {
       "name": "minfin_com_ua",
       "groups": {
-        "main": "economy"
+        "main": "purple"
       },
       "alias": "Мінфін",
       "issue": "main"
@@ -477,7 +477,7 @@
     {
       "name": "serhiyprytula",
       "groups": {
-        "main": "other"
+        "main": "purple"
       },
       "alias": "Сергій Притула",
       "issue": "main"
@@ -485,7 +485,7 @@
     {
       "name": "savelifeua",
       "groups": {
-        "main": "other"
+        "main": "purple"
       },
       "alias": "SaveLife",
       "issue": "main"
@@ -509,7 +509,7 @@
     {
       "name": "ab3army",
       "groups": {
-        "main": "other"
+        "main": "purple"
       },
       "alias": "3-тя штурмова",
       "issue": "war"
@@ -517,7 +517,7 @@
     {
       "name": "uawarinfographics",
       "groups": {
-        "main": "other"
+        "main": "purple"
       },
       "alias": "UA War Infographics",
       "issue": "war"
@@ -525,7 +525,7 @@
     {
       "name": "hackyourmom",
       "groups": {
-        "main": "other"
+        "main": "purple"
       },
       "alias": "HackYourMom",
       "issue": "main"
@@ -533,15 +533,16 @@
     {
       "name": "rusanctions",
       "groups": {
-        "main": "economy"
+        "main": "purple"
       },
       "alias": "Санкции в РФ",
-      "issue": "main"
+      "issue": "main",
+      "disabled": true
     },
     {
       "name": "devukraine",
       "groups": {
-        "main": "tech"
+        "main": "purple"
       },
       "alias": "dev.ua",
       "issue": "tech"
@@ -549,7 +550,7 @@
     {
       "name": "othernot",
       "groups": {
-        "main": "other"
+        "main": "purple"
       },
       "alias": "БлоGнот",
       "issue": "main"
@@ -557,7 +558,7 @@
     {
       "name": "addmeto",
       "groups": {
-        "main": "other"
+        "main": "purple"
       },
       "alias": "addmeto",
       "issue": "main"
@@ -565,7 +566,7 @@
     {
       "name": "toisamyibabich",
       "groups": {
-        "main": "other"
+        "main": "purple"
       },
       "alias": "Той самий Бабіч",
       "issue": "main"
@@ -573,7 +574,7 @@
     {
       "name": "artemborodatiuk",
       "groups": {
-        "main": "other"
+        "main": "purple"
       },
       "alias": "Артем Бородатюк",
       "issue": "main"
@@ -581,7 +582,7 @@
     {
       "name": "girlintech",
       "groups": {
-        "main": "tech"
+        "main": "purple"
       },
       "alias": "Olena Kirichok's tech",
       "issue": "tech"
@@ -589,7 +590,7 @@
     {
       "name": "full_of_hatred",
       "groups": {
-        "main": "other"
+        "main": "purple"
       },
       "alias": "✙rozho)))k✙🇺🇦",
       "issue": "main"
@@ -597,7 +598,7 @@
     {
       "name": "forbes_ukraine_official",
       "groups": {
-        "main": "economy"
+        "main": "purple"
       },
       "alias": "Forbes Ukraine",
       "issue": "main"
@@ -605,7 +606,7 @@
     {
       "name": "oooneuro",
       "groups": {
-        "main": "economy"
+        "main": "purple"
       },
       "alias": "Ооо нейромережеве🤖",
       "issue": "main"
@@ -613,7 +614,7 @@
     {
       "name": "cybersecurity_ua",
       "groups": {
-        "main": "tech"
+        "main": "purple"
       },
       "alias": "КІБЕРБЕЗ",
       "issue": "tech"
@@ -621,7 +622,7 @@
     {
       "name": "highloadtoday",
       "groups": {
-        "main": "tech"
+        "main": "purple"
       },
       "alias": "Highload",
       "issue": "tech"
@@ -629,7 +630,7 @@
     {
       "name": "xgtv1",
       "groups": {
-        "main": "tech"
+        "main": "purple"
       },
       "alias": "XGTV",
       "issue": "tech"
@@ -637,7 +638,7 @@
     {
       "name": "fixabug",
       "groups": {
-        "main": "tech"
+        "main": "purple"
       },
       "alias": "Це не баг, а фіча",
       "issue": "tech"
@@ -653,7 +654,7 @@
     {
       "name": "brodetsky",
       "groups": {
-        "main": "other"
+        "main": "purple"
       },
       "alias": "Brodetskyi",
       "issue": "main"
@@ -661,7 +662,7 @@
     {
       "name": "startup_ukr",
       "groups": {
-        "main": "tech"
+        "main": "purple"
       },
       "alias": "Стартапенко",
       "issue": "tech"
@@ -669,7 +670,7 @@
     {
       "name": "itukrainenow",
       "groups": {
-        "main": "tech"
+        "main": "purple"
       },
       "alias": "IT Ukraine",
       "issue": "tech"
@@ -677,7 +678,7 @@
     {
       "name": "uamoyo",
       "groups": {
-        "main": "tech"
+        "main": "purple"
       },
       "alias": "MOYO",
       "issue": "tech"
@@ -685,7 +686,7 @@
     {
       "name": "andro_price",
       "groups": {
-        "main": "tech"
+        "main": "purple"
       },
       "alias": "Аndroprice",
       "issue": "tech"
@@ -693,7 +694,7 @@
     {
       "name": "spekamedia",
       "groups": {
-        "main": "tech"
+        "main": "purple"
       },
       "alias": "SPEKA",
       "issue": "tech"
@@ -701,7 +702,7 @@
     {
       "name": "gamedev_dou",
       "groups": {
-        "main": "tech"
+        "main": "purple"
       },
       "alias": "GameDev DOU",
       "issue": "tech"
@@ -717,7 +718,7 @@
     {
       "name": "ostanniycapitalist",
       "groups": {
-        "main": "economy"
+        "main": "purple"
       },
       "alias": "Останній Капіталіст",
       "issue": "main"
@@ -741,7 +742,7 @@
     {
       "name": "msi_ukraine",
       "groups": {
-        "main": "tech"
+        "main": "purple"
       },
       "alias": "MSI",
       "issue": "tech"
@@ -749,7 +750,7 @@
     {
       "name": "andronews_official",
       "groups": {
-        "main": "tech"
+        "main": "purple"
       },
       "alias": "Andro News",
       "issue": "tech"
@@ -757,7 +758,7 @@
     {
       "name": "it_news_in_ua",
       "groups": {
-        "main": "tech"
+        "main": "purple"
       },
       "alias": "Новини у світі іТ",
       "issue": "tech"
@@ -765,7 +766,7 @@
     {
       "name": "ivanluchkovchanel",
       "groups": {
-        "main": "tech"
+        "main": "purple"
       },
       "alias": "Канал Лучкова",
       "issue": "tech"
@@ -773,7 +774,7 @@
     {
       "name": "wtf_ukr",
       "groups": {
-        "main": "tech"
+        "main": "purple"
       },
       "alias": "WTF",
       "issue": "tech"
@@ -781,7 +782,7 @@
     {
       "name": "keddr",
       "groups": {
-        "main": "tech"
+        "main": "purple"
       },
       "alias": "Keddr",
       "issue": "tech"
