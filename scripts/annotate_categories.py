@@ -6,7 +6,7 @@ from jinja2 import Template
 from tqdm import tqdm
 
 from nyan.util import read_jsonl, gen_batch, write_jsonl
-from nyan.openai import openai_batch_completion
+from nyan.openai import openai_batch_completion, DEFAULT_MODEL
 
 
 def process_text(text, max_words: int = 100):
@@ -71,7 +71,7 @@ if __name__ == "__main__":
     parser.add_argument("--documents-path", type=str, required=True)
     parser.add_argument("--prompt-path", type=str, required=True)
     parser.add_argument("--output-path", type=str, required=True)
-    parser.add_argument("--model-name", type=str, default="openai/gpt-5.4-mini")
+    parser.add_argument("--model-name", type=str, default=DEFAULT_MODEL)
     parser.add_argument("--sample-rate", type=float, default=0.001)
     parser.add_argument("--seed", type=int, default=1337)
     args = parser.parse_args()

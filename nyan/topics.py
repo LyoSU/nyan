@@ -6,8 +6,8 @@ from jinja2 import Template
 
 from nyan.clusters import Clusters
 from nyan.client import TelegramClient
-from nyan.util import get_current_ts, ts_to_dt
-from nyan.openai import openai_completion
+from nyan.util import get_current_ts, ts_to_dt, PUBLISH_CHANNEL_URL
+from nyan.openai import openai_completion, DEFAULT_MODEL
 from nyan.mongo import get_topics_collection
 
 
@@ -25,7 +25,11 @@ def extract_topics(
     print(prompt)
 
     messages = [{"role": "user", "content": prompt}]
-    content = openai_completion(messages=messages, model_name=model_name)
+    content = openai_completion(
+        messages=messages,
+        model_name=model_name,
+        response_format={"type": "json_object"},
+    )
     print(content)
 
     content = content[content.find("{") : content.rfind("}") + 1]
@@ -77,7 +81,7 @@ def main(
             date_str = dt.strftime("%B %d, %H:%M")
         fixed_clusters.append(
             {
-                "url": f"https://t.me/UAliveNews/{message.message_id}",
+                "url": f"{PUBLISH_CHANNEL_URL}/{message.message_id}",
                 "dt": date_str,
                 "views": cluster.views,
                 "sources_count": len([doc.channel_title for doc in cluster.docs]),
@@ -129,7 +133,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--template-path", type=str, default="nyan/templates/topics.html"
     )
-    parser.add_argument("--model-name", type=str, default="openai/gpt-5.4-mini")
+    parser.add_argument("--model-name", type=str, default=DEFAULT_MODEL)
     parser.add_argument("--auto", default=False, action="store_true")
     args = parser.parse_args()
     main(**vars(args))

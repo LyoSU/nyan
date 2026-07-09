@@ -7,6 +7,11 @@ from dataclasses import dataclass, asdict, fields
 from urllib.parse import urlparse
 
 
+# Base t.me URL of the channel this instance publishes to. Override per
+# deployment via the PUBLISH_CHANNEL_URL env var.
+PUBLISH_CHANNEL_URL = os.getenv("PUBLISH_CHANNEL_URL", "https://t.me/UAliveNews")
+
+
 def read_jsonl(file_path: str, sample_rate: float = 1.0) -> Iterable[Dict[str, Any]]:
     assert os.path.exists(file_path)
     with open(file_path) as r:
