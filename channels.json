@@ -676,7 +676,7 @@
       "groups": {
         "main": "red"
       },
-      "alias": "Мінціфра",
+      "alias": "Мінцифра",
       "issue": "main"
     },
     {
@@ -720,7 +720,7 @@
         "main": "purple",
         "tech": "purple"
       },
-      "alias": "Androprice",
+      "alias": "Аndroprice",
       "issue": "tech"
     },
     {
@@ -797,7 +797,7 @@
         "main": "purple",
         "tech": "purple"
       },
-      "alias": "Новини у світі ІТ",
+      "alias": "Новини у світі іТ",
       "issue": "tech"
     },
     {
