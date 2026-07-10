@@ -29,6 +29,11 @@ DEFAULT_MODEL = os.getenv("LLM_MODEL", "openai/gpt-5.4-mini")
 # self-hosted gateway (e.g. LiteLLM / OmniRoute) via the LLM_BASE_URL env var.
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
 
+# API key for the OpenAI-compatible gateway. Prefer the generic LLM_API_KEY so
+# the credential follows LLM_BASE_URL; falls back to OPENROUTER_API_KEY for
+# backwards compatibility with existing deployments.
+LLM_API_KEY = os.getenv("LLM_API_KEY") or os.getenv("OPENROUTER_API_KEY")
+
 
 def openai_completion(
     messages: List[Dict[str, Any]],
@@ -42,7 +47,7 @@ def openai_completion(
 
     # Configure OpenAI client for the configured OpenAI-compatible gateway
     openai.api_base = LLM_BASE_URL
-    openai.api_key = os.getenv("OPENROUTER_API_KEY")
+    openai.api_key = LLM_API_KEY
 
     # Only forward response_format when explicitly requested, so that JSON mode
     # is opt-in per call and does not leak into unrelated completions.
