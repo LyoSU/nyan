@@ -40,6 +40,26 @@ def test_urls2messages_cache_invalidates_on_add() -> None:
     assert similar is second
 
 
+def test_cluster_diff_memoizes_llm_call(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    cluster = _make_cluster("https://t.me/source/1", 101)
+    cluster.saved_annotation_doc = cluster.docs[0]
+
+    calls = []
+
+    def fake_openai_completion(**kwargs):  # type: ignore[no-untyped-def]
+        calls.append(kwargs)
+        return '{"differences": []}'
+
+    monkeypatch.setattr("nyan.clusters.openai_completion", fake_openai_completion)
+
+    first = cluster.diff
+    second = cluster.diff
+
+    assert first == []
+    assert second == []
+    assert len(calls) == 1
+
+
 def test_normalize_url_removes_query_fragment_and_case() -> None:
     url = " HTTPS://T.ME/UA/123/?Single#Top "
     assert normalize_url(url) == "https://t.me/ua/123"

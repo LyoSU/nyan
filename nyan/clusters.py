@@ -168,6 +168,7 @@ class Cluster:
             content = openai_completion(
                 messages=messages,
                 response_format={"type": "json_object"},
+                reasoning_effort="low",
             )
             content = content[content.find("{") : content.rfind("}") + 1]
             parsed_content: Dict[str, List[Dict[str, Any]]] = json.loads(content)
@@ -189,6 +190,7 @@ class Cluster:
         except Exception:
             traceback.print_exc()
             differences = []
+        self.saved_diff = differences
         return differences
 
     @property

@@ -41,6 +41,7 @@ def openai_completion(
     model_name: str = DEFAULT_MODEL,
     sleep_time: int = 2,
     response_format: Optional[Dict[str, str]] = None,
+    reasoning_effort: Optional[str] = None,
 ) -> str:
     decoding_args = copy.deepcopy(decoding_args)
     assert decoding_args.n == 1
@@ -49,11 +50,15 @@ def openai_completion(
     openai.api_base = LLM_BASE_URL
     openai.api_key = LLM_API_KEY
 
-    # Only forward response_format when explicitly requested, so that JSON mode
-    # is opt-in per call and does not leak into unrelated completions.
+    # Only forward response_format/reasoning_effort when explicitly requested,
+    # so behavior stays opt-in per call and does not leak into unrelated
+    # completions. Reasoning models (e.g. gpt-5.x) otherwise default to a
+    # higher effort and silently burn hidden reasoning tokens on simple tasks.
     extra_args: Dict[str, Any] = {}
     if response_format is not None:
         extra_args["response_format"] = response_format
+    if reasoning_effort is not None:
+        extra_args["reasoning_effort"] = reasoning_effort
 
     while True:
         try:

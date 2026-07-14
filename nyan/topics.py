@@ -29,6 +29,7 @@ def extract_topics(
         messages=messages,
         model_name=model_name,
         response_format={"type": "json_object"},
+        reasoning_effort="low",
     )
     print(content)
 
