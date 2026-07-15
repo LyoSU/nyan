@@ -60,6 +60,14 @@ def openai_completion(
     if reasoning_effort is not None:
         extra_args["reasoning_effort"] = reasoning_effort
 
+    prompt_chars = sum(len(str(m.get("content", ""))) for m in messages)
+    logging.info(
+        "LLM call: model=%s, prompt_chars=%d, reasoning_effort=%s",
+        model_name,
+        prompt_chars,
+        reasoning_effort,
+    )
+
     while True:
         try:
             completions = openai.ChatCompletion.create(

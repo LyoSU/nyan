@@ -22,6 +22,14 @@ from nyan.util import normalize_url
 BASE_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
 T = TypeVar("T")
 
+# Cross-object LLM diff cache. The daemon re-creates Cluster objects from
+# scratch on every iteration, so per-object memoization alone still re-pays
+# the LLM call each iteration for clusters that fail to post (e.g. Telegram
+# errors) and get re-rendered forever. Keyed by the normalized doc URL set:
+# a cluster with the same documents always yields the same diff.
+_DIFF_CACHE: Dict[Any, List[Dict[str, Any]]] = {}
+_DIFF_CACHE_MAX_SIZE = 2048
+
 
 class Cluster:
     def __init__(self) -> None:
@@ -157,6 +165,17 @@ class Cluster:
         if self.saved_diff is not None:
             return self.saved_diff
 
+        # A single-channel cluster has no alternative coverage to compare.
+        if len({d.channel_id for d in self.docs}) < 2:
+            self.saved_diff = []
+            return self.saved_diff
+
+        cache_key = tuple(sorted(self.url2doc.keys()))
+        cached_diff = _DIFF_CACHE.get(cache_key)
+        if cached_diff is not None:
+            self.saved_diff = cached_diff
+            return cached_diff
+
         prompt_path: Path = BASE_DIR / "prompts/diff.txt"
         with open(prompt_path) as f:
             template = Template(f.read())
@@ -191,6 +210,9 @@ class Cluster:
             traceback.print_exc()
             differences = []
         self.saved_diff = differences
+        if len(_DIFF_CACHE) >= _DIFF_CACHE_MAX_SIZE:
+            _DIFF_CACHE.pop(next(iter(_DIFF_CACHE)))
+        _DIFF_CACHE[cache_key] = differences
         return differences
 
     @property
