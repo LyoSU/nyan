@@ -36,6 +36,7 @@ from nyan.renderer import summary_blocks
 from nyan.summary import DIGEST_LIMITS, Summary, parse_summary
 from nyan.util import (
     PUBLISH_CHANNEL_URL,
+    format_date_uk,
     format_dt_uk,
     format_period_uk,
     get_current_ts,
@@ -142,11 +143,21 @@ def collect_clusters(
 
 
 def write_digest(
-    clusters: list[dict[str, Any]], prompt_path: str, model_name: str, period: str
+    clusters: list[dict[str, Any]],
+    prompt_path: str,
+    model_name: str,
+    period: str,
+    today: str = "",
 ) -> Summary:
     with open(prompt_path) as f:
         template = Template(f.read())
-    prompt = template.render(clusters=clusters, period=period).strip() + "\n"
+    # The date the digest is written on. Without it the model cannot tell that
+    # "до кінця року" and "до кінця 2026 року" name the same deadline, and
+    # writes both — the sort of line a reader spots immediately.
+    today = today or format_date_uk(ts_to_dt(get_current_ts()))
+    prompt = (
+        template.render(clusters=clusters, period=period, today=today).strip() + "\n"
+    )
 
     try:
         content = openai_completion(
@@ -237,7 +248,11 @@ def main(
     # quiet shift covers more than eight hours and should say so.
     period = format_period_uk((end_ts - start_ts) / 3600)
     summary = write_digest(
-        clusters, prompt_path=prompt_path, model_name=model_name, period=period
+        clusters,
+        prompt_path=prompt_path,
+        model_name=model_name,
+        period=period,
+        today=format_date_uk(ts_to_dt(end_ts)),
     )
     if not summary:
         logging.warning("Nothing usable came back, leaving the window for next time")

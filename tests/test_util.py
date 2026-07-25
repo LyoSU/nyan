@@ -2,6 +2,7 @@ from datetime import datetime, UTC
 from unittest.mock import patch
 
 from nyan.util import (
+    format_date_uk,
     format_dt_uk,
     get_current_ts,
     get_timezone,
@@ -62,3 +63,16 @@ def test_channel_ids_are_normalized_from_every_form_they_arrive_in() -> None:
     assert normalize_channel_id("https://t.me/s/Channel") == "channel"
     assert normalize_channel_id("https://t.me/Channel/123") == "channel"
     assert normalize_channel_id("") == ""
+
+
+def test_a_prompt_date_carries_the_year() -> None:
+    """The year is the point: without it a model writes the same deadline twice.
+
+    "до кінця року" and "до кінця 2026 року" are one deadline, and a model with
+    no idea which year it is treats them as two.
+    """
+    assert format_date_uk(datetime(2026, 7, 25, 18, 30)) == "25 липня 2026 року"
+
+
+def test_a_prompt_date_uses_the_genitive_month() -> None:
+    assert format_date_uk(datetime(2027, 1, 1)) == "1 січня 2027 року"

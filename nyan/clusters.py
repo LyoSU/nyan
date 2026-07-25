@@ -21,7 +21,7 @@ from nyan.mongo import get_clusters_collection
 from nyan.title import choose_title
 from nyan.openai import openai_completion, DEFAULT_REASONING_EFFORT
 from nyan.summary import Summary, parse_summary
-from nyan.util import normalize_url
+from nyan.util import format_date_uk, get_current_ts, normalize_url, ts_to_dt
 
 
 BASE_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
@@ -326,7 +326,14 @@ class Cluster:
         prompt_name = "summary.txt" if is_multi_source else "headline.txt"
         with open(BASE_DIR / "prompts" / prompt_name) as f:
             template = Template(f.read())
-        prompt = template.render(docs=docs, annotation_doc=self.annotation_doc)
+        # The cluster's own date rather than "now": that is the day the news
+        # happened, and it is what "цієї ночі" in a source post refers to. They
+        # are minutes apart in the daemon, but not when a cluster is re-analysed
+        # after its coverage grew.
+        today = format_date_uk(ts_to_dt(self.create_time or get_current_ts()))
+        prompt = template.render(
+            docs=docs, annotation_doc=self.annotation_doc, today=today
+        )
 
         analysis: dict[str, Any] = {"headline": None, "generation": current}
         try:

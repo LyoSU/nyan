@@ -246,3 +246,42 @@ def test_normalize_url_removes_query_fragment_and_case() -> None:
 def test_normalize_channel_id_handles_mentions_and_tme_links() -> None:
     assert normalize_channel_id("@UAliveNews") == "ualivenews"
     assert normalize_channel_id("https://t.me/s/UAliveNews/123?single") == "ualivenews"
+
+
+def test_the_prompt_tells_the_model_what_day_it_is(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Without the date the model cannot resolve "цієї ночі" or a year.
+
+    It also cannot see that "до кінця року" and "до кінця 2026 року" are the same
+    deadline, and writes both, which is what prompted this.
+    """
+    cluster = _make_multi_channel_cluster()
+    cluster.create_time = 1784995200  # 25 липня 2026
+    calls = _patch_llm(monkeypatch)
+
+    _ = cluster.summary
+
+    prompt = calls[0]["messages"][0]["content"]
+    assert "Сьогодні 25 липня 2026 року." in prompt
+
+
+def test_a_cluster_with_no_create_time_still_gets_a_date(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """A cluster is analysed before the daemon stamps it, so this is the norm."""
+    cluster = _make_multi_channel_cluster()
+    cluster.create_time = None
+    calls = _patch_llm(monkeypatch)
+
+    _ = cluster.summary
+
+    prompt = calls[0]["messages"][0]["content"]
+    assert "Сьогодні" in prompt
+    assert "{{today}}" not in prompt
+
+
+def test_a_single_source_headline_prompt_carries_the_date(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    cluster = _make_single_channel_cluster()
+    cluster.create_time = 1784995200
+    calls = _patch_llm(monkeypatch, response=json.dumps({"headline": "Заголовок"}))
+
+    assert cluster.headline == "Заголовок"
+
+    assert "Сьогодні 25 липня 2026 року." in calls[0]["messages"][0]["content"]

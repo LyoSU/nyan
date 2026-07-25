@@ -90,6 +90,16 @@ def format_dt_uk(dt: datetime, with_time: bool = True) -> str:
     return "{}, {}".format(date, dt.strftime("%H:%M"))
 
 
+def format_date_uk(dt: datetime) -> str:
+    """A full date for a prompt: "25 липня 2026 року".
+
+    With the year, unlike `format_dt_uk`, because the year is the whole point of
+    telling a model the date. Without it a model has no way to know that "до
+    кінця року" and "до кінця 2026 року" are the same deadline, and writes both.
+    """
+    return f"{dt.day} {UK_MONTHS_GENITIVE[dt.month - 1]} {dt.year} року"
+
+
 def pluralize_hours(count: int) -> str:
     if count % 10 == 1 and count % 100 != 11:
         return "годину"

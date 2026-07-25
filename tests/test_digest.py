@@ -6,6 +6,7 @@ post twice — both of which are properties of where the window starts, not of t
 text the model writes.
 """
 
+import json
 from typing import Any
 
 import pytest
@@ -263,3 +264,58 @@ def test_missing_posts_are_reported() -> None:
 )
 def test_the_period_is_declined_correctly(hours: float, expected: str) -> None:
     assert format_period_uk(hours) == expected
+
+
+def _patch_digest_llm(monkeypatch: Any) -> list[dict[str, Any]]:
+    """Replace the LLM, returning the list that records every call."""
+    calls: list[dict[str, Any]] = []
+
+    def fake_openai_completion(**kwargs: Any) -> str:
+        calls.append(kwargs)
+        return json.dumps(
+            {"headline": "Головне", "blocks": [{"type": TEXT, "text": "Текст."}]},
+            ensure_ascii=False,
+        )
+
+    monkeypatch.setattr("nyan.digest.openai_completion", fake_openai_completion)
+    return calls
+
+
+DIGEST_PROMPT = str(digest.BASE_DIR / "prompts/digest.txt")
+ONE_CLUSTER = [
+    {
+        "url": "https://t.me/UAliveNews/1",
+        "headline": "Новина",
+        "text": "Текст новини.",
+        "views": 1000,
+        "sources_count": 2,
+    }
+]
+
+
+def test_the_digest_prompt_tells_the_model_what_day_it_is(monkeypatch: Any) -> None:
+    """Otherwise it writes "як до кінця року, так і до кінця 2026 року"."""
+    calls = _patch_digest_llm(monkeypatch)
+
+    summary = digest.write_digest(
+        ONE_CLUSTER,
+        prompt_path=DIGEST_PROMPT,
+        model_name="model",
+        period="8 годин",
+        today="25 липня 2026 року",
+    )
+
+    assert summary
+    assert "Сьогодні 25 липня 2026 року." in calls[0]["messages"][0]["content"]
+
+
+def test_a_digest_written_without_a_date_falls_back_to_today(monkeypatch: Any) -> None:
+    calls = _patch_digest_llm(monkeypatch)
+
+    digest.write_digest(
+        ONE_CLUSTER, prompt_path=DIGEST_PROMPT, model_name="model", period="8 годин"
+    )
+
+    prompt = calls[0]["messages"][0]["content"]
+    assert "Сьогодні" in prompt
+    assert "{{today}}" not in prompt
