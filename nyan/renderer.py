@@ -33,12 +33,12 @@ MAX_DERIVED_HEADLINE_LENGTH = 120
 # skimming has to be able to see the disagreement without reading the sentence.
 DISPUTED_TITLE = "Джерела різняться"
 
-# Heading size of the post's headline, 1-6, where 1 is the largest. Every post
-# has a headline, so it competes with nothing and does not need to shout: 4 is
-# a shade above body text. The other two sizes in a post derive from it, so
-# tuning this one keeps the hierarchy — the headline stays above the section
-# heading, an important story stays above an ordinary one.
-DEFAULT_HEADLINE_SIZE = 4
+# Heading size of the post's headline, 1-6, where 1 is the largest. 3 is the
+# smallest size that still reads as a headline rather than as emphasized body
+# text — checked against the whole ladder in a real client. The other two sizes
+# in a post derive from it, so tuning this one keeps the hierarchy: the headline
+# stays above the section heading, an important story above an ordinary one.
+DEFAULT_HEADLINE_SIZE = 3
 
 # An em dash, the way print attributes a passage to its author. Not a hyphen:
 # "- Укрінформ" reads as a bullet point, which is the wrong signal entirely.
@@ -224,7 +224,11 @@ class Renderer:
                 if cluster.is_important
                 else self.headline_size
             )
-            blocks.append(rich.heading(headline, size=size))
+            # Bold on top of the heading: a client renders a heading in a
+            # semibold weight, which at this size reads as body text with a
+            # larger font rather than as a headline. Compared side by side, the
+            # bold one is the one that looks like a news headline.
+            blocks.append(rich.heading(rich.bold(headline), size=size))
         blocks.extend(self.render_media(cluster))
 
         if summary:

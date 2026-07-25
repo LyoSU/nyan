@@ -82,6 +82,11 @@ def find(blocks: Sequence[dict[str, Any]], block_type: str) -> dict[str, Any]:
     return matches[0]
 
 
+def headline_text(blocks: Sequence[dict[str, Any]]) -> Any:
+    """The post's headline, unwrapped from the bold entity inside the heading."""
+    return find(blocks, "heading")["text"]["text"]
+
+
 def squeeze(text: str) -> str:
     """Collapse runs of whitespace.
 
@@ -189,8 +194,24 @@ def test_llm_headline_becomes_the_heading(renderer: Renderer) -> None:
 
     assert post is not None
     assert post.blocks is not None
-    assert find(post.blocks, "heading")["text"] == "Коротко про суть"
+    assert headline_text(post.blocks) == "Коротко про суть"
     assert find(post.blocks, "paragraph")["text"] == "Довгий текст новини."
+
+
+def test_the_headline_is_bold_inside_its_heading(renderer: Renderer) -> None:
+    """A heading's own weight is semibold, which at this size reads as body text
+    in a larger font. Side by side in a real client, the bold one is the one that
+    looks like a news headline."""
+    cluster = make_cluster(
+        [make_doc(VERIFIED, "https://t.me/rbc_news/1")], headline="Коротко про суть"
+    )
+    post = renderer.render_cluster(cluster, "main")
+
+    assert post is not None and post.blocks is not None
+    assert find(post.blocks, "heading")["text"] == {
+        "type": "bold",
+        "text": "Коротко про суть",
+    }
 
 
 def test_important_cluster_gets_a_bigger_heading(renderer: Renderer) -> None:
@@ -267,7 +288,7 @@ def test_without_a_headline_the_first_sentence_stands_in(renderer: Renderer) -> 
 
     assert post is not None
     assert post.blocks is not None
-    assert find(post.blocks, "heading")["text"] == "Головне сталося вчора."
+    assert headline_text(post.blocks) == "Головне сталося вчора."
     # The remainder must not repeat the heading.
     assert find(post.blocks, "paragraph")["text"] == "А це подробиці події."
 
@@ -296,7 +317,7 @@ def test_a_lead_on_its_own_line_becomes_the_heading(renderer: Renderer) -> None:
     assert post is not None
     assert post.blocks is not None
     heading = find(post.blocks, "heading")
-    assert heading["text"] == "Федорову запропонували посаду радника — Reuters."
+    assert heading["text"]["text"] == "Федорову запропонували посаду радника — Reuters."
     body = find(post.blocks, "paragraph")["text"]
     assert body == "«Я зателефонував йому», — сказав міністр."
 
@@ -321,7 +342,7 @@ def test_a_lead_without_final_punctuation_still_becomes_a_heading(
 
     assert post is not None
     assert post.blocks is not None
-    assert find(post.blocks, "heading")["text"] == "Зеленський підтвердив ураження"
+    assert headline_text(post.blocks) == "Зеленський підтвердив ураження"
 
 
 def test_an_overlong_lead_is_left_in_the_body(renderer: Renderer) -> None:
@@ -414,7 +435,7 @@ def summarized_post(renderer: Renderer, *blocks: dict[str, Any]) -> list[dict[st
 def test_the_summary_headline_becomes_the_heading(renderer: Renderer) -> None:
     blocks = summarized_post(renderer, {"type": "text", "text": "Лід."})
 
-    assert find(blocks, "heading")["text"] == "Заголовок новини"
+    assert headline_text(blocks) == "Заголовок новини"
 
 
 def test_a_quote_names_the_person_who_said_it(renderer: Renderer) -> None:
