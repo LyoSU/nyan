@@ -52,6 +52,54 @@ def clamp_heading_size(size: int) -> int:
     return max(MIN_HEADING_SIZE, min(MAX_HEADING_SIZE, size))
 
 
+def summary_blocks(summary: Summary, section_size: int) -> list[Block]:
+    """The model's blocks as Telegram blocks.
+
+    The model chooses the shape — neither a news story nor a digest comes in one
+    shape — and this is where its vocabulary maps onto the API's. Unknown kinds
+    cannot arrive here: `nyan.summary` has already dropped them. A story and a
+    digest share this function because they share the vocabulary; only the
+    frame around it differs.
+    """
+    blocks: list[Block] = []
+    for block in summary.blocks:
+        if block.type == nyan_summary.TEXT:
+            blocks.append(rich.paragraph(parse_markup(block.text)))
+        elif block.type == nyan_summary.LIST:
+            blocks.append(
+                rich.bullet_list(*[[rich.paragraph(item)] for item in block.items])
+            )
+        elif block.type == nyan_summary.LINKS:
+            # The whole headline is the link, not a phrase spliced into it:
+            # matching a model-chosen phrase back into its own sentence was the
+            # most fragile step this code ever had.
+            blocks.append(
+                rich.bullet_list(
+                    *[
+                        [rich.paragraph(rich.link(link["text"], link["url"]))]
+                        for link in block.links
+                    ]
+                )
+            )
+        elif block.type == nyan_summary.QUOTE:
+            blocks.append(
+                rich.blockquote(rich.paragraph(block.text), credit=block.author)
+            )
+        elif block.type == nyan_summary.HIDDEN:
+            blocks.append(
+                rich.details(block.summary, rich.paragraph(parse_markup(block.text)))
+            )
+        elif block.type == nyan_summary.SUBHEADING:
+            blocks.append(rich.heading(block.text, size=section_size))
+        elif block.type == nyan_summary.DISPUTED:
+            # Marked rather than merely stated: a reader skimming has to see
+            # that the sources do not agree.
+            blocks.append(
+                rich.paragraph(rich.join([rich.bold(DISPUTED_TITLE), block.text], ": "))
+            )
+    return blocks
+
+
 def pluralize_sources(count: int) -> str:
     if count % 10 == 1 and count % 100 != 11:
         return "джерело"
@@ -194,39 +242,7 @@ class Renderer:
         return RenderedPost(blocks=blocks)
 
     def render_summary(self, summary: Summary) -> list[Block]:
-        """The model's blocks as Telegram blocks.
-
-        The model chooses the shape of the post — news does not come in one
-        shape — and this is where its vocabulary maps onto the API's. Unknown
-        kinds cannot arrive here: `nyan.summary` has already dropped them.
-        """
-        blocks: list[Block] = []
-        for block in summary.blocks:
-            if block.type == nyan_summary.TEXT:
-                blocks.append(rich.paragraph(parse_markup(block.text)))
-            elif block.type == nyan_summary.LIST:
-                blocks.append(
-                    rich.bullet_list(*[[rich.paragraph(item)] for item in block.items])
-                )
-            elif block.type == nyan_summary.QUOTE:
-                blocks.append(
-                    rich.blockquote(rich.paragraph(block.text), credit=block.author)
-                )
-            elif block.type == nyan_summary.HIDDEN:
-                blocks.append(
-                    rich.details(block.summary, rich.paragraph(parse_markup(block.text)))
-                )
-            elif block.type == nyan_summary.SUBHEADING:
-                blocks.append(rich.heading(block.text, size=self.section_size))
-            elif block.type == nyan_summary.DISPUTED:
-                # Marked rather than merely stated: a reader skimming has to
-                # see that the sources do not agree.
-                blocks.append(
-                    rich.paragraph(
-                        rich.join([rich.bold(DISPUTED_TITLE), block.text], ": ")
-                    )
-                )
-        return blocks
+        return summary_blocks(summary, section_size=self.section_size)
 
     def split_headline(self, cluster: Cluster) -> tuple[str | None, str | None]:
         """Return (headline, body) for the cluster's text.

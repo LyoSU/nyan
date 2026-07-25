@@ -79,10 +79,21 @@ LLM використовується для заголовків, зведенн
 
 ## Дайджест
 
+Добірка публікується в **окремий канал** — задайте `DIGEST_CHANNEL_ID` у `.env`
+(можна юзернеймом, `@ShortUA`, або числовим id, `-1001925661350`). Якщо в
+`configs/client_config.json` є issue з назвою `digest`, виграє він: там мав би
+лежати окремий `bot_token`, якщо добірки постить інший бот.
+
 ```bash
-python3 -m nyan.topics --mongo-config-path configs/mongo_config.json \
+python3 -m nyan.digest --mongo-config-path configs/mongo_config.json \
     --client-config-path configs/client_config.json --duration-hours 8
 ```
+
+Без `--auto` покаже JSON добірки й спитає підтвердження.
+
+Вікно рахується від останньої **опублікованої** добірки, а не від «зараз мінус
+8 годин». Тому якщо новин було мало й добірка не вийшла, ці пости не губляться:
+вони потраплять у наступну.
 
 ## Розробка
 

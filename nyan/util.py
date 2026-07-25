@@ -90,6 +90,27 @@ def format_dt_uk(dt: datetime, with_time: bool = True) -> str:
     return "{}, {}".format(date, dt.strftime("%H:%M"))
 
 
+def pluralize_hours(count: int) -> str:
+    if count % 10 == 1 and count % 100 != 11:
+        return "годину"
+    if count % 10 in (2, 3, 4) and count % 100 not in (12, 13, 14):
+        return "години"
+    return "годин"
+
+
+def format_period_uk(hours: float) -> str:
+    """A period a headline can name: "8 годин", "добу", "2 дні"."""
+    if hours >= 47:
+        days = round(hours / 24)
+        if days == 2:
+            return "2 дні"
+        return f"{days} днів" if days > 4 else f"{days} дні"
+    if hours >= 23:
+        return "добу"
+    count = round(hours)
+    return f"{count} {pluralize_hours(count)}"
+
+
 T = TypeVar("T", bound="Serializable")
 
 

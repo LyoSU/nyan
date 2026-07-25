@@ -3,7 +3,7 @@ import json
 import logging
 from typing import Any
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from httpx import Timeout, Limits, HTTPTransport, Client, Response
 
@@ -21,7 +21,9 @@ FORMAT_LEGACY = "legacy"
 @dataclass
 class IssueConfig:
     name: str
-    channel_id: int
+    # A numeric id, or "@username" for a public channel: the Bot API accepts
+    # both, and a username is what a human reads off a t.me link.
+    channel_id: int | str
     discussion_id: int
     bot_token: str
     last_update_id: int = 0
@@ -158,6 +160,29 @@ class TelegramClient:
             return False
         description = response.json().get("description", "")
         return "no text in the message to edit" in description
+
+    def clone_issue(
+        self, name: str, channel_id: int | str, like: str = "main"
+    ) -> bool:
+        """Register `name` as another channel posted to by the same bot.
+
+        For a second channel that needs nothing of its own but an id — the
+        digest — this saves editing the client config, so the channel can be
+        set from the environment like every other deployment detail. An issue
+        already present in the config always wins, since that is where a
+        separate bot token would have to live.
+        """
+        if name in self.issues:
+            return True
+        if like not in self.issues:
+            logging.warning(ISSUE_WARNING, like)
+            return False
+        template = self.issues[like]
+        self.issues[name] = replace(
+            template, name=name, channel_id=channel_id, discussion_id=0
+        )
+        logging.info("Issue '%s' posts to %s, cloned from '%s'", name, channel_id, like)
+        return True
 
     def send_rich_message(
         self,

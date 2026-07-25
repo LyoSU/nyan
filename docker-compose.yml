@@ -20,6 +20,7 @@ services:
       - LLM_REASONING_EFFORT=${LLM_REASONING_EFFORT:-low}
       - LLM_MAX_TOKENS=${LLM_MAX_TOKENS:-8000}
       - PUBLISH_CHANNEL_URL=${PUBLISH_CHANNEL_URL:-}
+      - DIGEST_CHANNEL_ID=${DIGEST_CHANNEL_ID:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - MONGO_HOST=${MONGO_HOST:-}
@@ -84,6 +85,7 @@ services:
       - LLM_REASONING_EFFORT=${LLM_REASONING_EFFORT:-low}
       - LLM_MAX_TOKENS=${LLM_MAX_TOKENS:-8000}
       - PUBLISH_CHANNEL_URL=${PUBLISH_CHANNEL_URL:-}
+      - DIGEST_CHANNEL_ID=${DIGEST_CHANNEL_ID:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - MONGO_HOST=${MONGO_HOST:-}
@@ -97,3 +99,41 @@ services:
       - MONGO_DIRECT_CONNECTION=${MONGO_DIRECT_CONNECTION:-true}
     restart: unless-stopped
     command: ["./send.sh"]
+
+  nyan-digest:
+    build: .
+    container_name: nyan-digest
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./configs:/app/configs
+      - ./channels.json:/app/channels.json
+    environment:
+      - PYTHONPATH=/app
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - NYAN_TIMEZONE=${NYAN_TIMEZONE:-Europe/Kyiv}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://openrouter.ai/api/v1}
+      - LLM_MODEL=${LLM_MODEL:-openai/gpt-5.4-mini}
+      - LLM_TIMEOUT=${LLM_TIMEOUT:-60}
+      - LLM_MAX_RETRIES=${LLM_MAX_RETRIES:-2}
+      - LLM_REASONING_EFFORT=${LLM_REASONING_EFFORT:-low}
+      - LLM_MAX_TOKENS=${LLM_MAX_TOKENS:-8000}
+      - PUBLISH_CHANNEL_URL=${PUBLISH_CHANNEL_URL:-}
+      - DIGEST_CHANNEL_ID=${DIGEST_CHANNEL_ID:-}
+      - DIGEST_HOURS=${DIGEST_HOURS:-8,14,18,23}
+      - DIGEST_DURATION_HOURS=${DIGEST_DURATION_HOURS:-8}
+      - DIGEST_MIN_NEWS=${DIGEST_MIN_NEWS:-5}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - MONGO_HOST=${MONGO_HOST:-}
+      - MONGO_PORT=${MONGO_PORT:-27017}
+      - MONGO_DATABASE=${MONGO_DATABASE:-main}
+      - MONGO_USERNAME=${MONGO_USERNAME:-}
+      - MONGO_PASSWORD=${MONGO_PASSWORD:-}
+      - MONGO_AUTH_SOURCE=${MONGO_AUTH_SOURCE:-admin}
+      - MONGO_READ_PREFERENCE=${MONGO_READ_PREFERENCE:-primary}
+      - MONGO_SSL=${MONGO_SSL:-false}
+      - MONGO_DIRECT_CONNECTION=${MONGO_DIRECT_CONNECTION:-true}
+    restart: unless-stopped
+    command: ["./digest.sh"]

@@ -366,6 +366,21 @@ class Cluster:
         return Summary.fromdict(stored)
 
     @property
+    def stored_summary(self) -> Summary:
+        """What was already written, without asking for anything new.
+
+        `summary` is lazy and calls the LLM; a reader that only wants to know
+        what a published post says — the digest — must not pay for a rewrite of
+        every story it lists.
+        """
+        stored = (self.saved_analysis or {}).get("summary")
+        return Summary.fromdict(stored) if stored else Summary()
+
+    @property
+    def stored_headline(self) -> str | None:
+        return cast(str | None, (self.saved_analysis or {}).get("headline"))
+
+    @property
     def headline(self) -> str | None:
         """Short headline for the post, or None to fall back to the text."""
         return cast(str | None, self.analysis["headline"])
@@ -682,12 +697,24 @@ class Clusters:
 
     @classmethod
     def load_from_mongo(
-        cls, mongo_config_path: str, current_ts: int, offset: int
+        cls,
+        mongo_config_path: str,
+        current_ts: int,
+        offset: int,
+        until_ts: int | None = None,
     ) -> "Clusters":
+        """Clusters created in `[current_ts - offset, until_ts)`.
+
+        `until_ts` is open-ended by default, which is what the daemon wants.
+        The digest needs a closed window instead: it publishes "everything
+        since the last digest", and a cluster created while it was thinking
+        belongs to the next one, not to a window that has already been counted.
+        """
         collection = get_clusters_collection(mongo_config_path)
-        clusters_dicts = list(
-            collection.find({"create_time": {"$gte": current_ts - offset}})
-        )
+        created: dict[str, int] = {"$gte": current_ts - offset}
+        if until_ts is not None:
+            created["$lt"] = until_ts
+        clusters_dicts = list(collection.find({"create_time": created}))
         clusters = cls()
         for cluster_dict in clusters_dicts:
             clusters.add(Cluster.fromdict(cluster_dict))

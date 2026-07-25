@@ -20,36 +20,67 @@ renderer fall back to quoting one channel directly.
 """
 
 import logging
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import Any
 
 
 TEXT = "text"
 LIST = "list"
+LINKS = "links"
 QUOTE = "quote"
 HIDDEN = "hidden"
 DISPUTED = "disputed"
 SUBHEADING = "subheading"
 
-# Runaway protection, not editorial guidance: the prompt asks for at most six
-# blocks, and these caps only stop a derailed answer from becoming a wall.
-MAX_BLOCKS = 10
 MAX_LIST_ITEMS = 6
+MAX_LINKS = 12
 MAX_TEXT_LENGTH = 1000
 MAX_SUMMARY_LENGTH = 100
 MAX_AUTHOR_LENGTH = 120
 MAX_HEADLINE_LENGTH = 200
 
-# Per-type limits for the kinds that stop working when repeated. Four quote
-# cards in a row invert the post's hierarchy — the thing we moved away from —
-# and two "sources disagree" notes mean the disagreement was not summarized.
-# Types absent from here are limited only by MAX_BLOCKS.
-_TYPE_LIMITS = {QUOTE: 2, HIDDEN: 2, SUBHEADING: 2, DISPUTED: 1}
 
-# A post has to start by saying what happened. A quote lead is legitimate
-# journalism; opening with bullets, a subheading or a caveat is not.
-_OPENING_TYPES = (TEXT, QUOTE)
+@dataclass(frozen=True)
+class Limits:
+    """How much of each thing a post of this kind may contain.
 
+    Runaway protection, not editorial guidance: the prompts ask for far less.
+    These only stop a derailed answer from becoming a wall of text, and they
+    differ by kind because a digest is a genuinely different sort of post — it
+    covers a whole shift under several headings, where a single story never
+    needs more than one.
+    """
+
+    max_blocks: int
+    # Types absent from here are limited only by max_blocks.
+    per_type: dict[str, int]
+    # What the post may open with. A story has to start by saying what happened;
+    # a digest is a list by nature, so it may open with the list itself.
+    opening: tuple[str, ...]
+
+    def limit_for(self, block_type: str) -> int | None:
+        return self.per_type.get(block_type)
+
+
+# A story: four quote cards in a row invert the post's hierarchy — the thing
+# this design moved away from — and two "sources disagree" notes mean the
+# disagreement was never summarized. A quote lead is legitimate journalism;
+# opening with bullets, a subheading or a caveat is not.
+POST_LIMITS = Limits(
+    max_blocks=10,
+    per_type={QUOTE: 2, HIDDEN: 2, SUBHEADING: 2, DISPUTED: 1},
+    opening=(TEXT, QUOTE),
+)
+
+# A digest: one heading per topic, so headings are the structure rather than an
+# exception, and there is no single story for sources to disagree about. On a
+# quiet period the whole digest is one list, so it may open with one.
+DIGEST_LIMITS = Limits(
+    max_blocks=24,
+    per_type={QUOTE: 2, HIDDEN: 3, DISPUTED: 1},
+    opening=(TEXT, QUOTE, LINKS, SUBHEADING),
+)
 
 @dataclass
 class SummaryBlock:
@@ -62,12 +93,13 @@ class SummaryBlock:
     type: str
     text: str = ""
     items: list[str] = field(default_factory=list)
+    links: list[dict[str, str]] = field(default_factory=list)
     author: str = ""
     summary: str = ""
 
     def asdict(self) -> dict[str, Any]:
         record: dict[str, Any] = {"type": self.type}
-        for key in ("text", "items", "author", "summary"):
+        for key in ("text", "items", "links", "author", "summary"):
             value = getattr(self, key)
             if value:
                 record[key] = value
@@ -79,6 +111,10 @@ class SummaryBlock:
             type=str(record.get("type", "")),
             text=str(record.get("text", "")),
             items=[str(item) for item in record.get("items", [])],
+            links=[
+                {"text": str(link.get("text", "")), "url": str(link.get("url", ""))}
+                for link in record.get("links", [])
+            ],
             author=str(record.get("author", "")),
             summary=str(record.get("summary", "")),
         )
@@ -105,6 +141,24 @@ class Summary:
             "blocks": [block.asdict() for block in self.blocks],
         }
 
+    def as_text(self) -> str:
+        """The prose of the post, for a prompt that needs to read it.
+
+        Markup, links and disclosure titles are left out: a model reading this
+        needs the facts, not the typography.
+        """
+        parts: list[str] = []
+        for block in self.blocks:
+            if block.type in (TEXT, DISPUTED, SUBHEADING, HIDDEN):
+                parts.append(block.text)
+            elif block.type == LIST:
+                parts.extend(block.items)
+            elif block.type == LINKS:
+                parts.extend(link["text"] for link in block.links)
+            elif block.type == QUOTE:
+                parts.append(f"{block.author}: {block.text}")
+        return " ".join(part for part in parts if part)
+
     @classmethod
     def fromdict(cls, record: dict[str, Any]) -> "Summary":
         """Rebuild a stored summary. Storage is ours, so no sanitation."""
@@ -114,8 +168,18 @@ class Summary:
         )
 
 
-def parse_summary(raw: Any, context: str = "") -> Summary:
+def parse_summary(
+    raw: Any,
+    context: str = "",
+    allowed_urls: Collection[str] = (),
+    limits: Limits = POST_LIMITS,
+) -> Summary:
     """A `Summary` built from whatever the model returned.
+
+    `allowed_urls` is the set of links the model was given; anything else it
+    puts in a `links` block is a URL it made up, and a made-up link in a digest
+    sends the reader to a post that does not exist. Empty by default, which
+    means a `links` block cannot survive unless the caller is a digest.
 
     Never raises: unusable input yields an empty summary, and unusable parts of
     usable input are dropped.
@@ -129,14 +193,15 @@ def parse_summary(raw: Any, context: str = "") -> Summary:
         logging.warning("Summary for '%s' carries no block list", context)
         raw_blocks = []
 
+    known_urls = frozenset(allowed_urls)
     blocks: list[SummaryBlock] = []
     counts: dict[str, int] = {}
-    for raw_block in raw_blocks[:MAX_BLOCKS]:
-        block = _parse_block(raw_block, context)
+    for raw_block in raw_blocks[: limits.max_blocks]:
+        block = _parse_block(raw_block, context, known_urls)
         if block is None:
             continue
         counts[block.type] = counts.get(block.type, 0) + 1
-        limit = _TYPE_LIMITS.get(block.type)
+        limit = limits.limit_for(block.type)
         if limit is not None and counts[block.type] > limit:
             logging.info(
                 "Dropping a %s block beyond the %d allowed for '%s'",
@@ -154,9 +219,9 @@ def parse_summary(raw: Any, context: str = "") -> Summary:
     if disputed and not any(block.type == DISPUTED for block in blocks):
         blocks.append(SummaryBlock(type=DISPUTED, text=disputed))
 
-    while blocks and blocks[0].type not in _OPENING_TYPES:
+    while blocks and blocks[0].type not in limits.opening:
         logging.info(
-            "Dropping a leading %s block for '%s': a post has to open with prose",
+            "Dropping a leading %s block for '%s': not something a post opens with",
             blocks[0].type,
             context,
         )
@@ -168,12 +233,17 @@ def parse_summary(raw: Any, context: str = "") -> Summary:
     )
 
 
-def _parse_block(raw: Any, context: str) -> SummaryBlock | None:
+def _parse_block(
+    raw: Any, context: str, known_urls: frozenset[str]
+) -> SummaryBlock | None:
     if not isinstance(raw, dict):
         logging.info("Skipping a non-object block for '%s': %r", context, type(raw))
         return None
 
     block_type = raw.get("type")
+
+    if block_type == LINKS:
+        return _parse_links(raw, context, known_urls)
 
     if block_type in (TEXT, DISPUTED, SUBHEADING):
         text = _clean(raw.get("text"), MAX_TEXT_LENGTH)
@@ -213,6 +283,37 @@ def _parse_block(raw: Any, context: str) -> SummaryBlock | None:
 
     logging.info("Skipping an unknown block type %r for '%s'", block_type, context)
     return None
+
+
+def _parse_links(
+    raw: dict[str, Any], context: str, known_urls: frozenset[str]
+) -> SummaryBlock | None:
+    """A list of headlines, each pointing at a post that exists."""
+    raw_links = raw.get("links")
+    if not isinstance(raw_links, list):
+        return None
+
+    links: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for raw_link in raw_links[:MAX_LINKS]:
+        if not isinstance(raw_link, dict):
+            continue
+        text = _clean(raw_link.get("text"), MAX_TEXT_LENGTH)
+        url = _clean(raw_link.get("url"), MAX_TEXT_LENGTH)
+        if not text or not url:
+            continue
+        if url not in known_urls:
+            logging.info("Dropping an invented link %r for '%s'", url, context)
+            continue
+        # The same post under two headlines reads as two events.
+        if url in seen:
+            continue
+        seen.add(url)
+        links.append({"text": text, "url": url})
+
+    if not links:
+        return None
+    return SummaryBlock(type=LINKS, links=links)
 
 
 def _clean(value: Any, max_length: int) -> str:
