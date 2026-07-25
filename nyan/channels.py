@@ -26,6 +26,12 @@ class Channels:
         emojis = config["emojis"]
         colors = config["colors"]
         default_groups = config["default_groups"]
+
+        # A group is a trust tier, stored as a colour name ("purple"). The
+        # emoji is what readers actually see; the title is what makes the
+        # emoji legible instead of a private colour code.
+        self.group_emojis: Dict[str, str] = dict(emojis)
+        self.group_names: Dict[str, str] = dict(config.get("group_names", {}))
         for channel in config["channels"]:
             channel = Channel.fromdict(channel)
             assert channel.groups
@@ -40,6 +46,13 @@ class Channels:
                 issue: colors.get(group, "#808080") for issue, group in channel.groups.items()
             }
             self.add(channel)
+
+    def group_title(self, group: str) -> str:
+        """Human-readable name of a trust group, falling back to its key."""
+        return self.group_names.get(group, group)
+
+    def group_emoji(self, group: str) -> str:
+        return self.group_emojis.get(group, "")
 
     def add(self, channel: Channel) -> None:
         self.channels[normalize_channel_id(channel.name)] = channel

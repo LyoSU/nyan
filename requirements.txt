@@ -52,7 +52,7 @@ python-telegram-bot >= 13.14
 annoy >= 1.17.1
 
 # Language models
-openai == 0.28
+openai >= 2.0, < 3
 
 # Export
 feedgen == 0.9.0

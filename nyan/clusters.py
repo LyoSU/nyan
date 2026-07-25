@@ -4,7 +4,7 @@ import traceback
 import shutil
 import hashlib
 from pathlib import Path
-from typing import Optional, Dict, List, Any, TypeVar, Sequence
+from typing import Optional, Dict, List, Any, TypeVar, Sequence, cast
 from typing import Counter as CounterT
 from collections import Counter, defaultdict
 from functools import cached_property
@@ -22,13 +22,13 @@ from nyan.util import normalize_url
 BASE_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
 T = TypeVar("T")
 
-# Cross-object LLM diff cache. The daemon re-creates Cluster objects from
+# Cross-object LLM analysis cache. The daemon re-creates Cluster objects from
 # scratch on every iteration, so per-object memoization alone still re-pays
 # the LLM call each iteration for clusters that fail to post (e.g. Telegram
 # errors) and get re-rendered forever. Keyed by the normalized doc URL set:
-# a cluster with the same documents always yields the same diff.
-_DIFF_CACHE: Dict[Any, List[Dict[str, Any]]] = {}
-_DIFF_CACHE_MAX_SIZE = 2048
+# a cluster with the same documents always yields the same analysis.
+_ANALYSIS_CACHE: Dict[Any, Dict[str, Any]] = {}
+_ANALYSIS_CACHE_MAX_SIZE = 2048
 
 
 class Cluster:
@@ -46,7 +46,7 @@ class Cluster:
         self.saved_annotation_doc: Optional[Document] = None
         self.saved_first_doc: Optional[Document] = None
         self.saved_hash: Optional[str] = None
-        self.saved_diff: Optional[List[Dict[str, Any]]] = None
+        self.saved_analysis: Optional[Dict[str, Any]] = None
 
     def add(self, doc: Document) -> None:
         self.docs.append(doc)
@@ -57,9 +57,7 @@ class Cluster:
         self.distances = distances
 
     def has(self, doc: Document) -> bool:
-        url_normalized = normalize_url(doc.url)
-        result = url_normalized in self.url2doc
-        return result
+        return normalize_url(doc.url) in self.url2doc
 
     def changed(self) -> bool:
         return self.hash != self.saved_hash
@@ -161,28 +159,36 @@ class Cluster:
         return min(self.docs, key=lambda x: x.pub_time)
 
     @property
-    def diff(self) -> List[Dict[str, Any]]:
-        if self.saved_diff is not None:
-            return self.saved_diff
+    def analysis(self) -> Dict[str, Any]:
+        """Headline and cross-source differences, from a single LLM call.
 
-        # A single-channel cluster has no alternative coverage to compare.
-        if len({d.channel_id for d in self.docs}) < 2:
-            self.saved_diff = []
-            return self.saved_diff
+        Both are derived from the same input (the cluster's documents), so
+        asking for them separately would double the cost for no gain.
+        """
+        if self.saved_analysis is not None:
+            return self.saved_analysis
 
         cache_key = tuple(sorted(self.url2doc.keys()))
-        cached_diff = _DIFF_CACHE.get(cache_key)
-        if cached_diff is not None:
-            self.saved_diff = cached_diff
-            return cached_diff
+        cached = _ANALYSIS_CACHE.get(cache_key)
+        if cached is not None:
+            self.saved_analysis = cached
+            return cached
 
-        prompt_path: Path = BASE_DIR / "prompts/diff.txt"
+        annotation_doc = self.annotation_doc
+        # Only other channels can disagree with the main story; comparing a
+        # channel against itself yields noise, and for a single-channel
+        # cluster it also keeps the prompt short.
+        other_docs = [
+            doc for doc in self.docs if doc.channel_id != annotation_doc.channel_id
+        ]
+
+        prompt_path: Path = BASE_DIR / "prompts/analysis.txt"
         with open(prompt_path) as f:
             template = Template(f.read())
-        prompt = template.render(docs=self.docs, annotation_doc=self.annotation_doc)
+        prompt = template.render(docs=other_docs, annotation_doc=annotation_doc)
         messages = [{"role": "user", "content": prompt}]
 
-        differences: List[Dict[str, Any]] = []
+        analysis: Dict[str, Any] = {"headline": None, "differences": []}
         try:
             content = openai_completion(
                 messages=messages,
@@ -190,30 +196,36 @@ class Cluster:
                 reasoning_effort="low",
             )
             content = content[content.find("{") : content.rfind("}") + 1]
-            parsed_content: Dict[str, List[Dict[str, Any]]] = json.loads(content)
-            differences = parsed_content["differences"]
+            parsed_content: Dict[str, Any] = json.loads(content)
 
-            channel_titles = {doc.channel_id: doc.channel_title for doc in self.docs}
-            doc_urls = {}
-            for doc in self.docs:
-                if doc.channel_id not in doc_urls:
-                    doc_urls[doc.channel_id] = doc.url
-            for diff in differences:
-                ids = diff["channel_ids"][:3]
-                ids = [i for i in ids if i in channel_titles and i in doc_urls]
-                channels = [
-                    '<a href="{}">{}</a>'.format(doc_urls[i], channel_titles[i])
-                    for i in ids
+            headline = parsed_content.get("headline")
+            if isinstance(headline, str) and headline.strip():
+                analysis["headline"] = headline.strip()
+
+            # A cluster nobody else covered has nothing to differ from, so
+            # anything the model returns here is a hallucinated comparison.
+            if other_docs:
+                differences = parsed_content.get("differences") or []
+                analysis["differences"] = [
+                    d for d in differences if d.get("text") and d.get("channel_ids")
                 ]
-                diff["channels"] = ", ".join(channels)
         except Exception:
             traceback.print_exc()
-            differences = []
-        self.saved_diff = differences
-        if len(_DIFF_CACHE) >= _DIFF_CACHE_MAX_SIZE:
-            _DIFF_CACHE.pop(next(iter(_DIFF_CACHE)))
-        _DIFF_CACHE[cache_key] = differences
-        return differences
+
+        self.saved_analysis = analysis
+        if len(_ANALYSIS_CACHE) >= _ANALYSIS_CACHE_MAX_SIZE:
+            _ANALYSIS_CACHE.pop(next(iter(_ANALYSIS_CACHE)))
+        _ANALYSIS_CACHE[cache_key] = analysis
+        return analysis
+
+    @property
+    def diff(self) -> List[Dict[str, Any]]:
+        return cast(List[Dict[str, Any]], self.analysis["differences"])
+
+    @property
+    def headline(self) -> Optional[str]:
+        """Short headline for the post, or None to fall back to the text."""
+        return cast(Optional[str], self.analysis["headline"])
 
     @property
     def annotation_doc(self) -> Document:
@@ -321,6 +333,7 @@ class Cluster:
             "first_doc": first_doc,
             "hash": self.hash,
             "diff": self.diff,
+            "headline": self.headline,
             "is_important": self.is_important,
             "create_time": self.create_time,
         }
@@ -353,9 +366,19 @@ class Cluster:
         if first_doc_dict:
             cluster.saved_first_doc = Document.fromdict(first_doc_dict)
         cluster.saved_hash = d.get("hash")
-        cluster.saved_diff = d.get("diff", None)
+
+        # Clusters stored before headlines existed carry only "diff". Treat
+        # them as fully analysed anyway, so re-rendering an already posted
+        # cluster never pays for a new LLM call; the renderer falls back to
+        # deriving a headline from the text when it is None.
+        saved_diff = d.get("diff")
+        if saved_diff is not None or d.get("headline") is not None:
+            cluster.saved_analysis = {
+                "headline": d.get("headline"),
+                "differences": saved_diff or [],
+            }
         cluster.is_important = d.get("is_important", False)
-        cluster.create_time = d.get("create_time", None)
+        cluster.create_time = d.get("create_time")
 
         return cluster
 

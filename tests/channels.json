@@ -1324,8 +1324,8 @@
       "alias": "Москва Life",
       "issue": "moscow",
       "groups": {
-         "moscow": "moscow",
-         "main": "red"
+        "moscow": "moscow",
+        "main": "red"
       }
     },
     {
@@ -1520,10 +1520,18 @@
     "blue": "🌎",
     "purple": "⚖️",
     "tech": "💻",
-    "economy":"💰",
+    "economy": "💰",
     "other": "📰",
     "moscow": "🌆",
     "entertainment": "🎭"
+  },
+  "group_names": {
+    "red": "Офіційні",
+    "blue": "Новинні",
+    "purple": "Перевірені медіа",
+    "tech": "Технології",
+    "economy": "Економіка",
+    "other": "Інші"
   },
   "colors": {
     "red": "🟥",

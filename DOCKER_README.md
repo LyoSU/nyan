@@ -54,6 +54,34 @@ MONGO_PASSWORD=your_password
 MONGO_AUTH_SOURCE=admin
 ```
 
+### LLM налаштування
+
+НЯН звертається до LLM для заголовків постів, розбіжностей між джерелами та
+дайджестів. Підходить будь-який OpenAI-сумісний шлюз — OpenRouter, LiteLLM тощо:
+
+```env
+LLM_API_KEY=your_llm_key_here
+LLM_BASE_URL=https://openrouter.ai/api/v1
+LLM_MODEL=openai/gpt-5.4-mini
+LLM_TIMEOUT=120
+LLM_MAX_RETRIES=3
+```
+
+Якщо шлюз не підтримує якийсь параметр (наприклад `reasoning_effort`), НЯН
+прочитає це з тексту помилки, повторить запит без нього і запам'ятає обмеження
+до кінця роботи процесу — тож ламатися на кожному виклику воно не буде.
+
+### Формат постів
+
+`configs/renderer_config.json` — `"post_format"`:
+
+- `"rich"` — структуровані блоки через `sendRichMessage` (Bot API 10.1+): заголовок,
+  медіа окремим блоком, цитати з атрибуцією, згортаний список джерел.
+- `"legacy"` — старий HTML-текст із фото як `caption`. Тримається для швидкого
+  відкату без редеплою.
+
+`"sources_open": true` розгортає список джерел за замовчуванням.
+
 ### Обов'язкові файли
 
 - `configs/client_config.json` - Telegram API credentials

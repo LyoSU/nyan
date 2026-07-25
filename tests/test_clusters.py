@@ -49,50 +49,96 @@ def _make_multi_channel_cluster(message_id: int) -> Cluster:
     return cluster
 
 
-def _patch_llm(monkeypatch):  # type: ignore[no-untyped-def]
+def _patch_llm(monkeypatch, response='{"headline": "Заголовок", "differences": []}'):  # type: ignore[no-untyped-def]
     calls = []
 
     def fake_openai_completion(**kwargs):  # type: ignore[no-untyped-def]
         calls.append(kwargs)
-        return '{"differences": []}'
+        return response
 
     monkeypatch.setattr("nyan.clusters.openai_completion", fake_openai_completion)
-    monkeypatch.setattr("nyan.clusters._DIFF_CACHE", {})
+    monkeypatch.setattr("nyan.clusters._ANALYSIS_CACHE", {})
     return calls
 
 
-def test_cluster_diff_memoizes_llm_call(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    cluster = _make_multi_channel_cluster(101)
-    calls = _patch_llm(monkeypatch)
-
-    first = cluster.diff
-    second = cluster.diff
-
-    assert first == []
-    assert second == []
-    assert len(calls) == 1
-
-
-def test_cluster_diff_skips_llm_for_single_channel(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+def _make_single_channel_cluster() -> Cluster:
     cluster = Cluster()
     cluster.add(_make_doc("https://t.me/source/1", channel_id="only_channel"))
     cluster.add(_make_doc("https://t.me/source/2", channel_id="only_channel"))
     cluster.saved_annotation_doc = cluster.docs[0]
+    return cluster
+
+
+def test_cluster_analysis_memoizes_llm_call(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    cluster = _make_multi_channel_cluster(101)
     calls = _patch_llm(monkeypatch)
 
     assert cluster.diff == []
-    assert len(calls) == 0
+    assert cluster.diff == []
+    assert cluster.headline == "Заголовок"
+    assert len(calls) == 1
 
 
-def test_cluster_diff_reuses_cache_across_objects(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+def test_cluster_analysis_reuses_cache_across_objects(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     calls = _patch_llm(monkeypatch)
 
     first_object = _make_multi_channel_cluster(101)
     second_object = _make_multi_channel_cluster(101)
 
-    assert first_object.diff == []
-    assert second_object.diff == []
+    assert first_object.headline == "Заголовок"
+    assert second_object.headline == "Заголовок"
     assert len(calls) == 1
+
+
+def test_single_channel_cluster_gets_a_headline_but_no_differences(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    cluster = _make_single_channel_cluster()
+    calls = _patch_llm(
+        monkeypatch,
+        response='{"headline": "Заголовок", "differences": ['
+        '{"channel_ids": ["only_channel"], "text": "вигадана відмінність"}]}',
+    )
+
+    # Nobody else covered the story, so any difference is a hallucination.
+    assert cluster.diff == []
+    assert cluster.headline == "Заголовок"
+    assert len(calls) == 1
+
+
+def test_cluster_analysis_survives_broken_llm_output(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    cluster = _make_multi_channel_cluster(101)
+    _patch_llm(monkeypatch, response="not json at all")
+
+    assert cluster.headline is None
+    assert cluster.diff == []
+
+
+def test_cluster_analysis_drops_incomplete_differences(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    cluster = _make_multi_channel_cluster(101)
+    _patch_llm(
+        monkeypatch,
+        response='{"headline": "Заголовок", "differences": ['
+        '{"channel_ids": ["channel_b"], "text": "справжня"},'
+        '{"channel_ids": [], "text": "без джерела"},'
+        '{"channel_ids": ["channel_b"], "text": ""}]}',
+    )
+
+    assert [d["text"] for d in cluster.diff] == ["справжня"]
+
+
+def test_stored_cluster_without_headline_is_not_reanalysed(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    calls = _patch_llm(monkeypatch)
+    stored = {
+        "clid": 1,
+        "docs": [_make_doc("https://t.me/source/1").asdict(is_short=True)],
+        "diff": [],
+    }
+
+    cluster = Cluster.fromdict(stored)
+
+    # Clusters saved before headlines existed must not pay for a new LLM call.
+    assert cluster.headline is None
+    assert cluster.diff == []
+    assert len(calls) == 0
 
 
 def test_normalize_url_removes_query_fragment_and_case() -> None:

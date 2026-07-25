@@ -1,5 +1,7 @@
 {
     "cluster_template": "nyan/templates/cluster.html",
+    "post_format": "rich",
+    "sources_open": false,
     "tz_offset": 2,
     "tz_name": "Europe/Kyiv"
 }

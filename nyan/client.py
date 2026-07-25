@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from httpx import Timeout, Limits, HTTPTransport, Client, Response
 
+from nyan.rich import Block, RenderedPost, fix_media_url
 from nyan.util import Serializable
 
 
@@ -61,11 +62,73 @@ class TelegramClient:
         self.issues: Dict[str, IssueConfig] = {
             config["name"]: IssueConfig(**config) for config in self.config["issues"]
         }
-        self.discussions: Dict[str, Dict[int, Any]] = {
+        # Channel post id -> its mirrored message id in the discussion group.
+        self.discussions: Dict[str, Dict[int, int]] = {
             issue.name: dict() for _, issue in self.issues.items()
         }
         for issue_name in self.issues:
             self.update_discussion_mapping(issue_name)
+
+    def send_post(
+        self,
+        post: RenderedPost,
+        issue_name: str,
+        reply_to: Optional[int] = None,
+    ) -> Optional[MessageId]:
+        """Send a rendered post using whichever API method its format needs."""
+        if post.is_rich:
+            assert post.blocks is not None
+            return self.send_rich_message(post.blocks, issue_name, reply_to=reply_to)
+        assert post.text is not None
+        return self.send_message(
+            post.text,
+            issue_name,
+            photos=post.photos,
+            videos=post.videos,
+            animations=post.animations,
+            reply_to=reply_to,
+        )
+
+    def update_post(self, message: MessageId, post: RenderedPost) -> None:
+        assert not message.from_discussion
+        issue = self.issues[message.issue]
+        if post.is_rich:
+            assert post.blocks is not None
+            response = self._edit_rich(message.message_id, post.blocks, issue=issue)
+        elif post.has_media:
+            assert post.text is not None
+            response = self._edit_caption(message.message_id, post.text, issue=issue)
+        else:
+            assert post.text is not None
+            response = self._edit_text(message.message_id, post.text, issue=issue)
+
+        print("Update status code:", response.status_code)
+        if response.status_code != 200:
+            print("Update error:", response.text)
+
+    def send_rich_message(
+        self,
+        blocks: Sequence[Block],
+        issue_name: str,
+        reply_to: Optional[int] = None,
+    ) -> Optional[MessageId]:
+        if issue_name not in self.issues:
+            print(ISSUE_WARNING.format(issue_name=issue_name))
+            return None
+        issue = self.issues[issue_name]
+        response = self._send_rich(blocks, issue=issue, reply_to=reply_to)
+
+        print("Send status code:", response.status_code)
+        if response.status_code != 200:
+            print("Send error:", response.text)
+            return None
+
+        message_id = self._extract_message_id(response)
+        if message_id is None:
+            return None
+        return MessageId(
+            message_id=message_id, issue=issue_name, from_discussion=False
+        )
 
     def send_message(
         self,
@@ -112,27 +175,30 @@ class TelegramClient:
             response_dict = response.json()
             description = response_dict.get("description", "")
             if description == "Bad Request: message caption is too long":
-                response = self._send_text(text, issue=issue)
+                response = self._send_text(text, issue=issue, reply_to=reply_to)
                 print("Text only send status code:", response.status_code)
 
         if response.status_code != 200:
             print("Send error:", response.text)
             return None
 
+        message_id = self._extract_message_id(response)
+        if message_id is None:
+            return None
+        return MessageId(message_id=message_id, issue=issue_name, from_discussion=False)
+
+    @staticmethod
+    def _extract_message_id(response: Response) -> Optional[int]:
         result = response.json().get("result")
         if not result:
             return None
-
+        # sendMediaGroup answers with a list of messages, one per attachment.
         if isinstance(result, list):
-            if not result:
-                return None
-            message_id = int(result[0].get("message_id", 0))
-        else:
-            message_id = int(result.get("message_id", 0))
-
+            result = result[0]
+        message_id = int(result.get("message_id", 0))
         if message_id == 0:
             return None
-        return MessageId(message_id=message_id, issue=issue_name, from_discussion=False)
+        return message_id
 
     def send_poll(
         self,
@@ -153,18 +219,6 @@ class TelegramClient:
             params["reply_to_message_id"] = reply_to
             params["allow_sending_without_reply"] = True
         return self._post(url_template.format(issue.bot_token), params)
-
-    def update_message(self, message: MessageId, text: str, is_caption: bool) -> None:
-        assert not message.from_discussion
-        issue = self.issues[message.issue]
-        message_id = message.message_id
-        if not is_caption:
-            response = self._edit_text(message_id, text, issue=issue)
-        else:
-            response = self._edit_caption(message_id, text, issue=issue)
-        print("Update status code:", response.status_code)
-        if response.status_code != 200:
-            print("Update error:", response.text)
 
     def update_discussion_mapping(self, issue_name: str) -> None:
         if issue_name not in self.issues:
@@ -189,8 +243,10 @@ class TelegramClient:
             self.discussions[issue.name][orig_message_id] = discussion_message_id
 
     def get_discussion(self, message: MessageId) -> MessageId:
+        # 0 means "this post has no discussion mirror yet", which every
+        # consumer already treats as absent via a falsiness check.
         discussion_message_id = self.discussions[message.issue].get(
-            message.message_id, None
+            message.message_id, 0
         )
         return MessageId(
             message_id=discussion_message_id, issue=message.issue, from_discussion=True
@@ -213,6 +269,37 @@ class TelegramClient:
             "parse_mode": "html",
             "disable_web_page_preview": disable_web_page_preview,
             "reply_to_message_id": discussion_message.message_id,
+        }
+        return self._post(url_template.format(issue.bot_token), params)
+
+    def _send_rich(
+        self,
+        blocks: Sequence[Block],
+        issue: IssueConfig,
+        reply_to: Optional[int] = None,
+    ) -> Response:
+        url_template = self.host + "/bot{}/sendRichMessage"
+        params: Dict[str, Any] = {
+            "chat_id": issue.channel_id,
+            "rich_message": json.dumps({"blocks": list(blocks)}, ensure_ascii=False),
+            "disable_notification": True,
+        }
+        if reply_to:
+            # sendRichMessage takes a ReplyParameters object rather than the
+            # flat reply_to_message_id the older send methods accept.
+            params["reply_parameters"] = json.dumps(
+                {"message_id": reply_to, "allow_sending_without_reply": True}
+            )
+        return self._post(url_template.format(issue.bot_token), params)
+
+    def _edit_rich(
+        self, message_id: int, blocks: Sequence[Block], issue: IssueConfig
+    ) -> Response:
+        url_template = self.host + "/bot{}/editMessageText"
+        params = {
+            "chat_id": issue.channel_id,
+            "message_id": message_id,
+            "rich_message": json.dumps({"blocks": list(blocks)}, ensure_ascii=False),
         }
         return self._post(url_template.format(issue.bot_token), params)
 
@@ -245,16 +332,10 @@ class TelegramClient:
         parse_mode: str = "html",
     ) -> Response:
         url_template = self.host + "/bot{}/sendPhoto"
-
-        # TODO: TEMPORARY FIX - Replace telesco.pe with old CDN domain
-        # See issue #31 for proper long-term solutions
-        if "telesco.pe" in photo:
-            photo = photo.replace("telesco.pe", "cdn-telegram.org")
-
         params = {
             "chat_id": issue.channel_id,
             "caption": text,
-            "photo": photo,
+            "photo": fix_media_url(photo),
             "parse_mode": parse_mode,
             "disable_notification": True,
         }
@@ -293,16 +374,10 @@ class TelegramClient:
         parse_mode: str = "html",
     ) -> Response:
         url_template = self.host + "/bot{}/sendVideo"
-
-        # TODO: TEMPORARY FIX - Replace telesco.pe with old CDN domain
-        # See issue #31 for proper long-term solutions
-        if "telesco.pe" in video:
-            video = video.replace("telesco.pe", "cdn-telegram.org")
-
         params = {
             "chat_id": issue.channel_id,
             "caption": text,
-            "video": video,
+            "video": fix_media_url(video),
             "parse_mode": parse_mode,
             "disable_notification": True,
         }
@@ -320,24 +395,14 @@ class TelegramClient:
         parse_mode: str = "html",
     ) -> Response:
         url_template = self.host + "/bot{}/sendMediaGroup"
-
-        # TODO: TEMPORARY FIX - Replace telesco.pe with old CDN domain
-        # See issue #31 for proper long-term solutions
-        fixed_photos = []
-        for photo in photos:
-            if "telesco.pe" in photo:
-                fixed_photos.append(photo.replace("telesco.pe", "cdn-telegram.org"))
-            else:
-                fixed_photos.append(photo)
-
         media = [
             {
                 "type": "photo",
-                "media": photo,
+                "media": fix_media_url(photo),
                 "caption": text if i == 0 else "",
                 "parse_mode": parse_mode,
             }
-            for i, photo in enumerate(fixed_photos)
+            for i, photo in enumerate(photos)
         ]
         params = {
             "chat_id": issue.channel_id,
@@ -385,8 +450,11 @@ class TelegramClient:
         if response.status_code != 200:
             return []
         updates: List[Dict[str, Any]] = response.json()["result"]
+        # The offset must advance past the highest update seen, computed once:
+        # adding 1 per iteration overshoots whenever updates arrive out of
+        # order, which silently drops the updates in between.
         for update in updates:
-            issue.last_update_id = max(issue.last_update_id, update["update_id"]) + 1
+            issue.last_update_id = max(issue.last_update_id, update["update_id"] + 1)
         return updates
 
     def _post(self, url: str, params: Dict[str, Any]) -> Response:

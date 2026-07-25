@@ -9,7 +9,9 @@ from urllib.parse import urlparse
 
 # Base t.me URL of the channel this instance publishes to. Override per
 # deployment via the PUBLISH_CHANNEL_URL env var.
-PUBLISH_CHANNEL_URL = os.getenv("PUBLISH_CHANNEL_URL", "https://t.me/UAliveNews")
+# `or` rather than a getenv default: docker-compose passes unset variables
+# through as empty strings, which a default would not replace.
+PUBLISH_CHANNEL_URL = os.getenv("PUBLISH_CHANNEL_URL") or "https://t.me/UAliveNews"
 
 
 def read_jsonl(file_path: str, sample_rate: float = 1.0) -> Iterable[Dict[str, Any]]:
@@ -112,5 +114,4 @@ def normalize_channel_id(channel_id: str) -> str:
             else:
                 normalized = path_parts[0]
 
-    normalized = normalized.lstrip("@")
-    return normalized
+    return normalized.lstrip("@")

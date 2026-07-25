@@ -235,8 +235,8 @@ class Daemon:
             current_ts = get_current_ts()
             time_diff = abs(current_ts - posted_cluster.pub_time_percentile)
             if time_diff < max_time_updated and posted_cluster.changed():
-                cluster_text = self.renderer.render_cluster(posted_cluster, issue_name)
-                if cluster_text is None:
+                post = self.renderer.render_cluster(posted_cluster, issue_name)
+                if post is None:
                     print("Skipping cluster update due to rendering issues: {}".format(posted_cluster.cropped_title))
                     return
                 print(
@@ -246,8 +246,7 @@ class Daemon:
                 )
                 print("Discussion message id: {}".format(discussion_message.message_id))
 
-                is_caption = bool(posted_cluster.images) or bool(posted_cluster.videos)
-                self.client.update_message(message, cluster_text, is_caption)
+                self.client.update_post(message, post)
             else:
                 print(
                     "Same cluster {} at {}: {}".format(
@@ -257,8 +256,8 @@ class Daemon:
             print()
             return
 
-        cluster_text = self.renderer.render_cluster(cluster, issue_name)
-        if cluster_text is None:
+        post = self.renderer.render_cluster(cluster, issue_name)
+        if post is None:
             print("Skipping cluster due to rendering issues: {}".format(cluster.cropped_title))
             return
         print("New cluster in {}: {}".format(issue_name, cluster.cropped_title))
@@ -266,13 +265,7 @@ class Daemon:
         self.client.update_discussion_mapping(issue_name)
 
         reply_to = self.calc_reply_to(cluster, posted_clusters, issue_name)
-        message = self.client.send_message(
-            cluster_text,
-            issue_name,
-            photos=cluster.images,
-            videos=cluster.videos,
-            reply_to=reply_to,
-        )
+        message = self.client.send_post(post, issue_name, reply_to=reply_to)
         if message is None:
             return
 

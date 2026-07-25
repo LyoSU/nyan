@@ -7,7 +7,7 @@ from nyan.document import Document
 from nyan.util import normalize_url
 
 
-def filter_ru_only(doc: Document) -> bool:
+def filter_uk_only(doc: Document) -> bool:
     return doc.language == "uk"
 
 
@@ -41,7 +41,7 @@ def choose_title(docs: List[Document], issues: List[str]) -> Document:
         distances = [cosine(doc1.embedding, doc2.embedding) for doc2 in docs]
         avg_distances[normalize_url(doc1.url)] = mean(distances)
 
-    hard_filters = (filter_ru_only, filter_not_obscene, filter_fresh)
+    hard_filters = (filter_uk_only, filter_not_obscene, filter_fresh)
     for flt in hard_filters:
         filtered_docs = list(filter(flt, docs))
         if filtered_docs:
