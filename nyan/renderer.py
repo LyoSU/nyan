@@ -13,7 +13,7 @@ from nyan import summary as nyan_summary
 from nyan.channels import Channels
 from nyan.clusters import Cluster
 from nyan.document import Document
-from nyan.markup import parse_markup
+from nyan.markup import link_emphasis, parse_markup
 from nyan.rich import Block, RenderedPost
 from nyan.summary import Summary
 from nyan.util import DEFAULT_TIMEZONE, ts_to_dt
@@ -70,13 +70,13 @@ def summary_blocks(summary: Summary, section_size: int) -> list[Block]:
                 rich.bullet_list(*[[rich.paragraph(item)] for item in block.items])
             )
         elif block.type == nyan_summary.LINKS:
-            # The whole headline is the link, not a phrase spliced into it:
-            # matching a model-chosen phrase back into its own sentence was the
-            # most fragile step this code ever had.
+            # Only the phrase the model marked up is the link. A digest where
+            # every headline is blue from end to end emphasizes nothing, which
+            # is what linking whole headlines produced.
             blocks.append(
                 rich.bullet_list(
                     *[
-                        [rich.paragraph(rich.link(link["text"], link["url"]))]
+                        [rich.paragraph(link_emphasis(link["text"], link["url"]))]
                         for link in block.links
                     ]
                 )

@@ -16,6 +16,7 @@ from nyan.summary import (
     SUBHEADING,
     TEXT,
     Summary,
+    SummaryBlock,
     parse_summary,
 )
 
@@ -213,3 +214,19 @@ def test_a_summary_survives_storage() -> None:
     restored = Summary.fromdict(original.asdict())
 
     assert restored == original
+
+
+def test_as_text_leaves_the_markup_behind() -> None:
+    """A prompt reading a stored summary needs the facts, not the delimiters.
+
+    Left in, they would also teach the next model to write more of them — and in
+    a digest headline a `**` span means something else entirely: the link anchor.
+    """
+    summary = Summary(
+        blocks=[
+            SummaryBlock(type=TEXT, text="Загинуло **троє** людей"),
+            SummaryBlock(type=LIST, items=["__Дев'ятеро__ поранені", "Дві будівлі"]),
+        ]
+    )
+
+    assert summary.as_text() == "Загинуло троє людей Дев'ятеро поранені Дві будівлі"

@@ -24,6 +24,8 @@ from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import Any
 
+from nyan.markup import strip_markup
+
 
 TEXT = "text"
 LIST = "list"
@@ -145,7 +147,9 @@ class Summary:
         """The prose of the post, for a prompt that needs to read it.
 
         Markup, links and disclosure titles are left out: a model reading this
-        needs the facts, not the typography.
+        needs the facts, not the typography. Leaving the delimiters in would also
+        teach the next model to write more of them, in places where they mean
+        something else — in a digest headline a `**` span picks the link anchor.
         """
         parts: list[str] = []
         for block in self.blocks:
@@ -157,7 +161,7 @@ class Summary:
                 parts.extend(link["text"] for link in block.links)
             elif block.type == QUOTE:
                 parts.append(f"{block.author}: {block.text}")
-        return " ".join(part for part in parts if part)
+        return strip_markup(" ".join(part for part in parts if part))
 
     @classmethod
     def fromdict(cls, record: dict[str, Any]) -> "Summary":

@@ -161,7 +161,8 @@ def test_a_digest_may_carry_a_heading_per_topic() -> None:
     assert [b.type for b in summary.blocks].count(SUBHEADING) == 6
 
 
-def test_links_are_rendered_as_a_bulleted_list_of_links() -> None:
+def test_a_headline_without_a_marked_phrase_is_linked_whole() -> None:
+    """The fallback: an unmarked headline still gets the reader to the post."""
     summary = digest_summary(
         {
             "type": LINKS,
@@ -179,6 +180,33 @@ def test_links_are_rendered_as_a_bulleted_list_of_links() -> None:
         "text": "Новина",
         "url": "https://t.me/UAliveNews/1",
     }
+
+
+def test_only_the_marked_phrase_of_a_headline_is_linked() -> None:
+    """A digest of end-to-end blue headlines emphasizes nothing at all."""
+    summary = digest_summary(
+        {
+            "type": LINKS,
+            "links": [
+                {
+                    "text": "Рада ухвалила **бюджет на 2027 рік**",
+                    "url": "https://t.me/UAliveNews/1",
+                }
+            ],
+        },
+        urls={"https://t.me/UAliveNews/1"},
+    )
+
+    blocks = digest.render_digest(summary, NOW - 8 * HOUR, NOW, "8 годин")
+
+    assert blocks[1]["items"][0]["blocks"][0]["text"] == [
+        "Рада ухвалила ",
+        {
+            "type": "url",
+            "text": "бюджет на 2027 рік",
+            "url": "https://t.me/UAliveNews/1",
+        },
+    ]
 
 
 def test_the_footer_names_the_span_the_digest_covers() -> None:

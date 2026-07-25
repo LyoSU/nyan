@@ -7,7 +7,19 @@ the caller is a daemon rendering a post nobody is watching.
 
 import pytest
 
-from nyan.markup import parse_markup
+from nyan.markup import link_emphasis, parse_markup, strip_markup
+
+
+URL = "https://t.me/UAliveNews/1"
+
+
+def anchors(value: object) -> list[str]:
+    """The text of every link in a parsed value."""
+    if isinstance(value, dict):
+        return [flatten(value["text"])] if value.get("type") == "url" else []
+    if isinstance(value, list):
+        return [anchor for item in value for anchor in anchors(item)]
+    return []
 
 
 def flatten(value: object) -> str:
@@ -97,3 +109,97 @@ def test_nested_delimiters_do_not_produce_leftovers() -> None:
 
     assert "__" not in flatten(parsed)
     assert "**" not in flatten(parsed)
+
+
+# ------------------------------------------------------------- link_emphasis
+#
+# The same delimiters mean something else in a digest headline: the span is the
+# phrase to hang the link on. Every degenerate case has to fall back to linking
+# the whole headline, because a digest line with no link at all is a dead end.
+
+
+def test_only_the_marked_phrase_becomes_the_link() -> None:
+    parsed = link_emphasis("Рада ухвалила **бюджет на 2027 рік**", URL)
+
+    assert parsed == ["Рада ухвалила ", {"type": "url", "text": "бюджет на 2027 рік", "url": URL}]
+
+
+def test_the_words_around_the_phrase_stay_plain() -> None:
+    parsed = link_emphasis("ППО **збила 15 дронів** над Київщиною", URL)
+
+    assert anchors(parsed) == ["збила 15 дронів"]
+    assert flatten(parsed) == "ППО збила 15 дронів над Київщиною"
+
+
+def test_a_phrase_at_the_start_needs_no_leading_part() -> None:
+    parsed = link_emphasis("**Блекаут у Тбілісі** триває другу добу поспіль", URL)
+
+    assert isinstance(parsed, list)
+    assert parsed[0] == {"type": "url", "text": "Блекаут у Тбілісі", "url": URL}
+
+
+def test_a_headline_without_markup_is_linked_whole() -> None:
+    """The old behaviour, kept as the fallback: never lose the link."""
+    assert link_emphasis("Рада ухвалила бюджет", URL) == {
+        "type": "url",
+        "text": "Рада ухвалила бюджет",
+        "url": URL,
+    }
+
+
+def test_an_unclosed_delimiter_falls_back_to_the_whole_headline() -> None:
+    parsed = link_emphasis("Рада ухвалила **бюджет на 2027 рік", URL)
+
+    assert anchors(parsed) == ["Рада ухвалила бюджет на 2027 рік"]
+    assert "**" not in flatten(parsed)
+
+
+def test_a_phrase_covering_the_whole_headline_is_not_a_phrase() -> None:
+    """Marking everything is the failure this feature exists to fix."""
+    parsed = link_emphasis("**Рада ухвалила бюджет**", URL)
+
+    assert anchors(parsed) == ["Рада ухвалила бюджет"]
+
+
+def test_a_phrase_covering_most_of_the_headline_loses_its_contrast() -> None:
+    parsed = link_emphasis("Рада **ухвалила бюджет на 2027 рік у першому читанні**", URL)
+
+    assert anchors(parsed) == ["Рада ухвалила бюджет на 2027 рік у першому читанні"]
+
+
+def test_a_two_letter_phrase_is_too_small_to_tap() -> None:
+    parsed = link_emphasis("Рада ухвалила бюджет **на** 2027 рік", URL)
+
+    assert anchors(parsed) == ["Рада ухвалила бюджет на 2027 рік"]
+
+
+def test_only_the_first_phrase_becomes_the_link() -> None:
+    """Two links on one line would read as two separate news items."""
+    parsed = link_emphasis("**Рада** ухвалила **бюджет** на наступний рік", URL)
+
+    assert anchors(parsed) == ["Рада"]
+    assert flatten(parsed) == "Рада ухвалила бюджет на наступний рік"
+
+
+def test_spaces_inside_the_delimiters_stay_outside_the_link() -> None:
+    """An underlined trailing space is visible, and looks like a bug."""
+    parsed = link_emphasis("Рада ухвалила ** бюджет на 2027 рік ** у читанні", URL)
+
+    assert anchors(parsed) == ["бюджет на 2027 рік"]
+    assert flatten(parsed) == "Рада ухвалила  бюджет на 2027 рік  у читанні"
+
+
+def test_an_italic_span_works_as_the_anchor_too() -> None:
+    """The digest does not care which of the two constructs the model reached for."""
+    parsed = link_emphasis("Кабмін підвищив __виплати ветеранам__ з січня", URL)
+
+    assert anchors(parsed) == ["виплати ветеранам"]
+
+
+def test_an_empty_headline_produces_nothing() -> None:
+    assert link_emphasis("", URL) == ""
+    assert link_emphasis("**", URL) == ""
+
+
+def test_strip_markup_keeps_the_words() -> None:
+    assert strip_markup("Загинуло **троє** людей") == "Загинуло троє людей"
