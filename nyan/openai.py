@@ -55,7 +55,7 @@ LLM_BASE_URL = env_str("LLM_BASE_URL", "https://openrouter.ai/api/v1")
 LLM_API_KEY = os.getenv("LLM_API_KEY") or os.getenv("OPENROUTER_API_KEY")
 
 # The daemon is a synchronous loop, so a slow request stalls the whole feed.
-# These calls ask for one headline and a few short differences, so a minute is
+# These calls ask for a headline and a few short paragraphs, so a minute is
 # already generous — and the bound has to be multiplied by the retries below to
 # see the real worst case.
 LLM_TIMEOUT = env_number("LLM_TIMEOUT", "60")

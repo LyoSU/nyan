@@ -9,10 +9,13 @@ from urllib.parse import urlsplit
 from jinja2 import Environment, FileSystemLoader
 
 from nyan import rich
+from nyan import summary as nyan_summary
 from nyan.channels import Channels
 from nyan.clusters import Cluster
 from nyan.document import Document
-from nyan.rich import Block, RenderedPost, RichText
+from nyan.markup import parse_markup
+from nyan.rich import Block, RenderedPost
+from nyan.summary import Summary
 from nyan.util import DEFAULT_TIMEZONE, ts_to_dt
 
 
@@ -26,13 +29,9 @@ from nyan.util import DEFAULT_TIMEZONE, ts_to_dt
 _SENTENCE_END_CHARS = ".!?"
 MAX_DERIVED_HEADLINE_LENGTH = 120
 
-# At most this many channels are credited under a single difference; beyond
-# that the credit line stops being readable.
-MAX_DIFF_CREDITS = 3
-
-# Heading above the cross-source differences. It says what the list is for, so
-# the lines below need no "повідомляли, що" of their own.
-DIFFERENCES_TITLE = "Інші джерела уточнюють"
+# Prefix for the line that says the sources contradict each other. A reader
+# skimming has to be able to see the disagreement without reading the sentence.
+DISPUTED_TITLE = "Джерела різняться"
 
 # Heading size of the post's headline, 1-6, where 1 is the largest. Every post
 # has a headline, so it competes with nothing and does not need to shout: 4 is
@@ -158,9 +157,17 @@ class Renderer:
     def render_rich_cluster(
         self, cluster: Cluster, groups: list[tuple[str, list[Document]]]
     ) -> RenderedPost:
+        """A post, written from every source if possible, quoted if not.
+
+        The two bodies differ in who wrote them, and the post says so: a
+        summary written from the whole cluster carries no byline, because
+        crediting one channel for text it did not write would be a lie, while a
+        quoted post names the channel whose words these are.
+        """
+        summary = cluster.summary
         blocks: list[Block] = []
 
-        headline, body = self.split_headline(cluster)
+        headline = summary.headline or self.split_headline(cluster)[0]
         if headline:
             # Important clusters get a bigger heading rather than a badge:
             # a marker that appears often stops reading as a marker.
@@ -171,15 +178,55 @@ class Renderer:
             )
             blocks.append(rich.heading(headline, size=size))
         blocks.extend(self.render_media(cluster))
-        if body:
-            blocks.append(rich.paragraph(body))
-        blocks.append(self.render_credit(cluster))
-        blocks.extend(self.render_differences(cluster))
+
+        if summary:
+            blocks.extend(self.render_summary(summary))
+        else:
+            body = self.split_headline(cluster)[1]
+            if body:
+                blocks.append(rich.paragraph(body))
+            blocks.append(self.render_credit(cluster))
+
         blocks.append(self.render_sources(cluster, groups))
         blocks.append(rich.divider())
         blocks.append(self.render_footer(cluster))
 
         return RenderedPost(blocks=blocks)
+
+    def render_summary(self, summary: Summary) -> list[Block]:
+        """The model's blocks as Telegram blocks.
+
+        The model chooses the shape of the post — news does not come in one
+        shape — and this is where its vocabulary maps onto the API's. Unknown
+        kinds cannot arrive here: `nyan.summary` has already dropped them.
+        """
+        blocks: list[Block] = []
+        for block in summary.blocks:
+            if block.type == nyan_summary.TEXT:
+                blocks.append(rich.paragraph(parse_markup(block.text)))
+            elif block.type == nyan_summary.LIST:
+                blocks.append(
+                    rich.bullet_list(*[[rich.paragraph(item)] for item in block.items])
+                )
+            elif block.type == nyan_summary.QUOTE:
+                blocks.append(
+                    rich.blockquote(rich.paragraph(block.text), credit=block.author)
+                )
+            elif block.type == nyan_summary.HIDDEN:
+                blocks.append(
+                    rich.details(block.summary, rich.paragraph(parse_markup(block.text)))
+                )
+            elif block.type == nyan_summary.SUBHEADING:
+                blocks.append(rich.heading(block.text, size=self.section_size))
+            elif block.type == nyan_summary.DISPUTED:
+                # Marked rather than merely stated: a reader skimming has to
+                # see that the sources do not agree.
+                blocks.append(
+                    rich.paragraph(
+                        rich.join([rich.bold(DISPUTED_TITLE), block.text], ": ")
+                    )
+                )
+        return blocks
 
     def split_headline(self, cluster: Cluster) -> tuple[str | None, str | None]:
         """Return (headline, body) for the cluster's text.
@@ -249,40 +296,6 @@ class Renderer:
                 )
             )
         )
-
-    def render_differences(self, cluster: Cluster) -> list[Block]:
-        """What other sources add, as a list under a heading.
-
-        Not blockquotes: these lines are the model's summary of what a channel
-        reported, not its words, so presenting them as quotations claims a
-        precision they do not have. A stack of quote cards also outweighed the
-        story itself — the most important thing in the post has to look like it.
-
-        This is the channel's own reporting rather than a metadata dump, so it
-        stays visible instead of going under a disclosure.
-        """
-        channel_links = self.channel_links(cluster)
-        items: list[Sequence[Block]] = []
-        for difference in cluster.diff:
-            channel_ids = [
-                channel_id
-                for channel_id in difference.get("channel_ids", [])[:MAX_DIFF_CREDITS]
-                if channel_id in channel_links
-            ]
-            text = (difference.get("text") or "").strip().rstrip(".")
-            if not channel_ids or not text:
-                continue
-            credit = rich.join(
-                [channel_links[channel_id] for channel_id in channel_ids], ", "
-            )
-            items.append([rich.paragraph(text), rich.paragraph(rich.italic(credit))])
-
-        if not items:
-            return []
-        return [
-            rich.heading(DIFFERENCES_TITLE, size=self.section_size),
-            rich.bullet_list(*items),
-        ]
 
     def render_sources(
         self, cluster: Cluster, groups: list[tuple[str, list[Document]]]
@@ -367,29 +380,23 @@ class Renderer:
         """
         return rich.footer(f"👁 {self.views_to_str(cluster.views)}")
 
-    def channel_links(self, cluster: Cluster) -> dict[str, RichText]:
-        """One link per channel, pointing at that channel's earliest post."""
-        links: dict[str, RichText] = dict()
-        for doc in sorted(cluster.docs, key=lambda d: d.pub_time):
-            if doc.channel_id in links:
-                continue
-            links[doc.channel_id] = rich.link(
-                doc.channel_title or doc.channel_id, doc.url
-            )
-        return links
-
     # ---------------------------------------------------------------- legacy
 
     def render_legacy_cluster(
         self, cluster: Cluster, groups: list[tuple[str, list[Document]]]
     ) -> RenderedPost:
+        """The pre-rich HTML caption, kept as a rollback path.
+
+        Deliberately not given the summary: this format exists so that a bad
+        release can be undone by editing a config, which means it has to stay
+        the simple thing it was — one channel's text, quoted.
+        """
         emojis = {group: self.channels.group_emoji(group) for group, _ in groups}
         first_doc = copy.deepcopy(cluster.first_doc)
         first_doc.pub_time_dt = ts_to_dt(first_doc.pub_time, self.tz_name)
 
         text = self.cluster_template.render(
             annotation_doc=cluster.annotation_doc,
-            diff=self.legacy_differences(cluster),
             first_doc=first_doc,
             groups=groups,
             emojis=emojis,
@@ -401,38 +408,6 @@ class Renderer:
         return RenderedPost(
             text=text, photos=cluster.images, videos=cluster.videos
         )
-
-    def legacy_differences(self, cluster: Cluster) -> list[dict[str, str]]:
-        """Differences with channel credits pre-rendered as HTML links.
-
-        Only the legacy template needs markup in the data; the rich path keeps
-        channel ids and builds links structurally.
-        """
-        channel_urls: dict[str, tuple[str, str]] = dict()
-        for doc in sorted(cluster.docs, key=lambda d: d.pub_time):
-            if doc.channel_id in channel_urls:
-                continue
-            channel_urls[doc.channel_id] = (
-                doc.url,
-                doc.channel_title or doc.channel_id,
-            )
-
-        result = []
-        for difference in cluster.diff:
-            channel_ids = [
-                channel_id
-                for channel_id in difference.get("channel_ids", [])[:MAX_DIFF_CREDITS]
-                if channel_id in channel_urls
-            ]
-            text = (difference.get("text") or "").strip()
-            if not channel_ids or not text:
-                continue
-            links = [
-                '<a href="{}">{}</a>'.format(*channel_urls[channel_id])
-                for channel_id in channel_ids
-            ]
-            result.append({"text": text, "channels": ", ".join(links)})
-        return result
 
     # ----------------------------------------------------------------- misc
 

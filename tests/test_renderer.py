@@ -27,6 +27,7 @@ def make_doc(
     images: Sequence[str] = (),
     videos: Sequence[str] = (),
     links: Sequence[str] = (),
+    embedded_images: Sequence[dict[str, Any]] = (),
 ) -> Document:
     return Document(
         url=url,
@@ -39,23 +40,38 @@ def make_doc(
         images=images,
         videos=videos,
         links=links,
+        embedded_images=list(embedded_images),
     )
 
 
 def make_cluster(
     docs: Sequence[Document],
     headline: str | None = "Заголовок новини",
-    differences: Sequence[dict[str, Any]] = (),
     embedded_images: Sequence[dict[str, str]] = (),
+    summary: dict[str, Any] | None = None,
 ) -> Cluster:
+    """A cluster whose analysis is already filled in, so nothing calls the LLM.
+
+    Without `summary` the cluster renders the fallback shape: the chosen
+    channel's own text, credited to it.
+    """
     cluster = Cluster()
     for doc in docs:
         cluster.add(doc)
     annotation_doc = docs[0]
-    annotation_doc.embedded_images = list(embedded_images)
+    if embedded_images:
+        annotation_doc.embedded_images = list(embedded_images)
     cluster.saved_annotation_doc = annotation_doc
-    cluster.saved_analysis = {"headline": headline, "differences": list(differences)}
+    cluster.saved_analysis = {
+        "headline": headline,
+        "summary": summary,
+        "generation": cluster.generation,
+    }
     return cluster
+
+
+def make_summary(*blocks: dict[str, Any], headline: str = "Заголовок новини") -> dict[str, Any]:
+    return {"headline": headline, "blocks": list(blocks)}
 
 
 def find(blocks: Sequence[dict[str, Any]], block_type: str) -> dict[str, Any]:
@@ -110,7 +126,7 @@ def test_post_is_rich_by_default(renderer: Renderer, two_group_cluster: Cluster)
 
 
 def test_block_order_is_stable(renderer: Renderer) -> None:
-    """Readers learn to scan a fixed shape, so the order must not vary."""
+    """The frame around the story is fixed, whatever shape the story has."""
     cluster = make_cluster(
         [
             make_doc(
@@ -120,8 +136,11 @@ def test_block_order_is_stable(renderer: Renderer) -> None:
                 AGGREGATOR, "https://t.me/nexta_live/1", pub_time=200, images=("b",)
             ),
         ],
-        differences=[{"channel_ids": [AGGREGATOR], "text": "додаткова деталь"}],
         embedded_images=[{"url": "https://example.com/a.jpg"}],
+        summary=make_summary(
+            {"type": "text", "text": "Що сталося."},
+            {"type": "list", "items": ["Раз", "Два"]},
+        ),
     )
     post = renderer.render_cluster(cluster, "main")
 
@@ -130,16 +149,35 @@ def test_block_order_is_stable(renderer: Renderer) -> None:
     assert [b["type"] for b in post.blocks] == [
         "heading",
         "photo",
+        # The model's own blocks, in the order it chose them.
         "paragraph",
-        # Whose text that was, right under it.
-        "paragraph",
-        # What other sources add: a heading and a list, not quote cards.
-        "heading",
         "list",
         "details",
         "divider",
         "footer",
     ]
+
+
+def test_a_quoted_post_is_credited_and_a_summarized_one_is_not(
+    renderer: Renderer,
+) -> None:
+    """A byline under text the channel did not write would be a lie."""
+    docs = [
+        make_doc(VERIFIED, "https://t.me/rbc_news/1", pub_time=100),
+        make_doc(AGGREGATOR, "https://t.me/nexta_live/1", pub_time=200),
+    ]
+    quoted = renderer.render_cluster(make_cluster(docs), "main")
+    summarized = renderer.render_cluster(
+        make_cluster(docs, summary=make_summary({"type": "text", "text": "Зведено."})),
+        "main",
+    )
+
+    assert quoted is not None and quoted.blocks is not None
+    assert summarized is not None and summarized.blocks is not None
+    assert f"— {VERIFIED.upper()}" in squeeze(flatten_text(quoted.blocks))
+    assert VERIFIED.upper() not in flatten_text(
+        [b for b in summarized.blocks if b["type"] == "paragraph"]
+    )
 
 
 def test_llm_headline_becomes_the_heading(renderer: Renderer) -> None:
@@ -177,11 +215,18 @@ def make_renderer(tmp_path: Any, channels: Channels, **overrides: Any) -> Render
 
 
 def heading_sizes(renderer: Renderer) -> list[int]:
+    """The post's own headline, then a section heading inside the story."""
     cluster = make_cluster(
-        [make_doc(VERIFIED, "https://t.me/rbc_news/1")],
-        differences=[{"channel_ids": [AGGREGATOR], "text": "деталь"}],
+        [
+            make_doc(VERIFIED, "https://t.me/rbc_news/1"),
+            make_doc(AGGREGATOR, "https://t.me/nexta_live/1"),
+        ],
+        summary=make_summary(
+            {"type": "text", "text": "Лід."},
+            {"type": "subheading", "text": "Друга частина"},
+            {"type": "text", "text": "Продовження."},
+        ),
     )
-    cluster.add(make_doc(AGGREGATOR, "https://t.me/nexta_live/1"))
     post = renderer.render_cluster(cluster, "main")
     assert post is not None and post.blocks is not None
     return [b["size"] for b in post.blocks if b["type"] == "heading"]
@@ -306,16 +351,23 @@ def test_single_sentence_without_a_headline_gets_no_heading(renderer: Renderer) 
 
 
 def test_several_photos_become_a_slideshow(renderer: Renderer) -> None:
+    """One photo per channel, so a well-covered event shows several angles."""
     cluster = make_cluster(
         [
-            make_doc(VERIFIED, "https://t.me/rbc_news/1", images=("a",), pub_time=100),
             make_doc(
-                AGGREGATOR, "https://t.me/nexta_live/1", images=("b",), pub_time=200
+                VERIFIED,
+                "https://t.me/rbc_news/1",
+                images=("a",),
+                pub_time=100,
+                embedded_images=[{"url": "https://example.com/a.jpg"}],
             ),
-        ],
-        embedded_images=[
-            {"url": "https://example.com/a.jpg"},
-            {"url": "https://example.com/b.jpg"},
+            make_doc(
+                AGGREGATOR,
+                "https://t.me/nexta_live/1",
+                images=("b",),
+                pub_time=200,
+                embedded_images=[{"url": "https://example.com/b.jpg"}],
+            ),
         ],
     )
     post = renderer.render_cluster(cluster, "main")
@@ -346,66 +398,89 @@ def test_video_wins_over_photos(renderer: Renderer) -> None:
     ]
 
 
-def test_difference_is_credited_to_the_channel_reporting_it(renderer: Renderer) -> None:
-    """Summaries of what a channel reported, not its words, so not quotations."""
+def summarized_post(renderer: Renderer, *blocks: dict[str, Any]) -> list[dict[str, Any]]:
     cluster = make_cluster(
         [
             make_doc(VERIFIED, "https://t.me/rbc_news/1", pub_time=100),
             make_doc(AGGREGATOR, "https://t.me/nexta_live/1", pub_time=200),
         ],
-        differences=[{"channel_ids": [AGGREGATOR], "text": "затримали підозрюваного."}],
+        summary=make_summary(*blocks),
     )
     post = renderer.render_cluster(cluster, "main")
-
-    assert post is not None
-    assert post.blocks is not None
-    assert [b for b in post.blocks if b["type"] == "blockquote"] == []
-
-    item = find(post.blocks, "list")["items"][0]["blocks"]
-    assert item[0]["text"] == "затримали підозрюваного"
-    assert flatten_text(item[1]) == AGGREGATOR.upper()
+    assert post is not None and post.blocks is not None
+    return post.blocks
 
 
-def test_differences_are_introduced_by_a_heading(renderer: Renderer) -> None:
-    """The heading says what the list is, so each line can be a bare fact."""
-    cluster = make_cluster(
-        [
-            make_doc(VERIFIED, "https://t.me/rbc_news/1", pub_time=100),
-            make_doc(AGGREGATOR, "https://t.me/nexta_live/1", pub_time=200),
-        ],
-        differences=[{"channel_ids": [AGGREGATOR], "text": "деталь"}],
+def test_the_summary_headline_becomes_the_heading(renderer: Renderer) -> None:
+    blocks = summarized_post(renderer, {"type": "text", "text": "Лід."})
+
+    assert find(blocks, "heading")["text"] == "Заголовок новини"
+
+
+def test_a_quote_names_the_person_who_said_it(renderer: Renderer) -> None:
+    """A quotation belongs to a speaker, which is what makes it a quotation."""
+    blocks = summarized_post(
+        renderer,
+        {"type": "text", "text": "Лід."},
+        {"type": "quote", "text": "Ми цього не робили", "author": "Іван Федоров"},
     )
-    post = renderer.render_cluster(cluster, "main")
 
-    assert post is not None
-    assert post.blocks is not None
-    headings = [b for b in post.blocks if b["type"] == "heading"]
-    assert headings[-1]["text"] == "Інші джерела уточнюють"
-    # Smaller than the post's own headline: it introduces a section, not the post.
-    assert headings[-1]["size"] > headings[0]["size"]
+    quote = find(blocks, "blockquote")
+    assert quote["credit"] == "Іван Федоров"
+    assert flatten_text(quote["blocks"]) == "Ми цього не робили"
 
 
-def test_without_differences_there_is_no_heading_for_them(renderer: Renderer) -> None:
-    cluster = make_cluster([make_doc(VERIFIED, "https://t.me/rbc_news/1")])
-    post = renderer.render_cluster(cluster, "main")
-
-    assert post is not None
-    assert post.blocks is not None
-    assert [b["type"] for b in post.blocks].count("heading") == 1
-    assert [b for b in post.blocks if b["type"] == "list"] == []
-
-
-def test_difference_from_an_unknown_channel_is_dropped(renderer: Renderer) -> None:
-    cluster = make_cluster(
-        [make_doc(VERIFIED, "https://t.me/rbc_news/1")],
-        differences=[{"channel_ids": ["hallucinated_channel"], "text": "деталь"}],
+def test_markup_in_the_text_becomes_entities(renderer: Renderer) -> None:
+    blocks = summarized_post(
+        renderer, {"type": "text", "text": "Загинула **58-річна жінка** в місті"}
     )
-    post = renderer.render_cluster(cluster, "main")
 
-    assert post is not None
-    assert post.blocks is not None
-    # No list at all: the only difference named a channel not in the cluster.
-    assert [b for b in post.blocks if b["type"] == "list"] == []
+    paragraph = find(blocks, "paragraph")
+    assert paragraph["text"][1] == {"type": "bold", "text": "58-річна жінка"}
+    assert "**" not in flatten_text(blocks)
+
+
+def test_a_hidden_block_becomes_a_disclosure(renderer: Renderer) -> None:
+    blocks = summarized_post(
+        renderer,
+        {"type": "text", "text": "Лід."},
+        {"type": "hidden", "summary": "Передісторія", "text": "Було раніше."},
+    )
+
+    disclosures = [b for b in blocks if b["type"] == "details"]
+    # Two: the model's, then the source list.
+    assert disclosures[0]["summary"] == "Передісторія"
+    assert flatten_text(disclosures[0]["blocks"]) == "Було раніше."
+
+
+def test_a_disagreement_between_sources_is_labelled(renderer: Renderer) -> None:
+    """A reader skimming has to see that the sources do not agree."""
+    blocks = summarized_post(
+        renderer,
+        {"type": "text", "text": "Лід."},
+        {"type": "disputed", "text": "поранених від дев'яти до одинадцяти"},
+    )
+
+    paragraphs = [b for b in blocks if b["type"] == "paragraph"]
+    assert paragraphs[-1]["text"] == [
+        {"type": "bold", "text": "Джерела різняться"},
+        ": ",
+        "поранених від дев'яти до одинадцяти",
+    ]
+
+
+def test_summary_list_items_become_bullets(renderer: Renderer) -> None:
+    blocks = summarized_post(
+        renderer,
+        {"type": "text", "text": "Лід."},
+        {"type": "list", "items": ["Перший факт", "Другий факт"]},
+    )
+
+    items = find(blocks, "list")["items"]
+    assert [flatten_text(item["blocks"]) for item in items] == [
+        "Перший факт",
+        "Другий факт",
+    ]
 
 
 def test_sources_summary_is_just_a_count(renderer: Renderer) -> None:
@@ -633,15 +708,17 @@ def test_legacy_format_still_produces_text_and_media(
             make_doc(VERIFIED, "https://t.me/rbc_news/1", pub_time=100),
             make_doc(AGGREGATOR, "https://t.me/nexta_live/1", pub_time=200),
         ],
-        differences=[{"channel_ids": [AGGREGATOR], "text": "деталь"}],
+        summary=make_summary({"type": "text", "text": "Зведений текст."}),
     )
     post = legacy_renderer.render_cluster(cluster, "main")
 
     assert post is not None
     assert not post.is_rich
     assert post.text is not None
+    # The rollback path stays what it was: one channel's text, quoted.
     assert "Основний текст новини" in post.text
-    # The legacy template needs the channel credit as markup.
+    assert "Зведений текст" not in post.text
+    # The legacy template needs its channel links as markup.
     assert '<a href="https://t.me/nexta_live/1">' in post.text
 
 

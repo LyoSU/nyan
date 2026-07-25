@@ -1,5 +1,6 @@
 import json
 import logging
+import math
 import os
 import shutil
 import hashlib
@@ -10,6 +11,8 @@ from collections import Counter as CounterT
 from collections import Counter, defaultdict
 from functools import cached_property
 
+import numpy as np
+from numpy.typing import NDArray
 from jinja2 import Template
 
 from nyan.client import MessageId
@@ -17,6 +20,7 @@ from nyan.document import Document, crop_words
 from nyan.mongo import get_clusters_collection
 from nyan.title import choose_title
 from nyan.openai import openai_completion, DEFAULT_REASONING_EFFORT
+from nyan.summary import Summary, parse_summary
 from nyan.util import normalize_url
 
 
@@ -30,6 +34,23 @@ MAX_TITLE_WORDS = 14
 MIN_IMAGE_DOCS_RATIO = 0.4
 MIN_IMAGE_DOCS = 3
 
+# Photos are collected across the whole cluster, so the same picture arrives
+# once per channel that posted it — under a different Telegram CDN URL every
+# time, which makes URL comparison useless. CLIP embeddings are already stored
+# per image (see nyan/image.py), so near-duplicates are recognized by content:
+# above this cosine similarity two photos are the same photo to a reader.
+DUPLICATE_IMAGE_SIMILARITY = 0.92
+
+# One photo per channel, and few enough of them that the post stays a post.
+MAX_CLUSTER_IMAGES = 4
+
+# Documents sent to the LLM. Enough for a well-covered story to be summarized
+# from several angles, few enough that a story on fifty channels still fits.
+MAX_PROMPT_DOCS = 12
+
+# Channels whose word is treated as confirmation rather than as one more report.
+OFFICIAL_GROUP = "red"
+
 # Views are bucketed before hashing, so a post is only re-edited when its
 # audience changed by an order that a reader would notice.
 VIEWS_HASH_BUCKET = 100000
@@ -37,10 +58,57 @@ VIEWS_HASH_BUCKET = 100000
 # Cross-object LLM analysis cache. The daemon re-creates Cluster objects from
 # scratch on every iteration, so per-object memoization alone still re-pays
 # the LLM call each iteration for clusters that fail to post (e.g. Telegram
-# errors) and get re-rendered forever. Keyed by the normalized doc URL set:
-# a cluster with the same documents always yields the same analysis.
+# errors) and get re-rendered forever.
 _ANALYSIS_CACHE: dict[Any, dict[str, Any]] = {}
 _ANALYSIS_CACHE_MAX_SIZE = 2048
+
+# A story is rewritten when its source count crosses a step of this ladder:
+# 1, 2, 3, 5, 7, 11, 17... Clusters grow all day, and a rewrite per arriving
+# document would mean an LLM call per iteration per story, while freezing the
+# first version leaves a developing story stuck on its thinnest telling. A
+# geometric step is the compromise: the text is redone when the coverage
+# behind it has grown enough to say something new, and the ladder is derived
+# from the cluster itself, so it needs no history to be stored.
+GENERATION_GROWTH = 1.5
+
+
+def _deduplicate_images(images: Sequence[dict[str, Any]]) -> tuple[str, ...]:
+    """`images` with near-duplicates and repeats of the same URL removed.
+
+    Comparison is by CLIP embedding, because the same photo redistributed by
+    several channels gets a different URL from each of them. Images stored
+    without an embedding (older documents, or a fetch that failed) are kept on
+    URL identity alone — a possible duplicate is a smaller price than dropping
+    the only picture of an event.
+    """
+    kept: list[str] = []
+    kept_embeddings: list[NDArray[np.float32]] = []
+    seen_urls: set[str] = set()
+    for image in images:
+        url = image["url"]
+        if url in seen_urls:
+            continue
+        embedding = image.get("embedding")
+        vector = _unit_vector(embedding) if embedding else None
+        if vector is not None and kept_embeddings:
+            similarity = float(np.max(np.stack(kept_embeddings) @ vector))
+            if similarity >= DUPLICATE_IMAGE_SIMILARITY:
+                continue
+        seen_urls.add(url)
+        kept.append(url)
+        if vector is not None:
+            kept_embeddings.append(vector)
+        if len(kept) >= MAX_CLUSTER_IMAGES:
+            break
+    return tuple(kept)
+
+
+def _unit_vector(embedding: Sequence[float]) -> NDArray[np.float32] | None:
+    vector = np.asarray(embedding, dtype=np.float32)
+    norm = float(np.linalg.norm(vector))
+    if norm == 0.0:
+        return None
+    return cast("NDArray[np.float32]", vector / norm)
 
 
 class Cluster:
@@ -121,21 +189,46 @@ class Cluster:
 
     @cached_property
     def images(self) -> Sequence[str]:
+        """Photos of the event, gathered from every channel that has one.
+
+        Taking them from the chosen document alone left plenty of posts with no
+        picture at all, because the channel that writes best is often not the
+        one that was there. Gathering across the cluster fixes that but
+        introduces the opposite problem — the same wire photo, reposted by six
+        channels — so see `_deduplicate_images`.
+        """
         doc_count = len(self.unique_docs)
         if doc_count == 0:
             return tuple()
-        images = [image["url"] for image in self.annotation_doc.embedded_images]
-        if not images:
-            return tuple()
+
         # Only show images when enough sources posted one: a picture from a
         # single channel is usually its own branding rather than the story.
         image_doc_count = sum(bool(doc.images) for doc in self.unique_docs)
         if (
-            image_doc_count / doc_count >= MIN_IMAGE_DOCS_RATIO
-            or image_doc_count >= MIN_IMAGE_DOCS
+            image_doc_count / doc_count < MIN_IMAGE_DOCS_RATIO
+            and image_doc_count < MIN_IMAGE_DOCS
         ):
-            return images
-        return tuple()
+            return tuple()
+
+        candidates: list[dict[str, Any]] = []
+        seen_channels: set[str] = set()
+        annotation_channel = self.annotation_doc.channel_id
+        docs = sorted(
+            self.unique_docs,
+            key=lambda d: (d.channel_id != annotation_channel, d.pub_time),
+        )
+        for doc in docs:
+            if doc.channel_id in seen_channels:
+                continue
+            # One picture per channel: a channel posting six photos of the same
+            # scene would otherwise fill the slideshow on its own.
+            for image in doc.embedded_images:
+                if image.get("url"):
+                    candidates.append(image)
+                    seen_channels.add(doc.channel_id)
+                    break
+
+        return _deduplicate_images(candidates)
 
     @cached_property
     def videos(self) -> Sequence[str]:
@@ -163,39 +256,82 @@ class Cluster:
         return min(self.docs, key=lambda x: x.pub_time)
 
     @property
-    def analysis(self) -> dict[str, Any]:
-        """Headline and cross-source differences, from a single LLM call.
+    def has_official_source(self) -> bool:
+        return any(doc.groups.get("main") == OFFICIAL_GROUP for doc in self.docs)
 
-        Both are derived from the same input (the cluster's documents), so
-        asking for them separately would double the cost for no gain.
+    @property
+    def generation(self) -> str:
+        """Which rewrite of this story's text the current coverage justifies.
+
+        Stored alongside the text, so a cluster loaded from Mongo knows whether
+        what it carries is still good enough or has been outgrown. An official
+        source joining always counts, since it can confirm or correct
+        everything written before it.
         """
-        if self.saved_analysis is not None:
-            return self.saved_analysis
+        steps = int(math.log(max(len(self.channels), 1), GENERATION_GROWTH))
+        return f"{steps}{'o' if self.has_official_source else '-'}"
 
-        cache_key = tuple(sorted(self.url2doc.keys()))
+    @property
+    def prompt_docs(self) -> list[Document]:
+        """One document per channel, earliest first, for the LLM to read.
+
+        Several posts from the same channel say the same thing twice, and a
+        story covered by fifty channels would otherwise not fit a prompt.
+        """
+        by_channel: dict[str, Document] = {}
+        for doc in sorted(self.docs, key=lambda d: d.pub_time):
+            by_channel.setdefault(doc.channel_id, doc)
+        docs = list(by_channel.values())
+        annotation_channel = self.annotation_doc.channel_id
+        # The chosen document leads: it is the one the fallback would quote, so
+        # its framing should anchor the summary too.
+        docs.sort(key=lambda d: (d.channel_id != annotation_channel, d.pub_time))
+        return docs[:MAX_PROMPT_DOCS]
+
+    @property
+    def analysis(self) -> dict[str, Any]:
+        """The post's text, from a single LLM call.
+
+        Two paths, because two situations. A story several channels covered is
+        rewritten as one post: that is where an aggregator earns its keep, and
+        where a reader would otherwise have to open five channels. A story only
+        one channel has is left in that channel's own words — rewriting it
+        would add the risk of paraphrase for no gain — and the call only buys a
+        headline.
+        """
+        current = self.generation
+        saved = self.saved_analysis
+        if saved is not None:
+            # A stored cluster from before generations existed carries the key
+            # with no value, so absent and empty have to mean the same thing:
+            # already analysed. Its post is published, and rewriting a day-old
+            # story helps nobody.
+            stored_generation = saved.get("generation") or current
+            if stored_generation == current:
+                return saved
+            logging.info(
+                "Rewriting '%s': coverage grew past generation %s",
+                self.cropped_title,
+                stored_generation,
+            )
+
+        cache_key = (normalize_url(self.first_doc.url), current)
         cached = _ANALYSIS_CACHE.get(cache_key)
         if cached is not None:
             self.saved_analysis = cached
             return cached
 
-        annotation_doc = self.annotation_doc
-        # Only other channels can disagree with the main story; comparing a
-        # channel against itself yields noise, and for a single-channel
-        # cluster it also keeps the prompt short.
-        other_docs = [
-            doc for doc in self.docs if doc.channel_id != annotation_doc.channel_id
-        ]
-
-        prompt_path: Path = BASE_DIR / "prompts/analysis.txt"
-        with open(prompt_path) as f:
+        docs = self.prompt_docs
+        is_multi_source = len(self.channels) > 1
+        prompt_name = "summary.txt" if is_multi_source else "headline.txt"
+        with open(BASE_DIR / "prompts" / prompt_name) as f:
             template = Template(f.read())
-        prompt = template.render(docs=other_docs, annotation_doc=annotation_doc)
-        messages = [{"role": "user", "content": prompt}]
+        prompt = template.render(docs=docs, annotation_doc=self.annotation_doc)
 
-        analysis: dict[str, Any] = {"headline": None, "differences": []}
+        analysis: dict[str, Any] = {"headline": None, "generation": current}
         try:
             content = openai_completion(
-                messages=messages,
+                messages=[{"role": "user", "content": prompt}],
                 response_format={"type": "json_object"},
                 reasoning_effort=DEFAULT_REASONING_EFFORT,
             )
@@ -205,17 +341,14 @@ class Cluster:
             headline = parsed_content.get("headline")
             if isinstance(headline, str) and headline.strip():
                 analysis["headline"] = headline.strip()
-
-            # A cluster nobody else covered has nothing to differ from, so
-            # anything the model returns here is a hallucinated comparison.
-            if other_docs:
-                differences = parsed_content.get("differences") or []
-                analysis["differences"] = [
-                    d for d in differences if d.get("text") and d.get("channel_ids")
-                ]
+            if is_multi_source:
+                summary = parse_summary(parsed_content, context=self.cropped_title)
+                if summary:
+                    analysis["summary"] = summary.asdict()
         except Exception:
-            # A post without a headline or differences is still a usable post,
-            # so a failed analysis degrades the post instead of the iteration.
+            # A cluster with no summary still makes a post — the renderer falls
+            # back to the chosen channel's own text — so a failed call degrades
+            # one post instead of the whole iteration.
             logging.exception("LLM analysis failed for '%s'", self.cropped_title)
 
         self.saved_analysis = analysis
@@ -225,8 +358,12 @@ class Cluster:
         return analysis
 
     @property
-    def diff(self) -> list[dict[str, Any]]:
-        return cast(list[dict[str, Any]], self.analysis["differences"])
+    def summary(self) -> Summary:
+        """The post as written from every source, or an empty one to fall back."""
+        stored = self.analysis.get("summary")
+        if not stored:
+            return Summary()
+        return Summary.fromdict(stored)
 
     @property
     def headline(self) -> str | None:
@@ -294,7 +431,13 @@ class Cluster:
 
         def get_most_common(items: list[T]) -> list[T]:
             counter = Counter(items)
-            max_count = counter.most_common(1)[0][1]
+            most_common = counter.most_common(1)
+            # Nothing to count: documents can lack an issue or a category, and
+            # indexing an empty result would take down the whole iteration over
+            # a cluster that simply has no vote to offer.
+            if not most_common:
+                return []
+            max_count = most_common[0][1]
             return [item for item, count in counter.items() if count == max_count]
 
         issues: list[str] = get_most_common(
@@ -335,9 +478,9 @@ class Cluster:
         docs = [d.asdict(is_short=True) for d in self.docs]
         annotation_doc = self.annotation_doc.asdict()
         first_doc = self.first_doc.asdict(is_short=True)
-        # Whatever analysis exists, without asking for it: `self.diff` would
-        # call the LLM on demand, which would make serializing a cluster a
-        # network operation and require an API key just to store one.
+        # Whatever analysis exists, without asking for it: `self.summary` calls
+        # the LLM on demand, which would make serializing a cluster a network
+        # operation and require an API key just to store one.
         analysis = self.saved_analysis or {}
         return {
             "clid": self.clid,
@@ -346,8 +489,9 @@ class Cluster:
             "annotation_doc": annotation_doc,
             "first_doc": first_doc,
             "hash": self.hash,
-            "diff": analysis.get("differences", []),
             "headline": analysis.get("headline"),
+            "summary": analysis.get("summary"),
+            "generation": analysis.get("generation"),
             "is_important": self.is_important,
             "create_time": self.create_time,
         }
@@ -381,15 +525,16 @@ class Cluster:
             cluster.saved_first_doc = Document.fromdict(first_doc_dict)
         cluster.saved_hash = d.get("hash")
 
-        # Clusters stored before headlines existed carry only "diff". Treat
-        # them as fully analysed anyway, so re-rendering an already posted
-        # cluster never pays for a new LLM call; the renderer falls back to
-        # deriving a headline from the text when it is None.
-        saved_diff = d.get("diff")
-        if saved_diff is not None or d.get("headline") is not None:
+        # Any of these three means the cluster has been through the LLM. Older
+        # clusters carry only "headline", or only the "diff" of the version that
+        # listed per-source differences; treating them as analysed keeps an
+        # already published post from paying for a new call, and the renderer
+        # falls back to the channel's own text when there is no summary.
+        if any(key in d for key in ("summary", "headline", "diff")):
             cluster.saved_analysis = {
                 "headline": d.get("headline"),
-                "differences": saved_diff or [],
+                "summary": d.get("summary"),
+                "generation": d.get("generation"),
             }
         cluster.is_important = d.get("is_important", False)
         cluster.create_time = d.get("create_time")
