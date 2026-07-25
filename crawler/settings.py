@@ -10,5 +10,6 @@ TELNETCONSOLE_ENABLED = False
 ITEM_PIPELINES = {
     "crawler.pipelines.MongoPipeline": 300,
 }
-DNS_RESOLVER = "scrapy.resolver.CachingHostnameResolver"
+# Renamed from DNS_RESOLVER in Scrapy 2.13.
+TWISTED_DNS_RESOLVER = "scrapy.resolver.CachingHostnameResolver"
 LOG_LEVEL = "INFO"

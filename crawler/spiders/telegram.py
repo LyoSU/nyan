@@ -1,20 +1,28 @@
 import json
 import logging
 import shutil
+from collections.abc import AsyncIterator, Iterator
 from datetime import datetime, UTC
+from typing import Any
 
 import scrapy
 import html2text
+from scrapy.http import Response
 
 
-def get_current_ts():
+# Post ids are the only way back through a channel's history: the next page is
+# requested as ?before=<lowest id seen>.
+Item = dict[str, Any]
+
+
+def get_current_ts() -> int:
     # now(utc), not now().replace(tzinfo=utc): the latter relabels local
     # wall-clock time as UTC and only agrees with the rest of the pipeline when
     # the host happens to run on UTC.
     return int(datetime.now(UTC).timestamp())
 
 
-def process_views(views):
+def process_views(views: str | None) -> int:
     if not views:
         return 0
     try:
@@ -29,7 +37,7 @@ def process_views(views):
         return 0
 
 
-def parse_post_url(url):
+def parse_post_url(url: str) -> Item:
     url = url.split("?")[0].lower()
     channel_id, post_id = url.split("/")[-2:]
     return {
@@ -39,7 +47,7 @@ def parse_post_url(url):
     }
 
 
-def to_timestamp(dt_str):
+def to_timestamp(dt_str: str | None) -> int:
     if not dt_str:
         return 0
     try:
@@ -51,7 +59,7 @@ def to_timestamp(dt_str):
         return 0
 
 
-def html2text_setup():
+def html2text_setup() -> html2text.HTML2Text:
     instance = html2text.HTML2Text(bodywidth=0)
     instance.ignore_links = True
     instance.ignore_images = True
@@ -66,7 +74,7 @@ class TelegramSpider(scrapy.Spider):
     channel_url_template = "https://t.me/s/{}"
     post_url_template = "https://t.me/{}?embed=1"
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         assert "channels_file" in kwargs
         with open(kwargs.pop("channels_file")) as r:
             self.channels = json.load(r)["channels"]
@@ -85,16 +93,27 @@ class TelegramSpider(scrapy.Spider):
 
         super().__init__(*args, **kwargs)
 
-    def start_requests(self):
-        channels = self.channels
-        channels = [ch for ch in channels.values() if not ch.get("disabled", False)]
+    async def start(self) -> AsyncIterator[scrapy.Request]:
+        # Scrapy 2.13 replaced start_requests() with an async start(), and 2.17
+        # removed the old name entirely. A spider that only defines
+        # start_requests() there yields nothing at all — no error, no requests,
+        # just an empty crawl — so both entry points are kept.
+        for request in self.channel_requests():
+            yield request
+
+    def start_requests(self) -> Iterator[scrapy.Request]:
+        """Entry point for Scrapy older than 2.13."""
+        return self.channel_requests()
+
+    def channel_requests(self) -> Iterator[scrapy.Request]:
+        channels = [ch for ch in self.channels.values() if not ch.get("disabled", False)]
         urls = {self.channel_url_template.format(ch["name"]) for ch in channels}
         current_ts = get_current_ts()
-        for url in urls:
+        requested = 0
+        for url in sorted(urls):
             channel_name = url.split("/")[-1].lower()
             last_fetch_time = self.fetch_times.get(channel_name, 0)
             recrawl_time = self.channels[channel_name].get("recrawl_time", 0)
-            assert current_ts >= last_fetch_time
             if current_ts - last_fetch_time < recrawl_time:
                 logging.debug(
                     "Skip %s, fetched %ds ago, recrawl interval %ds",
@@ -103,15 +122,17 @@ class TelegramSpider(scrapy.Spider):
                     recrawl_time,
                 )
                 continue
+            requested += 1
             yield scrapy.Request(url=url, callback=self.parse_channel)
+        logging.info("Requesting %d of %d channels", requested, len(urls))
 
-    def closed(self, reason):
+    def closed(self, reason: str) -> None:
         temp_path = self.fetch_times_path + ".new"
         with open(temp_path, "w") as w:
             json.dump(self.fetch_times, w)
         shutil.move(temp_path, self.fetch_times_path)
 
-    def parse_channel(self, response):
+    def parse_channel(self, response: Response) -> Iterator[Item | scrapy.Request]:
         url = response.url
         channel_name = url.split("/")[-1].split("?")[0].lower()
         history_path = "//body/main/div/section[contains(@class, 'tgme_channel_history')]/div"
@@ -119,11 +140,12 @@ class TelegramSpider(scrapy.Spider):
 
         min_post_id, min_post_ts = None, None
         for post in posts:
-            post_path = post.xpath("@data-post")
-            post_time = post.css("time.time::attr(datetime)")
+            # Rebound to plain strings, hence the separate names: a selector
+            # list and its extracted text are not the same kind of thing.
+            post_path = post.xpath("@data-post").get()
+            post_time = post.css("time.time::attr(datetime)").get()
             if not post_path or not post_time:
                 continue
-            post_path, post_time = post_path.get(), post_time.get()
 
             post_id = int(post_path.split("/")[-1])
             post_ts = to_timestamp(post_time)
@@ -149,7 +171,7 @@ class TelegramSpider(scrapy.Spider):
         url += f"?before={min_post_id}"
         yield scrapy.Request(url=url, callback=self.parse_channel)
 
-    def _parse_post(self, post_element, post_url):
+    def _parse_post(self, post_element: Any, post_url: str) -> Item | None:
         text_path = "div.tgme_widget_message_bubble > div.tgme_widget_message_text"
         text_alt_path = (
             "div.tgme_widget_message_bubble > div.media_supported_cont"
@@ -186,20 +208,26 @@ class TelegramSpider(scrapy.Spider):
         time_element = post_element.css(time_path)
         item["pub_time"] = to_timestamp(time_element.get())
 
-        item["images"] = []
-        image_elements = post_element.css(images_path)
-        for image_style in image_elements:
-            image_style = image_style.get()
-            for style in image_style.split(";"):
+        # Telegram repeats the same background-image across style blocks for
+        # different sizes, so the same url arrives more than once. Deduplicated
+        # in place, since the order is the order of the album.
+        images = []
+        for image_style in post_element.css(images_path):
+            for style in image_style.get().split(";"):
                 style = style.strip()
-                if "background-image" in style:
-                    image_url = style.split("url(")[-1][1:-2]
-                    item["images"].append(image_url)
+                if "background-image" not in style:
+                    continue
+                image_url = style.split("url(")[-1][1:-2]
+                if image_url and image_url not in images:
+                    images.append(image_url)
+        item["images"] = images
 
-        item["videos"] = []
-        video_elements = post_element.css(videos_path)
-        for video in video_elements:
-            item["videos"].append(video.get())
+        videos = []
+        for video in post_element.css(videos_path):
+            video_url = video.get()
+            if video_url and video_url not in videos:
+                videos.append(video_url)
+        item["videos"] = videos
 
         reply_element = post_element.css(reply_path)
         if reply_element:
@@ -210,7 +238,7 @@ class TelegramSpider(scrapy.Spider):
 
         return item
 
-    def _parse_html(self, html):
+    def _parse_html(self, html: str) -> str:
         text = self.html2text.handle(html)
         sentences = [s.strip() for s in text.strip().split("\n") if s.strip()]
         for i, sentence in enumerate(sentences):

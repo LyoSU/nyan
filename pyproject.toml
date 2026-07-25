@@ -47,10 +47,17 @@ ignore = [
 [tool.mypy]
 python_version = "3.11"
 strict = true
-files = ["nyan"]
+files = ["nyan", "crawler"]
 # Untyped third-party imports are silenced at the import site with an inline
 # `# type: ignore`, so a package that gains type information later surfaces as
 # an unused-ignore warning rather than being hidden here forever.
+
+# The spider follows Scrapy's untyped callback style; the pipelines, which hold
+# the logic worth checking, are annotated.
+[[tool.mypy.overrides]]
+module = ["crawler.spiders.*", "crawler.settings"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

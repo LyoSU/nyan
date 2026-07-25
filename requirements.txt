@@ -6,7 +6,9 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
 
 # Crawler
-scrapy >= 2.11
+# 2.13+ specifically: the spider defines the async start() entry point that
+# version introduced. Older Scrapy uses the start_requests() fallback.
+scrapy >= 2.13
 html2text >= 2024.2.26
 
 # Annotator
