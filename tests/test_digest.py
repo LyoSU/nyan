@@ -319,3 +319,88 @@ def test_a_digest_written_without_a_date_falls_back_to_today(monkeypatch: Any) -
     prompt = calls[0]["messages"][0]["content"]
     assert "Сьогодні" in prompt
     assert "{{today}}" not in prompt
+
+
+PREVIOUS_RECORD = {
+    "published_until": NOW - 8 * HOUR,
+    "summary": {
+        "headline": "Головне за 8 годин: удари по енергетиці",
+        "blocks": [
+            {"type": SUBHEADING, "text": "⚡ Енергетика"},
+            {
+                "type": LINKS,
+                "links": [
+                    {
+                        "text": "Росія вдарила по **енергетиці Харкова**",
+                        "url": "https://t.me/UAliveNews/1",
+                    }
+                ],
+            },
+            {"type": TEXT, "text": "Без світла залишилися 1,2 млн абонентів."},
+        ],
+    },
+}
+
+
+def test_the_last_digest_is_the_most_recent_one(collection: FakeCollection) -> None:
+    collection.records.append({"published_until": NOW - 16 * HOUR, "summary": {}})
+    collection.records.append(PREVIOUS_RECORD)
+
+    record = digest.read_last_digest("mongo.json")
+
+    assert record is not None
+    assert record["published_until"] == NOW - 8 * HOUR
+
+
+def test_the_previous_digest_is_summed_up_by_its_headlines() -> None:
+    form = digest.previous_form(PREVIOUS_RECORD)
+
+    assert form["headline"] == "Головне за 8 годин: удари по енергетиці"
+    assert form["topics"] == ["⚡ Енергетика"]
+    # Markup stripped: in a digest headline the ** span picks the link anchor, so
+    # handing it back would teach the model to copy asterisks into a place where
+    # they mean something else.
+    assert form["headlines"] == ["Росія вдарила по енергетиці Харкова"]
+
+
+def test_no_body_of_the_previous_digest_is_passed_on() -> None:
+    """Headlines are context; facts are not.
+
+    A number from the previous digest belongs to no link in this one, and a
+    digest may only state what the posts it lists actually say. So the model is
+    given enough to recognize a continuing story and not enough to describe one.
+    """
+    form = digest.previous_form(PREVIOUS_RECORD)
+
+    assert "1,2 млн" not in json.dumps(form, ensure_ascii=False)
+
+
+def test_a_first_ever_digest_has_no_previous_form() -> None:
+    assert digest.previous_form(None) == {}
+
+
+def test_the_previous_headlines_reach_the_prompt(monkeypatch: Any) -> None:
+    """A long story runs across digests: the strike, then the confirmed toll."""
+    calls = _patch_digest_llm(monkeypatch)
+
+    digest.write_digest(
+        ONE_CLUSTER,
+        prompt_path=DIGEST_PROMPT,
+        model_name="model",
+        period="8 годин",
+        previous=digest.previous_form(PREVIOUS_RECORD),
+    )
+
+    prompt = calls[0]["messages"][0]["content"]
+    assert "Росія вдарила по енергетиці Харкова" in prompt
+    assert "Нічого з цього списку в добірку не переноси" in prompt
+
+
+def test_a_digest_with_no_predecessor_says_nothing_about_one(monkeypatch: Any) -> None:
+    calls = _patch_digest_llm(monkeypatch)
+
+    digest.write_digest(
+        ONE_CLUSTER, prompt_path=DIGEST_PROMPT, model_name="model", period="8 годин"
+    )
+
+    assert "Про попередню добірку" not in calls[0]["messages"][0]["content"]

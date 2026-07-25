@@ -1,6 +1,6 @@
 """The periodic digest: one post collecting everything published since the last.
 
-Three things make this more than a loop over clusters.
+Four things make this more than a loop over clusters.
 
 It reads what НЯН already wrote rather than what the channels wrote. Every
 cluster carries a headline and, if several sources covered it, a summary that
@@ -16,6 +16,11 @@ It never loses a shift. The window runs from the last published digest to now,
 so a quiet shift that did not meet the minimum is not dropped: its posts simply
 appear in the next digest, because the watermark only advances when something
 is actually published.
+
+It knows what the last digest said. A long story reaches the reader as several
+posts across several shifts — the strike, then the confirmed toll — so the
+headlines of the previous digest go into the prompt. Without them every later
+stage is written as if the event had just happened.
 """
 
 import argparse
@@ -32,8 +37,9 @@ from nyan.client import TelegramClient
 from nyan.clusters import Clusters
 from nyan.mongo import get_topics_collection
 from nyan.openai import openai_completion, DEFAULT_MODEL, DEFAULT_REASONING_EFFORT
+from nyan.markup import strip_markup
 from nyan.renderer import summary_blocks
-from nyan.summary import DIGEST_LIMITS, Summary, parse_summary
+from nyan.summary import DIGEST_LIMITS, SUBHEADING, Summary, parse_summary
 from nyan.util import (
     PUBLISH_CHANNEL_URL,
     format_date_uk,
@@ -71,16 +77,57 @@ MAX_CATCHUP_HOURS = 48
 MAX_CLUSTER_TEXT = 600
 
 
-def read_watermark(mongo_config_path: str) -> int | None:
-    """When the last published digest stopped counting."""
+def read_last_digest(mongo_config_path: str) -> dict[str, Any] | None:
+    """The digest published most recently, or None before the first one."""
     collection = get_topics_collection(mongo_config_path)
-    last = collection.find_one(
+    record = collection.find_one(
         {"published_until": {"$exists": True}}, sort=[("published_until", -1)]
     )
+    return dict(record) if record else None
+
+
+def read_watermark(mongo_config_path: str) -> int | None:
+    """When the last published digest stopped counting."""
+    last = read_last_digest(mongo_config_path)
     if not last:
         return None
     watermark = last.get("published_until")
     return int(watermark) if watermark else None
+
+
+def previous_form(record: dict[str, Any] | None) -> dict[str, Any]:
+    """What the last digest already told the reader — headlines and nothing else.
+
+    A long story runs across several digests: the strike lands in one shift and
+    the confirmed toll arrives in the next, as a separate post with a link of its
+    own. The watermark keeps that post out of two digests, but it cannot tell the
+    model that the reader already knows what happened, so without this every
+    later stage is written as if the event were new.
+
+    Deliberately no bodies. A fact from the previous digest belongs to no link in
+    this one, and a digest may only state what the posts it lists actually say —
+    so the model is given enough to recognize a continuation and not enough to
+    describe one.
+    """
+    if not record:
+        return {}
+    summary = Summary.fromdict(record.get("summary") or {})
+    return {
+        "headline": strip_markup(summary.headline),
+        "topics": [
+            strip_markup(block.text)
+            for block in summary.blocks
+            if block.type == SUBHEADING
+        ],
+        # Markup stripped because in a digest headline the ** span picks the link
+        # anchor: left in, it would teach the model to mark up its own headlines
+        # by copying, in places where the asterisks mean something else.
+        "headlines": [
+            strip_markup(link["text"])
+            for block in summary.blocks
+            for link in block.links
+        ],
+    }
 
 
 def window(
@@ -148,6 +195,7 @@ def write_digest(
     model_name: str,
     period: str,
     today: str = "",
+    previous: dict[str, Any] | None = None,
 ) -> Summary:
     with open(prompt_path) as f:
         template = Template(f.read())
@@ -156,7 +204,15 @@ def write_digest(
     # writes both — the sort of line a reader spots immediately.
     today = today or format_date_uk(ts_to_dt(get_current_ts()))
     prompt = (
-        template.render(clusters=clusters, period=period, today=today).strip() + "\n"
+        template.render(
+            clusters=clusters,
+            period=period,
+            today=today,
+            # Always a mapping: the template asks for `previous.headlines`, and
+            # an undefined name would raise instead of skipping the section.
+            previous=previous or {},
+        ).strip()
+        + "\n"
     )
 
     try:
@@ -247,12 +303,19 @@ def main(
     # rather than from the requested duration: a digest that caught up after a
     # quiet shift covers more than eight hours and should say so.
     period = format_period_uk((end_ts - start_ts) / 3600)
+    previous = previous_form(read_last_digest(mongo_config_path))
+    if previous.get("headlines"):
+        logging.info(
+            "Previous digest listed %d posts, passing their headlines for context",
+            len(previous["headlines"]),
+        )
     summary = write_digest(
         clusters,
         prompt_path=prompt_path,
         model_name=model_name,
         period=period,
         today=format_date_uk(ts_to_dt(end_ts)),
+        previous=previous,
     )
     if not summary:
         logging.warning("Nothing usable came back, leaving the window for next time")

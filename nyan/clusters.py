@@ -126,6 +126,13 @@ class Cluster:
         self.create_time: int | None = None
         self.messages: list[MessageId] = list()
 
+        # Headline of the post this one is published as a reply to, when the
+        # daemon found a close enough neighbour. The reader sees that post
+        # directly above this one, so the text is written knowing what has
+        # already been said. Stored rather than recomputed: a rewrite has to see
+        # the same neighbour the reader does, not whichever one is closest now.
+        self.reply_to_headline: str = ""
+
         self.saved_annotation_doc: Document | None = None
         self.saved_first_doc: Document | None = None
         self.saved_hash: str | None = None
@@ -320,6 +327,11 @@ class Cluster:
                 stored_generation,
             )
 
+        # The reply target is deliberately not part of the key. It only tunes
+        # two negative instructions in the prompt, while a cluster that keeps
+        # failing to post can be paired with a different neighbour on every
+        # iteration — keying on it would buy slightly better wording at the cost
+        # of an LLM call per iteration, which is what this cache exists to stop.
         cache_key = (normalize_url(self.first_doc.url), current)
         cached = _ANALYSIS_CACHE.get(cache_key)
         if cached is not None:
@@ -337,7 +349,10 @@ class Cluster:
         # after its coverage grew.
         today = format_date_uk(ts_to_dt(self.create_time or get_current_ts()))
         prompt = template.render(
-            docs=docs, annotation_doc=self.annotation_doc, today=today
+            docs=docs,
+            annotation_doc=self.annotation_doc,
+            today=today,
+            reply_to_headline=self.reply_to_headline,
         )
 
         analysis: dict[str, Any] = {"headline": None, "generation": current}
@@ -534,6 +549,7 @@ class Cluster:
             "generation": analysis.get("generation"),
             "is_important": self.is_important,
             "create_time": self.create_time,
+            "reply_to_headline": self.reply_to_headline,
         }
 
     @classmethod
@@ -578,6 +594,8 @@ class Cluster:
             }
         cluster.is_important = d.get("is_important", False)
         cluster.create_time = d.get("create_time")
+        # Absent in clusters stored before replies were passed to the model.
+        cluster.reply_to_headline = d.get("reply_to_headline") or ""
 
         return cluster
 

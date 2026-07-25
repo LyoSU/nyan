@@ -352,3 +352,56 @@ def test_a_category_with_no_feed_of_its_own_lands_in_main() -> None:
     )
 
     assert cluster.issues == ["main"]
+
+
+def test_a_reply_is_written_knowing_the_post_above_it(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """A post published as a reply stands right under its neighbour.
+
+    Without knowing that, the model rewrote the neighbour's headline in its own
+    words, and the two posts read as one story posted twice.
+    """
+    cluster = _make_multi_channel_cluster()
+    cluster.reply_to_headline = "Росія вдарила по Запоріжжю"
+    calls = _patch_llm(monkeypatch)
+
+    assert cluster.summary
+    prompt = calls[0]["messages"][0]["content"]
+    assert "Росія вдарила по Запоріжжю" in prompt
+    # Given as a constraint, never as material: a post may only state what its
+    # own sources say, and the neighbour is not one of them.
+    assert "Нічого з того поста сюди не переноси" in prompt
+
+
+def test_a_post_without_a_neighbour_is_told_nothing_about_one(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    cluster = _make_multi_channel_cluster()
+    calls = _patch_llm(monkeypatch)
+
+    assert cluster.summary
+    assert "Про попередній пост" not in calls[0]["messages"][0]["content"]
+
+
+def test_a_single_source_reply_also_hears_about_the_post_above(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """One source buys only a headline — and a duplicate headline is the defect."""
+    cluster = _make_single_channel_cluster()
+    cluster.reply_to_headline = "Курс гривні впав"
+    calls = _patch_llm(monkeypatch, response='{"headline": "Заголовок"}')
+
+    assert cluster.headline == "Заголовок"
+    assert "Курс гривні впав" in calls[0]["messages"][0]["content"]
+
+
+def test_the_post_a_reply_stands_under_survives_storage() -> None:
+    """A rewrite happens in a later process, and must see the same neighbour."""
+    cluster = _make_multi_channel_cluster()
+    cluster.reply_to_headline = "Росія вдарила по Запоріжжю"
+
+    restored = Cluster.deserialize(cluster.serialize())
+
+    assert restored.reply_to_headline == "Росія вдарила по Запоріжжю"
+
+
+def test_a_cluster_stored_before_replies_were_passed_has_no_neighbour() -> None:
+    record = _make_multi_channel_cluster().asdict()
+    del record["reply_to_headline"]
+
+    assert Cluster.fromdict(record).reply_to_headline == ""

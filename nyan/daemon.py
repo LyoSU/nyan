@@ -217,6 +217,18 @@ class Daemon:
             )
             return
 
+        # Looked up before rendering, not after: the post's text is written
+        # lazily inside render_cluster, and the model has to know what the reader
+        # already sees directly above this post.
+        target = self.find_reply_target(cluster, posted_clusters, issue_name)
+        reply_to = None
+        if target is not None:
+            parent, reply_to = target
+            # The stored headline, never `parent.headline`: that property calls
+            # the LLM on demand, so asking a neighbour for its title would pay
+            # to rewrite a post that is already published.
+            cluster.reply_to_headline = parent.stored_headline or ""
+
         post = self.renderer.render_cluster(cluster, issue_name)
         if post is None:
             logging.warning(
@@ -227,7 +239,6 @@ class Daemon:
 
         self.client.update_discussion_mapping(issue_name)
 
-        reply_to = self.calc_reply_to(cluster, posted_clusters, issue_name)
         message = self.client.send_post(post, issue_name, reply_to=reply_to)
         if message is None:
             return
@@ -303,9 +314,21 @@ class Daemon:
         )
         self.client.update_post(message, post)
 
-    def calc_reply_to(
+    def find_reply_target(
         self, cluster: Cluster, posted_clusters: Clusters, issue_name: str
-    ) -> int | None:
+    ) -> tuple[Cluster, int] | None:
+        """The published post this one belongs under, and its message id.
+
+        Both halves come from one lookup because both are needed at once: the
+        message id threads the new post under the old one in Telegram, and the
+        neighbour itself carries the headline the prompt needs so that two posts
+        standing next to each other do not say the same thing twice.
+
+        A neighbour is not the same story — an identical one is found by
+        `Clusters.find_similar` and edited in place instead. This is merely the
+        closest one above the configured similarity, so it may equally be the
+        previous stage of one event or a separate event on the same topic.
+        """
         threshold = float(self.config["related_threshold"])
 
         current_ts = get_current_ts()
@@ -335,5 +358,5 @@ class Daemon:
 
         for m in best_cluster.messages:
             if m.issue == issue_name:
-                return cast(int, m.message_id)
+                return best_cluster, cast(int, m.message_id)
         return None
