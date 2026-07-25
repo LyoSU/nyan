@@ -131,6 +131,31 @@ class TelegramSpider(scrapy.Spider):
         with open(temp_path, "w") as w:
             json.dump(self.fetch_times, w)
         shutil.move(temp_path, self.fetch_times_path)
+        self.check_scraped_anything(reason)
+
+    def check_scraped_anything(self, reason: str) -> None:
+        """Report an empty crawl loudly.
+
+        Scrapy reports a crawl that requested nothing as a clean success, which
+        is how an incompatible Scrapy release turned into a feed that quietly
+        stopped filling instead of an error anyone could see.
+        """
+        crawler = getattr(self, "crawler", None)
+        if crawler is None or crawler.stats is None:
+            return
+        scraped = crawler.stats.get_value("item_scraped_count", 0)
+        if scraped:
+            logging.info("Scraped %d posts", scraped)
+            return
+        requests = crawler.stats.get_value("downloader/request_count", 0)
+        logging.error(
+            "Crawl scraped no posts at all (%d requests, reason: %s). "
+            "Either every channel was skipped by recrawl_time, or the site "
+            "layout changed, or this Scrapy version does not call the spider's "
+            "entry point.",
+            requests,
+            reason,
+        )
 
     def parse_channel(self, response: Response) -> Iterator[Item | scrapy.Request]:
         url = response.url

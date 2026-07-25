@@ -6,6 +6,7 @@ live site, so a Telegram layout change shows up as a failing test here.
 
 import asyncio
 import json
+import logging
 from datetime import datetime, UTC
 from typing import Any
 
@@ -210,6 +211,49 @@ def test_fetch_times_are_saved_when_the_spider_closes(spider: TelegramSpider) ->
     with open(spider.fetch_times_path) as r:
         saved = json.load(r)
     assert "uanews" in saved
+
+
+class FakeStats:
+    def __init__(self, values: dict[str, int]) -> None:
+        self.values = values
+
+    def get_value(self, name: str, default: Any = None) -> Any:
+        return self.values.get(name, default)
+
+
+def attach_stats(spider: TelegramSpider, **values: int) -> None:
+    spider.crawler = type(  # type: ignore[assignment]
+        "FakeCrawler", (), {"stats": FakeStats(values)}
+    )()
+
+
+def test_an_empty_crawl_is_reported_as_an_error(
+    spider: TelegramSpider, caplog: Any
+) -> None:
+    """Scrapy calls a crawl that requested nothing a clean success."""
+    attach_stats(spider, item_scraped_count=0, **{"downloader/request_count": 0})
+
+    with caplog.at_level(logging.ERROR):
+        spider.closed("finished")
+
+    assert "scraped no posts" in caplog.text
+
+
+def test_a_productive_crawl_logs_its_count(
+    spider: TelegramSpider, caplog: Any
+) -> None:
+    attach_stats(spider, item_scraped_count=57)
+
+    with caplog.at_level(logging.INFO):
+        spider.closed("finished")
+
+    assert "Scraped 57 posts" in caplog.text
+    assert "scraped no posts" not in caplog.text
+
+
+def test_closing_without_a_crawler_does_not_fail(spider: TelegramSpider) -> None:
+    # Constructed directly, as the tests above do: there is no crawler to ask.
+    spider.closed("finished")
 
 
 def test_incomplete_posts_are_dropped() -> None:
