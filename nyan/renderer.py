@@ -30,6 +30,10 @@ MAX_DERIVED_HEADLINE_LENGTH = 120
 # that the credit line stops being readable.
 MAX_DIFF_CREDITS = 3
 
+# Heading above the cross-source differences. It says what the list is for, so
+# the lines below need no "повідомляли, що" of their own.
+DIFFERENCES_TITLE = "Інші джерела уточнюють"
+
 
 def pluralize_sources(count: int) -> str:
     if count % 10 == 1 and count % 100 != 11:
@@ -194,13 +198,18 @@ class Renderer:
         return []
 
     def render_differences(self, cluster: Cluster) -> list[Block]:
-        """One quotation per difference, credited to the channels reporting it.
+        """What other sources add, as a list under a heading.
+
+        Not blockquotes: these lines are the model's summary of what a channel
+        reported, not its words, so presenting them as quotations claims a
+        precision they do not have. A stack of quote cards also outweighed the
+        story itself — the most important thing in the post has to look like it.
 
         This is the channel's own reporting rather than a metadata dump, so it
         stays visible instead of going under a disclosure.
         """
         channel_links = self.channel_links(cluster)
-        blocks: list[Block] = []
+        items: list[Sequence[Block]] = []
         for difference in cluster.diff:
             channel_ids = [
                 channel_id
@@ -213,8 +222,14 @@ class Renderer:
             credit = rich.join(
                 [channel_links[channel_id] for channel_id in channel_ids], ", "
             )
-            blocks.append(rich.blockquote(rich.paragraph(text), credit=credit))
-        return blocks
+            items.append([rich.paragraph(text), rich.paragraph(rich.italic(credit))])
+
+        if not items:
+            return []
+        return [
+            rich.heading(DIFFERENCES_TITLE, size=4),
+            rich.bullet_list(*items),
+        ]
 
     def render_sources(
         self, cluster: Cluster, groups: list[tuple[str, list[Document]]]

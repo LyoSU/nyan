@@ -119,7 +119,9 @@ def test_block_order_is_stable(renderer: Renderer) -> None:
         "heading",
         "photo",
         "paragraph",
-        "blockquote",
+        # What other sources add: a heading and a list, not quote cards.
+        "heading",
+        "list",
         "details",
         "divider",
         "footer",
@@ -291,6 +293,7 @@ def test_video_wins_over_photos(renderer: Renderer) -> None:
 
 
 def test_difference_is_credited_to_the_channel_reporting_it(renderer: Renderer) -> None:
+    """Summaries of what a channel reported, not its words, so not quotations."""
     cluster = make_cluster(
         [
             make_doc(VERIFIED, "https://t.me/rbc_news/1", pub_time=100),
@@ -302,9 +305,40 @@ def test_difference_is_credited_to_the_channel_reporting_it(renderer: Renderer) 
 
     assert post is not None
     assert post.blocks is not None
-    quote = find(post.blocks, "blockquote")
-    assert quote["blocks"][0]["text"] == "затримали підозрюваного"
-    assert flatten_text(quote["credit"]) == AGGREGATOR.upper()
+    assert [b for b in post.blocks if b["type"] == "blockquote"] == []
+
+    item = find(post.blocks, "list")["items"][0]["blocks"]
+    assert item[0]["text"] == "затримали підозрюваного"
+    assert flatten_text(item[1]) == AGGREGATOR.upper()
+
+
+def test_differences_are_introduced_by_a_heading(renderer: Renderer) -> None:
+    """The heading says what the list is, so each line can be a bare fact."""
+    cluster = make_cluster(
+        [
+            make_doc(VERIFIED, "https://t.me/rbc_news/1", pub_time=100),
+            make_doc(AGGREGATOR, "https://t.me/nexta_live/1", pub_time=200),
+        ],
+        differences=[{"channel_ids": [AGGREGATOR], "text": "деталь"}],
+    )
+    post = renderer.render_cluster(cluster, "main")
+
+    assert post is not None
+    assert post.blocks is not None
+    headings = [b for b in post.blocks if b["type"] == "heading"]
+    assert headings[-1]["text"] == "Інші джерела уточнюють"
+    # Smaller than the post's own headline: it introduces a section, not the post.
+    assert headings[-1]["size"] > headings[0]["size"]
+
+
+def test_without_differences_there_is_no_heading_for_them(renderer: Renderer) -> None:
+    cluster = make_cluster([make_doc(VERIFIED, "https://t.me/rbc_news/1")])
+    post = renderer.render_cluster(cluster, "main")
+
+    assert post is not None
+    assert post.blocks is not None
+    assert [b["type"] for b in post.blocks].count("heading") == 1
+    assert [b for b in post.blocks if b["type"] == "list"] == []
 
 
 def test_difference_from_an_unknown_channel_is_dropped(renderer: Renderer) -> None:
@@ -316,7 +350,8 @@ def test_difference_from_an_unknown_channel_is_dropped(renderer: Renderer) -> No
 
     assert post is not None
     assert post.blocks is not None
-    assert [b for b in post.blocks if b["type"] == "blockquote"] == []
+    # No list at all: the only difference named a channel not in the cluster.
+    assert [b for b in post.blocks if b["type"] == "list"] == []
 
 
 def test_sources_summary_is_just_a_count(renderer: Renderer) -> None:
