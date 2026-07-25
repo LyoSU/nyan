@@ -1,126 +1,235 @@
 {
   "channels": [
     {
+      "name": "uniannet",
+      "groups": {
+        "main": "blue"
+      },
+      "alias": "УНІАН",
+      "issue": "main"
+    },
+    {
+      "name": "unnworldnews",
+      "groups": {
+        "main": "blue"
+      },
+      "alias": "УНН",
+      "issue": "main"
+    },
+    {
       "name": "v_zelenskiy_official",
       "groups": {
         "main": "red",
         "politics": "red"
       },
-      "alias": "Zelenskiy",
+      "alias": "Володимир Зеленський",
       "issue": "politics"
     },
     {
-      "name": "novinach",
-      "groups": {
-        "main": "blue"
-      },
-      "alias": "Новинач",
-      "issue": "main"
-    },
-    {
-      "name": "suspilnenews",
-      "groups": {
-        "main": "purple",
-        "war": "purple"
-      },
-      "alias": "СУСПІЛЬНЕ",
-      "issue": "main"
-    },
-    {
-      "name": "lachentyt",
-      "groups": {
-        "main": "purple"
-      },
-      "alias": "Лачен пише",
-      "issue": "main"
-    },
-    {
-      "name": "babel",
-      "groups": {
-        "main": "purple",
-        "war": "purple"
-      },
-      "alias": "Бабель",
-      "issue": "main"
-    },
-    {
-      "name": "ukrpravda_news",
-      "groups": {
-        "main": "purple",
-        "war": "purple"
-      },
-      "alias": "Українська правда",
-      "issue": "main"
-    },
-    {
-      "name": "svoboda_radio",
-      "groups": {
-        "main": "purple",
-        "war": "purple"
-      },
-      "alias": "Радіо Свобода",
-      "issue": "main"
-    },
-    {
-      "name": "gruntmedia",
-      "groups": {
-        "main": "blue",
-        "war": "blue"
-      },
-      "alias": "ҐРУНТ",
-      "issue": "main"
-    },
-    {
-      "name": "tch_channel",
-      "groups": {
-        "main": "blue",
-        "war": "blue"
-      },
-      "alias": "ТСН",
-      "issue": "main"
-    },
-    {
-      "name": "ukrainenow",
+      "name": "op_ua",
       "groups": {
         "main": "red",
-        "war": "red"
+        "politics": "red"
       },
-      "alias": "Ukraine NOW",
+      "alias": "Офіс Президента",
+      "issue": "politics"
+    },
+    {
+      "name": "verkhovnaradaukrainy",
+      "groups": {
+        "main": "red",
+        "politics": "red"
+      },
+      "alias": "Верховна Рада України",
+      "issue": "politics"
+    },
+    {
+      "name": "m_podolyak",
+      "groups": {
+        "main": "red",
+        "politics": "red"
+      },
+      "alias": "Михайло Подоляк",
+      "issue": "politics"
+    },
+    {
+      "name": "vereshchuk_iryna",
+      "groups": {
+        "main": "red",
+        "politics": "red"
+      },
+      "alias": "Ірина Верещук",
+      "issue": "politics"
+    },
+    {
+      "name": "dmytro_lubinetzs",
+      "groups": {
+        "main": "red",
+        "politics": "red"
+      },
+      "alias": "Дмитро Лубінець (Омбудсман)",
+      "issue": "politics"
+    },
+    {
+      "name": "vitaliy_klitschko",
+      "groups": {
+        "main": "red",
+        "politics": "red"
+      },
+      "alias": "Віталій Кличко",
+      "issue": "politics"
+    },
+    {
+      "name": "kyivcityofficial",
+      "groups": {
+        "main": "red"
+      },
+      "alias": "КМДА",
       "issue": "main"
     },
     {
-      "name": "d7_channel",
+      "name": "mvs_ukraine",
       "groups": {
-        "main": "blue"
+        "main": "red"
       },
-      "alias": "D7 NEWS",
+      "alias": "МВС України",
       "issue": "main"
     },
     {
-      "name": "hromadske_ua",
+      "name": "ua_national_police",
       "groups": {
-        "main": "purple",
-        "war": "purple"
+        "main": "red"
       },
-      "alias": "hromadske",
+      "alias": "Національна поліція України",
       "issue": "main"
     },
     {
-      "name": "channel24_ua",
+      "name": "dpsukr",
       "groups": {
-        "main": "blue",
-        "war": "blue"
+        "main": "red"
       },
-      "alias": "24 Канал",
+      "alias": "Держприкордонслужба",
       "issue": "main"
     },
     {
-      "name": "ssternenko",
+      "name": "ukrzalinfo",
       "groups": {
-        "main": "purple"
+        "main": "red"
       },
-      "alias": "STERNENKO",
+      "alias": "Укрзалізниця",
       "issue": "main"
+    },
+    {
+      "name": "ukrenergo",
+      "groups": {
+        "main": "red"
+      },
+      "alias": "Укренерго",
+      "issue": "main"
+    },
+    {
+      "name": "spravdi",
+      "groups": {
+        "main": "red"
+      },
+      "alias": "Центр стратком (SPRAVDI)",
+      "issue": "main"
+    },
+    {
+      "name": "CenterCounteringDisinformation",
+      "groups": {
+        "main": "red"
+      },
+      "alias": "Центр протидії дезінформації (РНБО)",
+      "issue": "main"
+    },
+    {
+      "name": "pgo_gov_ua",
+      "groups": {
+        "main": "red",
+        "politics": "red"
+      },
+      "alias": "Офіс Генерального прокурора",
+      "issue": "politics"
+    },
+    {
+      "name": "DBRgovua",
+      "groups": {
+        "main": "red",
+        "politics": "red"
+      },
+      "alias": "Державне бюро розслідувань",
+      "issue": "politics"
+    },
+    {
+      "name": "mintsyfra",
+      "groups": {
+        "main": "red",
+        "tech": "red"
+      },
+      "alias": "Мінцифра",
+      "issue": "tech"
+    },
+    {
+      "name": "nbu_ua",
+      "groups": {
+        "main": "red",
+        "economy": "red"
+      },
+      "alias": "НБУ | Знати. Розуміти",
+      "issue": "economy"
+    },
+    {
+      "name": "dsns_telegram",
+      "groups": {
+        "main": "red"
+      },
+      "alias": "ДСНС України",
+      "issue": "main"
+    },
+    {
+      "name": "Ukraine_MFA",
+      "groups": {
+        "main": "red",
+        "politics": "red"
+      },
+      "alias": "МЗС України",
+      "issue": "politics"
+    },
+    {
+      "name": "nab_ukraine",
+      "groups": {
+        "main": "red",
+        "politics": "red"
+      },
+      "alias": "НАБУ",
+      "issue": "politics"
+    },
+    {
+      "name": "energoatom_ua",
+      "groups": {
+        "main": "red"
+      },
+      "alias": "Енергоатом",
+      "issue": "main"
+    },
+    {
+      "name": "zedigital",
+      "groups": {
+        "main": "red",
+        "tech": "red"
+      },
+      "alias": "Михайло Федоров",
+      "issue": "tech"
+    },
+    {
+      "name": "dsszzi_official",
+      "groups": {
+        "main": "red",
+        "tech": "red"
+      },
+      "alias": "Держспецзв'язку",
+      "issue": "tech"
     },
     {
       "name": "sbukr",
@@ -141,125 +250,13 @@
       "issue": "war"
     },
     {
-      "name": "verkhovnaradaukrainy",
-      "groups": {
-        "main": "red",
-        "politics": "red"
-      },
-      "alias": "Верховна Рада України",
-      "issue": "politics"
-    },
-    {
-      "name": "op_ua",
-      "groups": {
-        "main": "red",
-        "politics": "red"
-      },
-      "alias": "Офіс Президента",
-      "issue": "politics"
-    },
-    {
-      "name": "ua_national_police",
-      "groups": {
-        "main": "red"
-      },
-      "alias": "Національна поліція України",
-      "issue": "main"
-    },
-    {
-      "name": "zedigital",
-      "groups": {
-        "main": "red"
-      },
-      "alias": "FEDOROV",
-      "issue": "main"
-    },
-    {
-      "name": "oleksiihoncharenko",
-      "groups": {
-        "main": "purple",
-        "politics": "purple"
-      },
-      "alias": "ГОНЧАРЕНКО",
-      "issue": "politics"
-    },
-    {
-      "name": "yzheleznyak",
-      "groups": {
-        "main": "purple",
-        "politics": "purple"
-      },
-      "alias": "Залізний нардеп",
-      "issue": "politics"
-    },
-    {
-      "name": "vitaliy_klitschko",
-      "groups": {
-        "main": "red",
-        "politics": "red"
-      },
-      "alias": "Віталій Кличко",
-      "issue": "politics"
-    },
-    {
-      "name": "presidentporoshenko",
-      "groups": {
-        "main": "purple",
-        "politics": "purple"
-      },
-      "alias": "Петро Порошенко",
-      "issue": "politics"
-    },
-    {
-      "name": "diukraine",
+      "name": "generalstaffzsu",
       "groups": {
         "main": "red",
         "war": "red"
       },
-      "alias": "Головне управління розвідки МО України",
+      "alias": "Генеральний штаб ЗСУ",
       "issue": "war"
-    },
-    {
-      "name": "azov_media",
-      "groups": {
-        "main": "blue",
-        "war": "blue"
-      },
-      "alias": "АЗОВ",
-      "issue": "war"
-    },
-    {
-      "name": "dsszzi_official",
-      "groups": {
-        "main": "red"
-      },
-      "alias": "Держспецзв’язку",
-      "issue": "main"
-    },
-    {
-      "name": "mvs_ukraine",
-      "groups": {
-        "main": "red"
-      },
-      "alias": "МВС України",
-      "issue": "main"
-    },
-    {
-      "name": "ukrzalinfo",
-      "groups": {
-        "main": "red"
-      },
-      "alias": "Укрзалізниця",
-      "issue": "main"
-    },
-    {
-      "name": "biletskyandriy",
-      "groups": {
-        "main": "purple",
-        "politics": "purple"
-      },
-      "alias": "Андрій Білецький",
-      "issue": "politics"
     },
     {
       "name": "ministry_of_defense_ua",
@@ -271,189 +268,85 @@
       "issue": "war"
     },
     {
-      "name": "vereshchuk_iryna",
+      "name": "diukraine",
       "groups": {
-        "main": "red"
+        "main": "red",
+        "war": "red"
       },
-      "alias": "Ірина Верещук",
-      "issue": "main"
-    },
-    {
-      "name": "ukrenergo",
-      "groups": {
-        "main": "red"
-      },
-      "alias": "Укренерго",
-      "issue": "main"
-    },
-    {
-      "name": "dpsukr",
-      "groups": {
-        "main": "red"
-      },
-      "alias": "Держприкордонслужба",
-      "issue": "main"
-    },
-    {
-      "name": "maksymzhorin",
-      "groups": {
-        "main": "blue",
-        "war": "blue"
-      },
-      "alias": "Жорін з Азову",
+      "alias": "ГУР МО України",
       "issue": "war"
     },
     {
-      "name": "kyivcityofficial",
+      "name": "kpszsu",
       "groups": {
-        "main": "red"
+        "main": "red",
+        "war": "red"
       },
-      "alias": "КМДА",
-      "issue": "main"
-    },
-    {
-      "name": "torontotv",
-      "groups": {
-        "main": "blue",
-        "war": "blue"
-      },
-      "alias": "Телебачення Торонто",
-      "issue": "main"
-    },
-    {
-      "name": "voynareal",
-      "groups": {
-        "main": "blue",
-        "war": "blue"
-      },
-      "alias": "Реальна Війна",
+      "alias": "Повітряні сили ЗСУ",
       "issue": "war"
     },
     {
-      "name": "censor_net",
+      "name": "militarymediacenter",
       "groups": {
-        "main": "blue",
-        "war": "blue"
+        "main": "red",
+        "war": "red"
       },
-      "alias": "Цензор.НЕТ",
-      "issue": "main"
+      "alias": "Military Media Center",
+      "issue": "war"
     },
     {
-      "name": "spravdi",
-      "groups": {
-        "main": "red"
-      },
-      "alias": "SPRAVDI",
-      "issue": "main"
-    },
-    {
-      "name": "oldboi_ua",
-      "groups": {
-        "main": "blue"
-      },
-      "alias": "OLDboi",
-      "issue": "main"
-    },
-    {
-      "name": "mezhamedia",
-      "groups": {
-        "main": "purple",
-        "tech": "purple"
-      },
-      "alias": "Mezha.Media",
-      "issue": "tech"
-    },
-    {
-      "name": "itcua",
-      "groups": {
-        "main": "purple",
-        "tech": "purple"
-      },
-      "alias": "ITC.ua",
-      "issue": "tech"
-    },
-    {
-      "name": "ain_ua_tg",
-      "groups": {
-        "main": "blue"
-      },
-      "alias": "AIN.UA",
-      "issue": "main"
-    },
-    {
-      "name": "nachasi_com",
-      "groups": {
-        "main": "blue"
-      },
-      "alias": "Na chasi",
-      "issue": "main"
-    },
-    {
-      "name": "uaobozrevatel",
-      "groups": {
-        "main": "blue"
-      },
-      "alias": "Obozrevatel.ua",
-      "issue": "main"
-    },
-    {
-      "name": "rbc_ua_news",
-      "groups": {
-        "main": "blue",
-        "war": "blue"
-      },
-      "alias": "РБК-Україна",
-      "issue": "main"
-    },
-    {
-      "name": "espresotb",
+      "name": "suspilnenews",
       "groups": {
         "main": "purple",
         "war": "purple"
       },
-      "alias": "Еспресо.TV",
+      "alias": "Суспільне Новини",
       "issue": "main"
     },
     {
-      "name": "minfin_com_ua",
+      "name": "ukrpravda_news",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "war": "purple",
+        "politics": "purple"
       },
-      "alias": "Мінфін",
+      "alias": "Українська правда",
       "issue": "main"
     },
     {
-      "name": "apostrophe_online",
+      "name": "babel",
       "groups": {
-        "main": "blue"
+        "main": "purple",
+        "war": "purple"
       },
-      "alias": "Апостроф",
+      "alias": "Бабель",
       "issue": "main"
     },
     {
-      "name": "mctoday",
+      "name": "hromadske_ua",
       "groups": {
-        "main": "blue"
+        "main": "purple",
+        "war": "purple"
       },
-      "alias": "MC.today",
+      "alias": "hromadske",
       "issue": "main"
     },
     {
-      "name": "doucommunity",
+      "name": "svoboda_radio",
       "groups": {
-        "main": "blue",
-        "tech": "blue"
+        "main": "purple",
+        "war": "purple"
       },
-      "alias": "DOU",
-      "issue": "tech"
+      "alias": "Радіо Свобода",
+      "issue": "main"
     },
     {
       "name": "bbcukrainian",
       "groups": {
-        "main": "blue",
-        "war": "blue"
+        "main": "purple",
+        "war": "purple"
       },
-      "alias": "BBC NEWS Україна",
+      "alias": "BBC News Україна",
       "issue": "main"
     },
     {
@@ -487,52 +380,132 @@
       "name": "znua_live",
       "groups": {
         "main": "purple",
-        "war": "purple"
+        "war": "purple",
+        "politics": "purple"
       },
       "alias": "ZN.UA",
       "issue": "main"
     },
     {
-      "name": "serhiyprytula",
-      "groups": {
-        "main": "purple"
-      },
-      "alias": "Сергій Притула",
-      "issue": "main"
-    },
-    {
-      "name": "savelifeua",
-      "groups": {
-        "main": "purple"
-      },
-      "alias": "SaveLife",
-      "issue": "main"
-    },
-    {
-      "name": "generalstaffzsu",
-      "groups": {
-        "main": "red",
-        "war": "red"
-      },
-      "alias": "Генеральний штаб ЗСУ",
-      "issue": "war"
-    },
-    {
-      "name": "m_podolyak",
-      "groups": {
-        "main": "red",
-        "politics": "red"
-      },
-      "alias": "Михайло Подоляк",
-      "issue": "politics"
-    },
-    {
-      "name": "ab3army",
+      "name": "espresotb",
       "groups": {
         "main": "purple",
         "war": "purple"
       },
-      "alias": "3-тя штурмова",
+      "alias": "Еспресо.TV",
+      "issue": "main"
+    },
+    {
+      "name": "tyzhdenua",
+      "groups": {
+        "main": "purple"
+      },
+      "alias": "Український тиждень",
+      "issue": "main"
+    },
+    {
+      "name": "textyorgua",
+      "groups": {
+        "main": "purple"
+      },
+      "alias": "Тексти",
+      "issue": "main"
+    },
+    {
+      "name": "bihusinfo",
+      "groups": {
+        "main": "purple",
+        "politics": "purple"
+      },
+      "alias": "Bihus.Info",
+      "issue": "main"
+    },
+    {
+      "name": "channel5UA",
+      "groups": {
+        "main": "purple",
+        "war": "purple"
+      },
+      "alias": "5 канал",
+      "issue": "main"
+    },
+    {
+      "name": "interfax_uk",
+      "groups": {
+        "main": "purple",
+        "economy": "purple"
+      },
+      "alias": "Інтерфакс-Україна",
+      "issue": "main"
+    },
+    {
+      "name": "rubryka",
+      "groups": {
+        "main": "purple"
+      },
+      "alias": "Рубрика",
+      "issue": "main"
+    },
+    {
+      "name": "lbua_official",
+      "groups": {
+        "main": "purple",
+        "politics": "purple"
+      },
+      "alias": "LB.ua",
+      "issue": "main"
+    },
+    {
+      "name": "graty_me",
+      "groups": {
+        "main": "purple",
+        "politics": "purple"
+      },
+      "alias": "\u0490\u0440\u0430\u0442\u0438",
+      "issue": "main"
+    },
+    {
+      "name": "HromadskeRadioNews",
+      "groups": {
+        "main": "purple"
+      },
+      "alias": "\u0413\u0440\u043e\u043c\u0430\u0434\u0441\u044c\u043a\u0435 \u0440\u0430\u0434\u0456\u043e",
+      "issue": "main"
+    },
+    {
+      "name": "Novynarnia",
+      "groups": {
+        "main": "purple",
+        "war": "purple"
+      },
+      "alias": "\u041d\u043e\u0432\u0438\u043d\u0430\u0440\u043d\u044f",
+      "issue": "main"
+    },
+    {
+      "name": "donbasfrontliner",
+      "groups": {
+        "main": "purple",
+        "war": "purple"
+      },
+      "alias": "Frontliner",
+      "issue": "war"
+    },
+    {
+      "name": "kyivindependent_official",
+      "groups": {
+        "main": "purple",
+        "war": "purple"
+      },
+      "alias": "The Kyiv Independent (EN)",
+      "issue": "main"
+    },
+    {
+      "name": "milinua",
+      "groups": {
+        "main": "purple",
+        "war": "purple"
+      },
+      "alias": "Мілітарний",
       "issue": "war"
     },
     {
@@ -545,21 +518,167 @@
       "issue": "war"
     },
     {
-      "name": "hackyourmom",
+      "name": "ab3army",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "war": "purple"
       },
-      "alias": "HackYourMom",
+      "alias": "3-тя штурмова",
+      "issue": "war"
+    },
+    {
+      "name": "azov_media",
+      "groups": {
+        "main": "purple",
+        "war": "purple"
+      },
+      "alias": "АЗОВ",
+      "issue": "war"
+    },
+    {
+      "name": "maksymzhorin",
+      "groups": {
+        "main": "blue",
+        "war": "blue",
+        "other": "blue"
+      },
+      "alias": "Максим Жорін",
+      "issue": "war"
+    },
+    {
+      "name": "novinach",
+      "groups": {
+        "main": "blue"
+      },
+      "alias": "Новинач",
       "issue": "main"
     },
     {
-      "name": "rusanctions",
+      "name": "gruntmedia",
       "groups": {
-        "main": "purple"
+        "main": "blue",
+        "war": "blue"
       },
-      "alias": "Санкции в РФ",
-      "issue": "main",
-      "disabled": true
+      "alias": "ҐРУНТ",
+      "issue": "main"
+    },
+    {
+      "name": "tch_channel",
+      "groups": {
+        "main": "blue",
+        "war": "blue"
+      },
+      "alias": "ТСН",
+      "issue": "main"
+    },
+    {
+      "name": "channel24_ua",
+      "groups": {
+        "main": "blue",
+        "war": "blue"
+      },
+      "alias": "24 Канал",
+      "issue": "main"
+    },
+    {
+      "name": "censor_net",
+      "groups": {
+        "main": "blue",
+        "war": "blue"
+      },
+      "alias": "Цензор.НЕТ",
+      "issue": "main"
+    },
+    {
+      "name": "rbc_ua_news",
+      "groups": {
+        "main": "blue",
+        "war": "blue"
+      },
+      "alias": "РБК-Україна",
+      "issue": "main"
+    },
+    {
+      "name": "apostrophe_online",
+      "groups": {
+        "main": "blue"
+      },
+      "alias": "Апостроф",
+      "issue": "main"
+    },
+    {
+      "name": "uaobozrevatel",
+      "groups": {
+        "main": "blue"
+      },
+      "alias": "Obozrevatel.ua",
+      "issue": "main"
+    },
+    {
+      "name": "d7_channel",
+      "groups": {
+        "main": "blue"
+      },
+      "alias": "D7 NEWS",
+      "issue": "main"
+    },
+    {
+      "name": "lachentyt",
+      "groups": {
+        "main": "blue",
+        "other": "blue"
+      },
+      "alias": "Лачен пише",
+      "issue": "main"
+    },
+    {
+      "name": "presidentporoshenko",
+      "groups": {
+        "main": "purple",
+        "politics": "purple",
+        "other": "purple"
+      },
+      "alias": "Петро Порошенко",
+      "issue": "politics"
+    },
+    {
+      "name": "oleksiihoncharenko",
+      "groups": {
+        "main": "purple",
+        "politics": "purple",
+        "other": "purple"
+      },
+      "alias": "Олексій Гончаренко",
+      "issue": "politics"
+    },
+    {
+      "name": "yzheleznyak",
+      "groups": {
+        "main": "purple",
+        "politics": "purple",
+        "other": "purple"
+      },
+      "alias": "Залізний нардеп",
+      "issue": "politics"
+    },
+    {
+      "name": "biletskyandriy",
+      "groups": {
+        "main": "purple",
+        "politics": "purple",
+        "war": "purple"
+      },
+      "alias": "Андрій Білецький",
+      "issue": "politics"
+    },
+    {
+      "name": "doucommunity",
+      "groups": {
+        "main": "purple",
+        "tech": "purple"
+      },
+      "alias": "DOU",
+      "issue": "tech"
     },
     {
       "name": "devukraine",
@@ -571,69 +690,58 @@
       "issue": "tech"
     },
     {
-      "name": "othernot",
-      "groups": {
-        "main": "purple"
-      },
-      "alias": "БлоGнот",
-      "issue": "main"
-    },
-    {
-      "name": "addmeto",
-      "groups": {
-        "main": "purple"
-      },
-      "alias": "addmeto",
-      "issue": "main"
-    },
-    {
-      "name": "toisamyibabich",
-      "groups": {
-        "main": "purple"
-      },
-      "alias": "Той самий Бабіч",
-      "issue": "main"
-    },
-    {
-      "name": "artemborodatiuk",
-      "groups": {
-        "main": "purple"
-      },
-      "alias": "Артем Бородатюк",
-      "issue": "main"
-    },
-    {
-      "name": "girlintech",
+      "name": "itcua",
       "groups": {
         "main": "purple",
         "tech": "purple"
       },
-      "alias": "Olena Kirichok's tech",
+      "alias": "ITC.ua",
       "issue": "tech"
     },
     {
-      "name": "full_of_hatred",
+      "name": "mezhamedia",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "tech": "purple"
       },
-      "alias": "✙rozho)))k✙🇺🇦",
-      "issue": "main"
+      "alias": "Mezha.Media",
+      "issue": "tech"
     },
     {
-      "name": "forbes_ukraine_official",
+      "name": "highloadtoday",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "tech": "purple"
       },
-      "alias": "Forbes Ukraine",
-      "issue": "main"
+      "alias": "Highload",
+      "issue": "tech"
     },
     {
-      "name": "oooneuro",
+      "name": "spekamedia",
       "groups": {
-        "main": "purple"
+        "main": "purple",
+        "tech": "purple"
       },
-      "alias": "Ооо нейромережеве🤖",
-      "issue": "main"
+      "alias": "SPEKA",
+      "issue": "tech"
+    },
+    {
+      "name": "ain_ua_tg",
+      "groups": {
+        "main": "purple",
+        "tech": "purple"
+      },
+      "alias": "AIN.UA",
+      "issue": "tech"
+    },
+    {
+      "name": "gamedev_dou",
+      "groups": {
+        "main": "purple",
+        "tech": "purple"
+      },
+      "alias": "GameDev DOU",
+      "issue": "tech"
     },
     {
       "name": "cybersecurity_ua",
@@ -645,12 +753,48 @@
       "issue": "tech"
     },
     {
-      "name": "highloadtoday",
+      "name": "hackyourmom",
       "groups": {
         "main": "purple",
         "tech": "purple"
       },
-      "alias": "Highload",
+      "alias": "HackYourMom",
+      "issue": "tech"
+    },
+    {
+      "name": "girlintech",
+      "groups": {
+        "main": "purple",
+        "tech": "purple"
+      },
+      "alias": "Olena Kirichok's tech",
+      "issue": "tech"
+    },
+    {
+      "name": "startup_ukr",
+      "groups": {
+        "main": "purple",
+        "tech": "purple"
+      },
+      "alias": "Стартапенко",
+      "issue": "tech"
+    },
+    {
+      "name": "itukrainenow",
+      "groups": {
+        "main": "purple",
+        "tech": "purple"
+      },
+      "alias": "IT Ukraine",
+      "issue": "tech"
+    },
+    {
+      "name": "oooneuro",
+      "groups": {
+        "main": "blue",
+        "tech": "blue"
+      },
+      "alias": "Ооо нейромережеве",
       "issue": "tech"
     },
     {
@@ -672,114 +816,12 @@
       "issue": "tech"
     },
     {
-      "name": "mintsyfra",
-      "groups": {
-        "main": "red"
-      },
-      "alias": "Мінцифра",
-      "issue": "main"
-    },
-    {
-      "name": "brodetsky",
-      "groups": {
-        "main": "purple"
-      },
-      "alias": "Brodetskyi",
-      "issue": "main"
-    },
-    {
-      "name": "startup_ukr",
+      "name": "ivanluchkovchanel",
       "groups": {
         "main": "purple",
         "tech": "purple"
       },
-      "alias": "Стартапенко",
-      "issue": "tech"
-    },
-    {
-      "name": "itukrainenow",
-      "groups": {
-        "main": "purple",
-        "tech": "purple"
-      },
-      "alias": "IT Ukraine",
-      "issue": "tech"
-    },
-    {
-      "name": "uamoyo",
-      "groups": {
-        "main": "purple",
-        "tech": "purple"
-      },
-      "alias": "MOYO",
-      "issue": "tech"
-    },
-    {
-      "name": "andro_price",
-      "groups": {
-        "main": "purple",
-        "tech": "purple"
-      },
-      "alias": "Аndroprice",
-      "issue": "tech"
-    },
-    {
-      "name": "spekamedia",
-      "groups": {
-        "main": "purple",
-        "tech": "purple"
-      },
-      "alias": "SPEKA",
-      "issue": "tech"
-    },
-    {
-      "name": "gamedev_dou",
-      "groups": {
-        "main": "purple",
-        "tech": "purple"
-      },
-      "alias": "GameDev DOU",
-      "issue": "tech"
-    },
-    {
-      "name": "bihusinfo",
-      "groups": {
-        "main": "blue"
-      },
-      "alias": "Bihus.Info",
-      "issue": "main"
-    },
-    {
-      "name": "ostanniycapitalist",
-      "groups": {
-        "main": "purple"
-      },
-      "alias": "Останній Капіталіст",
-      "issue": "main"
-    },
-    {
-      "name": "textyorgua",
-      "groups": {
-        "main": "purple"
-      },
-      "alias": "Тексти",
-      "issue": "main"
-    },
-    {
-      "name": "tyzhdenua",
-      "groups": {
-        "main": "purple"
-      },
-      "alias": "Український тиждень",
-      "issue": "main"
-    },
-    {
-      "name": "msi_ukraine",
-      "groups": {
-        "main": "purple",
-        "tech": "purple"
-      },
-      "alias": "MSI",
+      "alias": "Канал Лучкова",
       "issue": "tech"
     },
     {
@@ -792,21 +834,21 @@
       "issue": "tech"
     },
     {
-      "name": "it_news_in_ua",
+      "name": "andro_price",
       "groups": {
         "main": "purple",
         "tech": "purple"
       },
-      "alias": "Новини у світі іТ",
+      "alias": "Androprice",
       "issue": "tech"
     },
     {
-      "name": "ivanluchkovchanel",
+      "name": "keddr",
       "groups": {
         "main": "purple",
         "tech": "purple"
       },
-      "alias": "Канал Лучкова",
+      "alias": "Keddr",
       "issue": "tech"
     },
     {
@@ -819,37 +861,457 @@
       "issue": "tech"
     },
     {
-      "name": "keddr",
+      "name": "it_news_in_ua",
       "groups": {
         "main": "purple",
         "tech": "purple"
       },
-      "alias": "Keddr",
+      "alias": "Новини у світі ІТ",
       "issue": "tech"
+    },
+    {
+      "name": "uamoyo",
+      "groups": {
+        "main": "blue",
+        "tech": "blue"
+      },
+      "alias": "MOYO",
+      "issue": "tech"
+    },
+    {
+      "name": "msi_ukraine",
+      "groups": {
+        "main": "blue",
+        "tech": "blue"
+      },
+      "alias": "MSI",
+      "issue": "tech"
+    },
+    {
+      "name": "nachasi_com",
+      "groups": {
+        "main": "blue",
+        "tech": "blue"
+      },
+      "alias": "Na chasi",
+      "issue": "tech",
+      "disabled": true
+    },
+    {
+      "name": "AI_Dvizh",
+      "groups": {
+        "main": "blue",
+        "tech": "blue"
+      },
+      "alias": "ШІ Двіж",
+      "issue": "tech"
+    },
+    {
+      "name": "AIHOUSE",
+      "groups": {
+        "main": "purple",
+        "tech": "purple"
+      },
+      "alias": "AI HOUSE",
+      "issue": "tech"
+    },
+    {
+      "name": "djinni_official",
+      "groups": {
+        "main": "blue",
+        "tech": "blue"
+      },
+      "alias": "Djinni",
+      "issue": "tech"
+    },
+    {
+      "name": "epravda",
+      "groups": {
+        "main": "purple",
+        "economy": "purple"
+      },
+      "alias": "Економічна правда",
+      "issue": "economy"
+    },
+    {
+      "name": "minfin_com_ua",
+      "groups": {
+        "main": "purple",
+        "economy": "purple"
+      },
+      "alias": "Мінфін",
+      "issue": "economy"
+    },
+    {
+      "name": "forbes_ukraine_official",
+      "groups": {
+        "main": "purple",
+        "economy": "purple"
+      },
+      "alias": "Forbes Ukraine",
+      "issue": "economy"
+    },
+    {
+      "name": "OpendatabotChannel",
+      "groups": {
+        "main": "purple",
+        "economy": "purple"
+      },
+      "alias": "Опендатабот",
+      "issue": "economy"
+    },
+    {
+      "name": "ostanniycapitalist",
+      "groups": {
+        "main": "purple",
+        "economy": "purple"
+      },
+      "alias": "Останній Капіталіст",
+      "issue": "economy"
+    },
+    {
+      "name": "mctoday",
+      "groups": {
+        "main": "blue",
+        "economy": "blue"
+      },
+      "alias": "MC: Money & Career",
+      "issue": "economy"
+    },
+    {
+      "name": "ssternenko",
+      "groups": {
+        "main": "blue",
+        "other": "blue"
+      },
+      "alias": "STERNENKO",
+      "issue": "other"
+    },
+    {
+      "name": "serhiyprytula",
+      "groups": {
+        "main": "blue",
+        "other": "blue"
+      },
+      "alias": "Сергій Притула",
+      "issue": "other"
+    },
+    {
+      "name": "savelifeua",
+      "groups": {
+        "main": "blue",
+        "other": "blue"
+      },
+      "alias": "Повернись живим",
+      "issue": "other"
+    },
+    {
+      "name": "brodetsky",
+      "groups": {
+        "main": "blue",
+        "other": "blue"
+      },
+      "alias": "Brodetskyi",
+      "issue": "other"
+    },
+    {
+      "name": "toisamyibabich",
+      "groups": {
+        "main": "blue",
+        "other": "blue"
+      },
+      "alias": "Той самий Бабіч",
+      "issue": "other"
+    },
+    {
+      "name": "artemborodatiuk",
+      "groups": {
+        "main": "blue",
+        "other": "blue"
+      },
+      "alias": "Артем Бородатюк",
+      "issue": "other"
+    },
+    {
+      "name": "full_of_hatred",
+      "groups": {
+        "main": "blue",
+        "other": "blue"
+      },
+      "alias": "✙rozho)))k✙🇺🇦",
+      "issue": "other"
+    },
+    {
+      "name": "torontotv",
+      "groups": {
+        "main": "blue",
+        "other": "blue"
+      },
+      "alias": "Телебачення Торонто",
+      "issue": "other"
+    },
+    {
+      "name": "oldboi_ua",
+      "groups": {
+        "main": "blue",
+        "other": "blue"
+      },
+      "alias": "OLDboi",
+      "issue": "other"
+    },
+    {
+      "name": "othernot",
+      "groups": {
+        "main": "blue",
+        "tech": "blue",
+        "other": "blue"
+      },
+      "alias": "БлоGнот",
+      "issue": "other"
+    },
+    {
+      "name": "addmeto",
+      "groups": {
+        "main": "blue",
+        "tech": "blue",
+        "other": "blue"
+      },
+      "alias": "addmeto",
+      "issue": "other"
+    },
+    {
+      "name": "ukrainer_net",
+      "groups": {
+        "main": "purple",
+        "culture": "purple"
+      },
+      "alias": "UKRAЇNER",
+      "issue": "culture"
+    },
+    {
+      "name": "kunshtmagazine",
+      "groups": {
+        "main": "purple",
+        "culture": "purple"
+      },
+      "alias": "Куншт",
+      "issue": "culture"
+    },
+    {
+      "name": "footballuaonline",
+      "groups": {
+        "main": "blue",
+        "culture": "blue"
+      },
+      "alias": "FOOTBALL.UA",
+      "issue": "culture"
+    },
+    {
+      "name": "uafukraine",
+      "groups": {
+        "main": "red",
+        "culture": "red"
+      },
+      "alias": "Українська Асоціація Футболу",
+      "issue": "culture"
+    },
+    {
+      "name": "suspilne_vinnytsia",
+      "groups": {
+        "main": "purple",
+        "local": "purple"
+      },
+      "alias": "Суспільне Вінниця",
+      "issue": "local"
+    },
+    {
+      "name": "vezhavn",
+      "groups": {
+        "local": "purple",
+        "culture": "purple"
+      },
+      "alias": "VeжА | Вінниця",
+      "issue": "local"
+    },
+    {
+      "name": "vn20minut",
+      "groups": {
+        "local": "blue"
+      },
+      "alias": "20 хвилин | Вінниця",
+      "issue": "local"
+    },
+    {
+      "name": "vinnitsa_info",
+      "groups": {
+        "local": "blue"
+      },
+      "alias": "Вінниця.info",
+      "issue": "local"
+    },
+    {
+      "name": "vmroficial",
+      "groups": {
+        "local": "red"
+      },
+      "alias": "Вінницька міська рада",
+      "issue": "local"
+    },
+    {
+      "name": "VinnytsiaODA",
+      "groups": {
+        "local": "red"
+      },
+      "alias": "Вінницька ОВА",
+      "issue": "local"
+    },
+    {
+      "name": "SCzatoryVinnytsia",
+      "groups": {
+        "local": "red"
+      },
+      "alias": "Ситуаційний центр Вінниці",
+      "issue": "local"
+    },
+    {
+      "name": "mnb_vinn",
+      "groups": {
+        "local": "blue"
+      },
+      "alias": "Місто над Бугом",
+      "issue": "local"
+    },
+    {
+      "name": "suspilne_kharkiv",
+      "groups": {
+        "main": "purple",
+        "local": "purple"
+      },
+      "alias": "Суспільне Харків",
+      "issue": "local"
+    },
+    {
+      "name": "nakipelovo",
+      "groups": {
+        "local": "purple",
+        "culture": "purple"
+      },
+      "alias": "Накипіло | Харків",
+      "issue": "local"
+    },
+    {
+      "name": "citykharkivua",
+      "groups": {
+        "local": "red"
+      },
+      "alias": "Харківська міська рада",
+      "issue": "local"
+    },
+    {
+      "name": "kharkivoda",
+      "groups": {
+        "local": "red"
+      },
+      "alias": "Харківська ОВА",
+      "issue": "local"
+    },
+    {
+      "name": "suspilneodesa",
+      "groups": {
+        "main": "purple",
+        "local": "purple"
+      },
+      "alias": "Суспільне Одеса",
+      "issue": "local"
+    },
+    {
+      "name": "odesacityofficial",
+      "groups": {
+        "local": "red"
+      },
+      "alias": "Одеса. Офіційно (міськрада)",
+      "issue": "local"
+    },
+    {
+      "name": "odeskaODA",
+      "groups": {
+        "local": "red"
+      },
+      "alias": "Одеська ОВА",
+      "issue": "local"
+    },
+    {
+      "name": "suspilnednipro",
+      "groups": {
+        "main": "purple",
+        "local": "purple"
+      },
+      "alias": "Суспільне Дніпро",
+      "issue": "local"
+    },
+    {
+      "name": "adm_dp",
+      "groups": {
+        "local": "red"
+      },
+      "alias": "Дніпропетровська ОВА",
+      "issue": "local"
+    },
+    {
+      "name": "suspilnelviv",
+      "groups": {
+        "main": "purple",
+        "local": "purple"
+      },
+      "alias": "Суспільне Львів",
+      "issue": "local"
+    },
+    {
+      "name": "lviv_adm",
+      "groups": {
+        "local": "red"
+      },
+      "alias": "Львівська міська рада",
+      "issue": "local"
     }
   ],
   "emojis": {
     "red": "👑",
     "purple": "✅",
     "blue": "📰",
+    "main": "🇺🇦",
+    "war": "⚔️",
+    "politics": "🏛",
     "tech": "💻",
     "economy": "💰",
+    "culture": "📖",
+    "local": "📍",
     "other": "🎙"
   },
   "group_names": {
     "red": "Офіційні",
     "purple": "Перевірені медіа",
     "blue": "Новинні",
+    "main": "Головне",
+    "war": "Війна",
+    "politics": "Політика",
     "tech": "Технології",
     "economy": "Економіка",
-    "other": "Інші"
+    "culture": "Культура, наука і спорт",
+    "local": "Міста та регіони",
+    "other": "Блоги та автори"
   },
   "colors": {
     "red": "#FF0000",
     "purple": "#800080",
     "blue": "#0000FF",
+    "main": "#0057B7",
+    "war": "#8B0000",
+    "politics": "#4B0082",
     "tech": "#008000",
     "economy": "#FFD700",
+    "culture": "#20B2AA",
+    "local": "#E67E22",
     "other": "#808080"
   },
   "default_groups": {
