@@ -40,6 +40,11 @@ DIFFERENCES_TITLE = "Інші джерела уточнюють"
 # tuning this one keeps the hierarchy — the headline stays above the section
 # heading, an important story stays above an ordinary one.
 DEFAULT_HEADLINE_SIZE = 4
+
+# An em dash, the way print attributes a passage to its author. Not a hyphen:
+# "- Укрінформ" reads as a bullet point, which is the wrong signal entirely.
+CREDIT_DASH = "—"
+
 MIN_HEADING_SIZE = 1
 MAX_HEADING_SIZE = 6
 
@@ -168,6 +173,7 @@ class Renderer:
         blocks.extend(self.render_media(cluster))
         if body:
             blocks.append(rich.paragraph(body))
+        blocks.append(self.render_credit(cluster))
         blocks.extend(self.render_differences(cluster))
         blocks.append(self.render_sources(cluster, groups))
         blocks.append(rich.divider())
@@ -222,6 +228,27 @@ class Renderer:
         if len(images) > 1:
             return [rich.slideshow(*[rich.photo(url) for url in images])]
         return []
+
+    def render_credit(self, cluster: Cluster) -> Block:
+        """Whose text this is, right under the text — a byline, not a footnote.
+
+        The words in the post belong to one channel out of the cluster, and the
+        reader has to know which one before deciding what to make of them. That
+        makes it part of the story rather than metadata, so it sits next to the
+        paragraph instead of below the source list, where it used to live.
+        """
+        doc = cluster.annotation_doc
+        return rich.paragraph(
+            rich.italic(
+                rich.join(
+                    [
+                        CREDIT_DASH,
+                        rich.link(doc.channel_title or doc.channel_id, doc.url),
+                    ],
+                    " ",
+                )
+            )
+        )
 
     def render_differences(self, cluster: Cluster) -> list[Block]:
         """What other sources add, as a list under a heading.
@@ -332,18 +359,13 @@ class Renderer:
         return blocks
 
     def render_footer(self, cluster: Cluster) -> Block:
-        annotation_doc = cluster.annotation_doc
-        return rich.footer(
-            rich.join(
-                [
-                    rich.link(
-                        annotation_doc.channel_title or annotation_doc.channel_id,
-                        annotation_doc.url,
-                    ),
-                    f"👁 {self.views_to_str(cluster.views)}",
-                ]
-            )
-        )
+        """Reach only.
+
+        The quoted channel used to be named here as well, but it is now the
+        credit under the text, and one post naming the same channel twice reads
+        as a rendering bug.
+        """
+        return rich.footer(f"👁 {self.views_to_str(cluster.views)}")
 
     def channel_links(self, cluster: Cluster) -> dict[str, RichText]:
         """One link per channel, pointing at that channel's earliest post."""

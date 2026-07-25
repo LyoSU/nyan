@@ -66,6 +66,16 @@ def find(blocks: Sequence[dict[str, Any]], block_type: str) -> dict[str, Any]:
     return matches[0]
 
 
+def squeeze(text: str) -> str:
+    """Collapse runs of whitespace.
+
+    `flatten_text` joins nested inline parts with a space of its own, so a
+    separator inside the tree shows up doubled. Telegram renders the parts
+    without that seam, and these assertions are about what the reader sees.
+    """
+    return re.sub(r"\s+", " ", text).strip()
+
+
 # Keys that carry readable content; media urls and ids are deliberately left out.
 _CONTENT_KEYS = ("summary", "text", "credit", "caption", "blocks", "items")
 
@@ -120,6 +130,8 @@ def test_block_order_is_stable(renderer: Renderer) -> None:
     assert [b["type"] for b in post.blocks] == [
         "heading",
         "photo",
+        "paragraph",
+        # Whose text that was, right under it.
         "paragraph",
         # What other sources add: a heading and a list, not quote cards.
         "heading",
@@ -534,7 +546,8 @@ def _collect(value: Any, predicate: Any) -> list[dict[str, Any]]:
     return found
 
 
-def test_footer_credits_the_quoted_channel_and_reach(renderer: Renderer) -> None:
+def test_footer_carries_the_reach_alone(renderer: Renderer) -> None:
+    """The channel is credited under its text, so repeating it here is noise."""
     cluster = make_cluster(
         [make_doc(VERIFIED, "https://t.me/rbc_news/1", views=12400)]
     )
@@ -543,8 +556,44 @@ def test_footer_credits_the_quoted_channel_and_reach(renderer: Renderer) -> None
     assert post is not None
     assert post.blocks is not None
     footer = flatten_text(find(post.blocks, "footer"))
-    assert VERIFIED.upper() in footer
     assert "12,4K" in footer
+    assert VERIFIED.upper() not in footer
+
+
+def test_the_text_is_credited_to_the_channel_it_came_from(renderer: Renderer) -> None:
+    """A reader has to know whose words these are before weighing them."""
+    cluster = make_cluster(
+        [
+            make_doc(VERIFIED, "https://t.me/rbc_news/1", text="Текст новини."),
+            make_doc(AGGREGATOR, "https://t.me/nexta_live/1", pub_time=1700000001),
+        ]
+    )
+    post = renderer.render_cluster(cluster, "main")
+
+    assert post is not None
+    assert post.blocks is not None
+    paragraphs = [b for b in post.blocks if b["type"] == "paragraph"]
+    # Directly under the text, not somewhere below the source list.
+    assert flatten_text(paragraphs[-2]) == "Текст новини."
+    credit = paragraphs[-1]
+    assert squeeze(flatten_text(credit)) == f"— {VERIFIED.upper()}"
+    assert _collect(credit, lambda b: b.get("type") == "url")[0]["url"] == (
+        "https://t.me/rbc_news/1"
+    )
+
+
+def test_a_post_without_an_llm_headline_is_still_credited(renderer: Renderer) -> None:
+    """A one-sentence post has no heading, so the credit must not hang off one."""
+    cluster = make_cluster(
+        [make_doc(VERIFIED, "https://t.me/rbc_news/1", text="Одне речення.")],
+        headline=None,
+    )
+    post = renderer.render_cluster(cluster, "main")
+
+    assert post is not None
+    assert post.blocks is not None
+    paragraphs = [b for b in post.blocks if b["type"] == "paragraph"]
+    assert squeeze(flatten_text(paragraphs[-1])) == f"— {VERIFIED.upper()}"
 
 
 def test_channel_titles_need_no_escaping(renderer: Renderer) -> None:
@@ -554,7 +603,8 @@ def test_channel_titles_need_no_escaping(renderer: Renderer) -> None:
 
     assert post is not None
     assert post.blocks is not None
-    assert "Кіно & Театр <18>" in flatten_text(find(post.blocks, "footer"))
+    # Blocks carry text as data, so nothing has to be escaped anywhere it appears.
+    assert "Кіно & Театр <18>" in flatten_text(post.blocks)
 
 
 def test_cluster_without_a_configured_group_renders_nothing(
