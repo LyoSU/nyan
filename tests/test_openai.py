@@ -4,7 +4,7 @@ from typing import Any
 import pytest
 
 from nyan import openai as llm
-from nyan.openai import openai_completion, parse_unsupported_params
+from nyan.openai import DEFAULT_ARGS, openai_completion, parse_unsupported_params
 
 
 class FakeCompletions:
@@ -109,7 +109,8 @@ def test_renames_max_tokens_for_reasoning_models(fake_client) -> None:  # type: 
     openai_completion(_messages())
 
     assert "max_tokens" not in completions.calls[1]
-    assert completions.calls[1]["max_completion_tokens"] == 2400
+    # The value carries over untouched; only the parameter name changes.
+    assert completions.calls[1]["max_completion_tokens"] == DEFAULT_ARGS.max_tokens
 
 
 def test_shrinks_the_output_when_asked_to_reduce(fake_client) -> None:  # type: ignore[no-untyped-def]

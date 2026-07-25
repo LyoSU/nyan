@@ -9,23 +9,6 @@ from multiprocessing.pool import ThreadPool
 from openai import OpenAI
 
 
-@dataclass
-class OpenAIDecodingArguments:
-    max_tokens: int = 2400
-    top_p: float = 0.95
-    n: int = 1
-    stream: bool = False
-    stop: Sequence[str] | None = None
-    presence_penalty: float = 0.0
-    frequency_penalty: float = 0.0
-
-    def as_params(self) -> dict[str, Any]:
-        return {k: v for k, v in asdict(self).items() if v is not None}
-
-
-DEFAULT_ARGS = OpenAIDecodingArguments()
-
-
 def env_str(name: str, default: str) -> str:
     # docker-compose forwards unset variables as empty strings, which a
     # getenv default would not replace.
@@ -39,6 +22,29 @@ def env_number(name: str, default: str) -> float:
     except ValueError:
         logging.warning("Invalid %s=%r, using %s", name, value, default)
         return float(default)
+
+
+@dataclass
+class OpenAIDecodingArguments:
+    # Reasoning models spend this budget on thinking before they emit a token
+    # of the answer, and some gateways bill that as completion without
+    # reporting it as reasoning: one production call spent ~2250 tokens on
+    # thinking for a ~300-token post. A truncated answer is not an error the
+    # caller can see — it is invalid JSON, so the post silently falls back to
+    # a quote — hence the headroom, several times what any answer needs.
+    max_tokens: int = int(env_number("LLM_MAX_TOKENS", "8000"))
+    top_p: float = 0.95
+    n: int = 1
+    stream: bool = False
+    stop: Sequence[str] | None = None
+    presence_penalty: float = 0.0
+    frequency_penalty: float = 0.0
+
+    def as_params(self) -> dict[str, Any]:
+        return {k: v for k, v in asdict(self).items() if v is not None}
+
+
+DEFAULT_ARGS = OpenAIDecodingArguments()
 
 
 # Model id passed to the gateway. Override via the LLM_MODEL env var to switch
