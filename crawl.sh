@@ -5,6 +5,18 @@
 # turn into a busy loop.
 set -uo pipefail
 
+# State, not code: it belongs next to the other data. It used to live in
+# crawler/, which forced deployments to mount the source directory to keep it —
+# and that mount shadowed the code in the image, so rebuilds changed nothing.
+FETCH_TIMES=${FETCH_TIMES:-data/fetch_times.json}
+
+mkdir -p "$(dirname "$FETCH_TIMES")"
+
+if [ ! -f "$FETCH_TIMES" ] && [ -f crawler/fetch_times.json ]; then
+    echo "Carrying fetch times over from crawler/ to $FETCH_TIMES" >&2
+    cp crawler/fetch_times.json "$FETCH_TIMES"
+fi
+
 BACKOFF=1
 MAX_BACKOFF=60
 
@@ -13,7 +25,7 @@ while :; do
 
     scrapy crawl telegram \
         -a channels_file=channels.json \
-        -a fetch_times=crawler/fetch_times.json \
+        -a fetch_times="$FETCH_TIMES" \
         -a hours=24
     CODE=$?
 

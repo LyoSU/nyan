@@ -43,7 +43,6 @@ services:
       - ./models:/app/models
       - ./configs:/app/configs
       - ./channels.json:/app/channels.json
-      - ./crawler:/app/crawler
     environment:
       - PYTHONPATH=/app
       - LOG_LEVEL=${LOG_LEVEL:-INFO}

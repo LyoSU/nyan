@@ -136,3 +136,8 @@ mongo_config.json.backup
 models/
 data/
 mongo/
+
+# Стан краулера: коли який канал читали останній раз. Живе в data/,
+# у репозиторії не потрібен.
+crawler/fetch_times.json
+data/fetch_times.json

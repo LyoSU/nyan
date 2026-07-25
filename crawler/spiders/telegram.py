@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import shutil
 from collections.abc import AsyncIterator, Iterator
 from datetime import datetime, UTC
@@ -81,8 +82,7 @@ class TelegramSpider(scrapy.Spider):
             self.channels = {ch["name"].lower(): ch for ch in self.channels}
         assert "fetch_times" in kwargs
         self.fetch_times_path = kwargs.pop("fetch_times")
-        with open(self.fetch_times_path) as r:
-            self.fetch_times = json.load(r)
+        self.fetch_times = self.read_fetch_times(self.fetch_times_path)
 
         assert "hours" in kwargs
         hours = int(kwargs.pop("hours"))
@@ -126,7 +126,22 @@ class TelegramSpider(scrapy.Spider):
             yield scrapy.Request(url=url, callback=self.parse_channel)
         logging.info("Requesting %d of %d channels", requested, len(urls))
 
+    @staticmethod
+    def read_fetch_times(path: str) -> dict[str, int]:
+        """When each channel was last read, or empty on a first ever run.
+
+        A missing file is normal rather than an error: this is state, so it
+        lives under data/ and a fresh deployment does not have it yet.
+        """
+        if not os.path.exists(path):
+            logging.info("No %s yet, treating every channel as unread", path)
+            return {}
+        with open(path) as r:
+            times: dict[str, int] = json.load(r)
+        return times
+
     def closed(self, reason: str) -> None:
+        os.makedirs(os.path.dirname(self.fetch_times_path) or ".", exist_ok=True)
         temp_path = self.fetch_times_path + ".new"
         with open(temp_path, "w") as w:
             json.dump(self.fetch_times, w)

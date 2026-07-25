@@ -204,6 +204,22 @@ def test_paging_stops_once_the_window_is_covered(tmp_path: Any) -> None:
     assert requests == []
 
 
+def test_a_missing_fetch_times_file_is_not_an_error(tmp_path: Any) -> None:
+    """State lives under data/, so a fresh deployment starts without the file."""
+    channels = tmp_path / "channels.json"
+    channels.write_text(json.dumps({"channels": [{"name": "uanews"}]}))
+    missing = tmp_path / "data" / "fetch_times.json"
+
+    spider = TelegramSpider(
+        channels_file=str(channels), fetch_times=str(missing), hours="24"
+    )
+
+    assert spider.fetch_times == {}
+    # Closing creates the directory it needs instead of failing.
+    spider.closed("finished")
+    assert missing.exists()
+
+
 def test_fetch_times_are_saved_when_the_spider_closes(spider: TelegramSpider) -> None:
     list(spider.parse_channel(channel_response()))
     spider.closed("finished")
