@@ -461,7 +461,7 @@
         "main": "purple",
         "politics": "purple"
       },
-      "alias": "\u0490\u0440\u0430\u0442\u0438",
+      "alias": "Ґрати",
       "issue": "main"
     },
     {
@@ -469,7 +469,7 @@
       "groups": {
         "main": "purple"
       },
-      "alias": "\u0413\u0440\u043e\u043c\u0430\u0434\u0441\u044c\u043a\u0435 \u0440\u0430\u0434\u0456\u043e",
+      "alias": "Громадське радіо",
       "issue": "main"
     },
     {
@@ -478,7 +478,7 @@
         "main": "purple",
         "war": "purple"
       },
-      "alias": "\u041d\u043e\u0432\u0438\u043d\u0430\u0440\u043d\u044f",
+      "alias": "Новинарня",
       "issue": "main"
     },
     {
@@ -1116,15 +1116,6 @@
       "issue": "culture"
     },
     {
-      "name": "suspilne_vinnytsia",
-      "groups": {
-        "main": "purple",
-        "local": "purple"
-      },
-      "alias": "Суспільне Вінниця",
-      "issue": "local"
-    },
-    {
       "name": "vezhavn",
       "groups": {
         "local": "purple",
@@ -1182,15 +1173,6 @@
       "issue": "local"
     },
     {
-      "name": "suspilne_kharkiv",
-      "groups": {
-        "main": "purple",
-        "local": "purple"
-      },
-      "alias": "Суспільне Харків",
-      "issue": "local"
-    },
-    {
       "name": "nakipelovo",
       "groups": {
         "local": "purple",
@@ -1216,15 +1198,6 @@
       "issue": "local"
     },
     {
-      "name": "suspilneodesa",
-      "groups": {
-        "main": "purple",
-        "local": "purple"
-      },
-      "alias": "Суспільне Одеса",
-      "issue": "local"
-    },
-    {
       "name": "odesacityofficial",
       "groups": {
         "local": "red"
@@ -1241,29 +1214,11 @@
       "issue": "local"
     },
     {
-      "name": "suspilnednipro",
-      "groups": {
-        "main": "purple",
-        "local": "purple"
-      },
-      "alias": "Суспільне Дніпро",
-      "issue": "local"
-    },
-    {
       "name": "adm_dp",
       "groups": {
         "local": "red"
       },
       "alias": "Дніпропетровська ОВА",
-      "issue": "local"
-    },
-    {
-      "name": "suspilnelviv",
-      "groups": {
-        "main": "purple",
-        "local": "purple"
-      },
-      "alias": "Суспільне Львів",
       "issue": "local"
     },
     {
