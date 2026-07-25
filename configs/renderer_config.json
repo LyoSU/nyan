@@ -2,5 +2,6 @@
     "cluster_template": "nyan/templates/cluster.html",
     "post_format": "rich",
     "sources_open": false,
+    "headline_size": 4,
     "tz_name": "Europe/Kyiv"
 }

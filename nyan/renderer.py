@@ -34,6 +34,19 @@ MAX_DIFF_CREDITS = 3
 # the lines below need no "повідомляли, що" of their own.
 DIFFERENCES_TITLE = "Інші джерела уточнюють"
 
+# Heading size of the post's headline, 1-6, where 1 is the largest. Every post
+# has a headline, so it competes with nothing and does not need to shout: 4 is
+# a shade above body text. The other two sizes in a post derive from it, so
+# tuning this one keeps the hierarchy — the headline stays above the section
+# heading, an important story stays above an ordinary one.
+DEFAULT_HEADLINE_SIZE = 4
+MIN_HEADING_SIZE = 1
+MAX_HEADING_SIZE = 6
+
+
+def clamp_heading_size(size: int) -> int:
+    return max(MIN_HEADING_SIZE, min(MAX_HEADING_SIZE, size))
+
 
 def pluralize_sources(count: int) -> str:
     if count % 10 == 1 and count % 100 != 11:
@@ -63,6 +76,14 @@ class Renderer:
         # editing the config instead of redeploying.
         self.post_format = config.get("post_format", "rich")
         self.sources_open = config.get("sources_open", False)
+
+        # One knob for the whole post: the two other heading sizes are one step
+        # either side of it, so they cannot cross over when it is retuned.
+        self.headline_size = clamp_heading_size(
+            int(config.get("headline_size", DEFAULT_HEADLINE_SIZE))
+        )
+        self.important_headline_size = clamp_heading_size(self.headline_size - 1)
+        self.section_size = clamp_heading_size(self.headline_size + 1)
 
     def render_cluster(
         self, cluster: Cluster, issue_name: str, post_format: str | None = None
@@ -138,7 +159,12 @@ class Renderer:
         if headline:
             # Important clusters get a bigger heading rather than a badge:
             # a marker that appears often stops reading as a marker.
-            blocks.append(rich.heading(headline, size=2 if cluster.is_important else 3))
+            size = (
+                self.important_headline_size
+                if cluster.is_important
+                else self.headline_size
+            )
+            blocks.append(rich.heading(headline, size=size))
         blocks.extend(self.render_media(cluster))
         if body:
             blocks.append(rich.paragraph(body))
@@ -227,7 +253,7 @@ class Renderer:
         if not items:
             return []
         return [
-            rich.heading(DIFFERENCES_TITLE, size=4),
+            rich.heading(DIFFERENCES_TITLE, size=self.section_size),
             rich.bullet_list(*items),
         ]
 

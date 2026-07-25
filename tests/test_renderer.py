@@ -1,3 +1,4 @@
+import json
 import re
 from typing import Any
 from collections.abc import Sequence
@@ -8,6 +9,7 @@ from nyan.channels import Channels
 from nyan.clusters import Cluster
 from nyan.document import Document
 from nyan.renderer import Renderer, pluralize_sources
+from tests.conftest import get_renderer_config_path
 
 # Channels present in tests/channels.json, one per trust group of the "main"
 # issue, so the rendered breakdown has something to group by.
@@ -149,8 +151,48 @@ def test_important_cluster_gets_a_bigger_heading(renderer: Renderer) -> None:
 
     assert normal is not None and normal.blocks is not None
     assert important is not None and important.blocks is not None
-    assert find(normal.blocks, "heading")["size"] == 3
-    assert find(important.blocks, "heading")["size"] == 2
+    # Smaller number, bigger type: sizes run 1-6 the way h1-h6 do.
+    assert find(important.blocks, "heading")["size"] < find(normal.blocks, "heading")["size"]
+
+
+def make_renderer(tmp_path: Any, channels: Channels, **overrides: Any) -> Renderer:
+    with open(get_renderer_config_path()) as r:
+        config = json.load(r)
+    config.update(overrides)
+    path = tmp_path / "renderer_config.json"
+    path.write_text(json.dumps(config))
+    return Renderer(str(path), channels)
+
+
+def heading_sizes(renderer: Renderer) -> list[int]:
+    cluster = make_cluster(
+        [make_doc(VERIFIED, "https://t.me/rbc_news/1")],
+        differences=[{"channel_ids": [AGGREGATOR], "text": "деталь"}],
+    )
+    cluster.add(make_doc(AGGREGATOR, "https://t.me/nexta_live/1"))
+    post = renderer.render_cluster(cluster, "main")
+    assert post is not None and post.blocks is not None
+    return [b["size"] for b in post.blocks if b["type"] == "heading"]
+
+
+def test_headline_size_is_configurable(tmp_path: Any, channels: Channels) -> None:
+    """One knob, so a retune cannot leave two levels the same size."""
+    smaller = make_renderer(tmp_path, channels, headline_size=5)
+
+    assert heading_sizes(smaller) == [5, 6]
+    assert heading_sizes(make_renderer(tmp_path, channels, headline_size=2)) == [2, 3]
+
+
+def test_headline_size_out_of_range_is_clamped(
+    tmp_path: Any, channels: Channels
+) -> None:
+    """Telegram rejects a size outside 1-6, and a bad config must not post nothing."""
+    renderer = make_renderer(tmp_path, channels, headline_size=9)
+
+    assert renderer.headline_size == 6
+    # Nothing goes below the smallest size, so the section heading shares it.
+    assert renderer.section_size == 6
+    assert renderer.important_headline_size == 5
 
 
 def test_without_a_headline_the_first_sentence_stands_in(renderer: Renderer) -> None:
