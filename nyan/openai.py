@@ -54,14 +54,17 @@ LLM_BASE_URL = env_str("LLM_BASE_URL", "https://openrouter.ai/api/v1")
 # backwards compatibility with existing deployments.
 LLM_API_KEY = os.getenv("LLM_API_KEY") or os.getenv("OPENROUTER_API_KEY")
 
-# The daemon is a synchronous loop, so a request that never returns stalls the
-# whole feed. Always bound it.
-LLM_TIMEOUT = env_number("LLM_TIMEOUT", "120")
+# The daemon is a synchronous loop, so a slow request stalls the whole feed.
+# These calls ask for one headline and a few short differences, so a minute is
+# already generous — and the bound has to be multiplied by the retries below to
+# see the real worst case.
+LLM_TIMEOUT = env_number("LLM_TIMEOUT", "60")
 
 # Transport-level retries (429s, 5xx, connection resets) are handled by the
 # SDK with proper backoff; the loop below only handles errors that need the
-# request itself to change.
-LLM_MAX_RETRIES = int(env_number("LLM_MAX_RETRIES", "3"))
+# request itself to change. Two, not three: with the timeout above this caps a
+# single cluster at about three minutes of waiting instead of eight.
+LLM_MAX_RETRIES = int(env_number("LLM_MAX_RETRIES", "2"))
 
 # How many times a single completion may be rewritten and resent before giving
 # up. Each attempt must make progress (drop a parameter, shrink the output),

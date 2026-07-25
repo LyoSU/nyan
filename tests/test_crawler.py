@@ -16,6 +16,7 @@ from scrapy.http import HtmlResponse, Request
 
 from crawler.pipelines import JsonlPipeline, MongoPipeline, as_record
 from crawler.spiders.telegram import (
+    DEFAULT_RECRAWL_TIME,
     TelegramSpider,
     get_current_ts,
     parse_post_url,
@@ -121,6 +122,57 @@ def test_the_modern_entry_point_yields_the_same(spider: TelegramSpider) -> None:
         return [request.url async for request in spider.start()]
 
     assert asyncio.run(collect()) == ["https://t.me/s/uanews"]
+
+
+def test_channels_are_left_alone_for_the_default_interval(tmp_path: Any) -> None:
+    """Without a default, every pass re-read every channel.
+
+    Re-reading refreshes view counts, so it has to happen — but once a minute it
+    was a full crawl of every channel for posts that had not changed.
+    """
+    channels = tmp_path / "channels.json"
+    channels.write_text(json.dumps({"channels": [{"name": "uanews"}]}))
+    fetch_times = tmp_path / "fetch_times.json"
+    fetch_times.write_text(json.dumps({"uanews": get_current_ts() - 30}))
+
+    spider = TelegramSpider(
+        channels_file=str(channels), fetch_times=str(fetch_times), hours="24"
+    )
+
+    assert spider.default_recrawl_time == DEFAULT_RECRAWL_TIME
+    assert list(spider.channel_requests()) == []
+
+
+def test_the_interval_can_be_overridden_globally(tmp_path: Any) -> None:
+    channels = tmp_path / "channels.json"
+    channels.write_text(json.dumps({"channels": [{"name": "uanews"}]}))
+    fetch_times = tmp_path / "fetch_times.json"
+    fetch_times.write_text(json.dumps({"uanews": get_current_ts() - 30}))
+
+    spider = TelegramSpider(
+        channels_file=str(channels),
+        fetch_times=str(fetch_times),
+        hours="24",
+        recrawl_time="10",
+    )
+
+    assert [r.url for r in spider.channel_requests()] == ["https://t.me/s/uanews"]
+
+
+def test_a_channel_can_set_its_own_interval(tmp_path: Any) -> None:
+    channels = tmp_path / "channels.json"
+    channels.write_text(
+        json.dumps({"channels": [{"name": "uanews", "recrawl_time": 10}]})
+    )
+    fetch_times = tmp_path / "fetch_times.json"
+    fetch_times.write_text(json.dumps({"uanews": get_current_ts() - 30}))
+
+    spider = TelegramSpider(
+        channels_file=str(channels), fetch_times=str(fetch_times), hours="24"
+    )
+
+    # The channel's own 10s beats the 300s default.
+    assert [r.url for r in spider.channel_requests()] == ["https://t.me/s/uanews"]
 
 
 def test_recently_fetched_channels_are_skipped(tmp_path: Any) -> None:
@@ -247,12 +299,27 @@ def test_an_empty_crawl_is_reported_as_an_error(
     spider: TelegramSpider, caplog: Any
 ) -> None:
     """Scrapy calls a crawl that requested nothing a clean success."""
-    attach_stats(spider, item_scraped_count=0, **{"downloader/request_count": 0})
+    attach_stats(spider, item_scraped_count=0, **{"downloader/request_count": 5})
+    spider.requested_channels = 5
 
     with caplog.at_level(logging.ERROR):
         spider.closed("finished")
 
     assert "scraped no posts" in caplog.text
+
+
+def test_skipping_every_channel_is_not_an_error(
+    spider: TelegramSpider, caplog: Any
+) -> None:
+    """All channels read recently is an expected no-op, not a failure."""
+    attach_stats(spider, item_scraped_count=0, **{"downloader/request_count": 0})
+    spider.requested_channels = 0
+
+    with caplog.at_level(logging.INFO):
+        spider.closed("finished")
+
+    assert "scraped no posts" not in caplog.text
+    assert "every channel was read recently" in caplog.text
 
 
 def test_a_productive_crawl_logs_its_count(

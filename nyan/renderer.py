@@ -17,8 +17,13 @@ from nyan.util import DEFAULT_TIMEZONE, ts_to_dt
 
 
 # Used to derive a headline from the text itself when the LLM did not supply
-# one, which happens only for clusters stored before headlines existed.
-_SENTENCE_ENDINGS = (". ", "! ", "? ")
+# one — because the call failed, or the cluster predates headlines.
+#
+# A newline counts as a sentence break: Telegram posts separate their lead from
+# the body with one, and "…— Reuters.\n«Я зателефонував…" contains no period
+# followed by a space at all. Looking only for ". " left such posts without any
+# heading, which is most of them.
+_SENTENCE_END_CHARS = ".!?"
 MAX_DERIVED_HEADLINE_LENGTH = 120
 
 # At most this many channels are credited under a single difference; beyond
@@ -55,7 +60,14 @@ class Renderer:
         self.post_format = config.get("post_format", "rich")
         self.sources_open = config.get("sources_open", False)
 
-    def render_cluster(self, cluster: Cluster, issue_name: str) -> RenderedPost | None:
+    def render_cluster(
+        self, cluster: Cluster, issue_name: str, post_format: str | None = None
+    ) -> RenderedPost | None:
+        """Render a post, in `post_format` if given, otherwise the configured one.
+
+        Updating an existing message has to use the format that message was sent
+        in: a caption cannot be replaced by a block tree, and vice versa.
+        """
         groups = self.group_docs(cluster, issue_name)
         if not groups:
             logging.warning(
@@ -63,7 +75,7 @@ class Renderer:
             )
             return None
 
-        if self.post_format == "legacy":
+        if (post_format or self.post_format) == "legacy":
             return self.render_legacy_cluster(cluster, groups)
         return self.render_rich_cluster(cluster, groups)
 
@@ -147,13 +159,29 @@ class Renderer:
         if not text:
             return None, None
 
-        split_at = min(
-            (text.find(end) for end in _SENTENCE_ENDINGS if text.find(end) != -1),
-            default=-1,
-        )
-        if split_at == -1 or split_at + 1 > MAX_DERIVED_HEADLINE_LENGTH:
+        split_at = self.find_sentence_end(text)
+        if split_at is None or split_at > MAX_DERIVED_HEADLINE_LENGTH:
             return None, text
-        return text[: split_at + 1].strip(), text[split_at + 2 :].strip() or None
+        return text[:split_at].strip(), text[split_at:].strip() or None
+
+    @staticmethod
+    def find_sentence_end(text: str) -> int | None:
+        """Index just past the first sentence, or None if there is only one.
+
+        A sentence ends at .!? followed by whitespace, or at a line break —
+        Telegram posts put their lead on its own line, often with no trailing
+        punctuation at all.
+        """
+        for index, char in enumerate(text):
+            if char == "\n":
+                return index
+            if char not in _SENTENCE_END_CHARS:
+                continue
+            following = text[index + 1 : index + 2]
+            # End of text is not a split: there is no second sentence.
+            if following and following.isspace():
+                return index + 1
+        return None
 
     def render_media(self, cluster: Cluster) -> list[Block]:
         if cluster.videos:
@@ -191,20 +219,17 @@ class Renderer:
     def render_sources(
         self, cluster: Cluster, groups: list[tuple[str, list[Document]]]
     ) -> Block:
-        """Collapsed source breakdown whose summary is itself the trust signal.
+        """Collapsed source list under a plain count.
 
-        The counts per group stay visible while scrolling, so the channel's
-        promise of source transparency survives without a wall of links.
+        The summary is just "12 джерел": a per-group breakdown of emoji and
+        digits read as a technical badge rather than as information. The groups
+        themselves stay inside, where there is room to name them.
         """
-        summary_parts: list[RichText] = []
         items: list[Sequence[Block]] = []
         total = 0
         for group, docs in groups:
             emoji = self.channels.group_emoji(group)
             total += len(docs)
-            # A space after the emoji: glyph and digit set solid read as one
-            # token and the count stops being scannable.
-            summary_parts.append(f"{emoji} {len(docs)}".strip())
             title = f"{emoji} {self.channels.group_title(group)}".strip()
             channels = rich.join(
                 [rich.link(doc.channel_title or doc.channel_id, doc.url) for doc in docs]
@@ -218,12 +243,7 @@ class Renderer:
             blocks.append(rich.divider())
             blocks.extend(provenance)
 
-        summary = rich.join(
-            [
-                rich.join(summary_parts, " "),
-                f"{total} {pluralize_sources(total)}",
-            ]
-        )
+        summary = f"{total} {pluralize_sources(total)}"
         return rich.details(summary, *blocks, is_open=self.sources_open)
 
     def render_provenance(self, cluster: Cluster) -> list[Block]:

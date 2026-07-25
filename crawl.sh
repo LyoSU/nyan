@@ -17,6 +17,12 @@ if [ ! -f "$FETCH_TIMES" ] && [ -f crawler/fetch_times.json ]; then
     cp crawler/fetch_times.json "$FETCH_TIMES"
 fi
 
+# Pause between passes. Which channels are actually read is decided by the
+# spider's recrawl_time, so this only stops the loop from spinning once every
+# channel has been read recently and a pass returns immediately.
+CRAWL_INTERVAL=${CRAWL_INTERVAL:-60}
+RECRAWL_TIME=${RECRAWL_TIME:-300}
+
 BACKOFF=1
 MAX_BACKOFF=60
 
@@ -26,12 +32,14 @@ while :; do
     scrapy crawl telegram \
         -a channels_file=channels.json \
         -a fetch_times="$FETCH_TIMES" \
+        -a recrawl_time="$RECRAWL_TIME" \
         -a hours=24
     CODE=$?
 
     RUNTIME=$(( $(date +%s) - START ))
     if [ "$CODE" -eq 0 ] || [ "$RUNTIME" -ge 60 ]; then
         BACKOFF=1
+        sleep "$CRAWL_INTERVAL"
     else
         BACKOFF=$(( BACKOFF * 2 ))
         [ "$BACKOFF" -gt "$MAX_BACKOFF" ] && BACKOFF=$MAX_BACKOFF

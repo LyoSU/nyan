@@ -63,8 +63,8 @@ MONGO_AUTH_SOURCE=admin
 LLM_API_KEY=your_llm_key_here
 LLM_BASE_URL=https://openrouter.ai/api/v1
 LLM_MODEL=openai/gpt-5.4-mini
-LLM_TIMEOUT=120
-LLM_MAX_RETRIES=3
+LLM_TIMEOUT=60
+LLM_MAX_RETRIES=2
 LLM_REASONING_EFFORT=low
 ```
 
@@ -94,6 +94,25 @@ LLM_REASONING_EFFORT=low
 - `.env` - налаштування MongoDB та інші змінні
 
 **Важливо:** `configs/mongo_config.json` автоматично генерується з `.env` змінних, тому його не потрібно створювати вручну.
+
+### Темп збору
+
+```env
+RECRAWL_TIME=300     # не читати канал частіше, ніж раз на 5 хвилин
+CRAWL_INTERVAL=60    # пауза між проходами краулера
+```
+
+Кожен прохід перечитує всі пости за 24 години, а не лише нові — так освіжається
+кількість переглядів, на якій тримається ранжування. Без `RECRAWL_TIME` це
+відбувалося щохвилини: ~9800 запитів до Telegram щогодини і мільйони записів у
+Mongo за добу заради тих самих постів. З `300` навантаження менше приблизно
+вп'ятеро, а нові пости все одно потрапляють у стрічку за ≤5 хвилин.
+
+Окремому каналу можна задати свій темп у `channels.json`:
+
+```json
+{"name": "channel", "groups": {"main": "blue"}, "issue": "main", "recrawl_time": 60}
+```
 
 ### Стан краулера
 

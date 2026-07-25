@@ -285,7 +285,11 @@ class Daemon:
             )
             return
 
-        post = self.renderer.render_cluster(posted_cluster, issue_name)
+        # In the format the message was sent in, not the configured one: an
+        # older message may be media with a caption.
+        post = self.renderer.render_cluster(
+            posted_cluster, issue_name, post_format=message.post_format or None
+        )
         if post is None:
             logging.warning(
                 "Skipping update, nothing to render: %s", posted_cluster.cropped_title

@@ -13,6 +13,10 @@ from nyan.util import Serializable
 
 ISSUE_WARNING = "Missing issue '%s' in the client config"
 
+# Values of MessageId.post_format.
+FORMAT_RICH = "rich"
+FORMAT_LEGACY = "legacy"
+
 
 @dataclass
 class IssueConfig:
@@ -28,6 +32,10 @@ class MessageId(Serializable):
     message_id: int
     issue: str = "main"
     from_discussion: bool = False
+    # How this message was sent, so an update can edit it the same way. Empty
+    # for messages sent before this field existed; those are identified from
+    # Telegram's own error the first time an update is attempted.
+    post_format: str = ""
 
     def as_tuple(self) -> tuple[str, int]:
         return (self.issue, self.message_id)
@@ -92,9 +100,12 @@ class TelegramClient:
         """Send a rendered post using whichever API method its format needs."""
         if post.is_rich:
             assert post.blocks is not None
-            return self.send_rich_message(post.blocks, issue_name, reply_to=reply_to)
+            message = self.send_rich_message(post.blocks, issue_name, reply_to=reply_to)
+            if message:
+                message.post_format = FORMAT_RICH
+            return message
         assert post.text is not None
-        return self.send_message(
+        message = self.send_message(
             post.text,
             issue_name,
             photos=post.photos,
@@ -102,6 +113,9 @@ class TelegramClient:
             animations=post.animations,
             reply_to=reply_to,
         )
+        if message:
+            message.post_format = FORMAT_LEGACY
+        return message
 
     def update_post(self, message: MessageId, post: RenderedPost) -> None:
         assert not message.from_discussion
@@ -116,13 +130,34 @@ class TelegramClient:
             assert post.text is not None
             response = self._edit_text(message.message_id, post.text, issue=issue)
 
-        if response.status_code != 200:
-            logging.error(
-                "Update of %s failed (%d): %s",
+        if response.status_code == 200:
+            return
+
+        if self._is_caption_only(response):
+            # A message sent as media carries a caption, not text, and cannot be
+            # edited with editMessageText. Record what it is so the next
+            # iteration renders and edits it as a caption instead.
+            message.post_format = FORMAT_LEGACY
+            logging.warning(
+                "Message %d predates the rich format; will update it as a "
+                "caption from now on",
                 message.message_id,
-                response.status_code,
-                response.text,
             )
+            return
+
+        logging.error(
+            "Update of %s failed (%d): %s",
+            message.message_id,
+            response.status_code,
+            response.text,
+        )
+
+    @staticmethod
+    def _is_caption_only(response: Response) -> bool:
+        if response.status_code != 400:
+            return False
+        description = response.json().get("description", "")
+        return "no text in the message to edit" in description
 
     def send_rich_message(
         self,

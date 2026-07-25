@@ -15,6 +15,12 @@ from scrapy.http import Response
 # requested as ?before=<lowest id seen>.
 Item = dict[str, Any]
 
+# Default delay before a channel is read again. Five minutes keeps the feed
+# close to real time while cutting the crawl volume fivefold compared to the
+# per-minute loop the sender's restart cycle produces. Override globally with
+# `-a recrawl_time=`, or per channel in channels.json.
+DEFAULT_RECRAWL_TIME = 300
+
 
 def get_current_ts() -> int:
     # now(utc), not now().replace(tzinfo=utc): the latter relabels local
@@ -87,9 +93,23 @@ class TelegramSpider(scrapy.Spider):
         assert "hours" in kwargs
         hours = int(kwargs.pop("hours"))
         self.until_ts = get_current_ts() - hours * 3600
-        logging.info("Considering last %d hours", hours)
+
+        # How long to leave a channel alone after reading it. Re-reading the
+        # whole window is deliberate — it refreshes view counts, which ranking
+        # depends on — but doing that every minute costs a full crawl of every
+        # channel for posts that have not changed. Per-channel `recrawl_time` in
+        # channels.json still wins.
+        self.default_recrawl_time = int(
+            kwargs.pop("recrawl_time", DEFAULT_RECRAWL_TIME)
+        )
+        logging.info(
+            "Considering last %d hours, recrawling channels every %ds",
+            hours,
+            self.default_recrawl_time,
+        )
 
         self.html2text = html2text_setup()
+        self.requested_channels = 0
 
         super().__init__(*args, **kwargs)
 
@@ -113,7 +133,9 @@ class TelegramSpider(scrapy.Spider):
         for url in sorted(urls):
             channel_name = url.split("/")[-1].lower()
             last_fetch_time = self.fetch_times.get(channel_name, 0)
-            recrawl_time = self.channels[channel_name].get("recrawl_time", 0)
+            recrawl_time = self.channels[channel_name].get(
+                "recrawl_time", self.default_recrawl_time
+            )
             if current_ts - last_fetch_time < recrawl_time:
                 logging.debug(
                     "Skip %s, fetched %ds ago, recrawl interval %ds",
@@ -124,6 +146,7 @@ class TelegramSpider(scrapy.Spider):
                 continue
             requested += 1
             yield scrapy.Request(url=url, callback=self.parse_channel)
+        self.requested_channels = requested
         logging.info("Requesting %d of %d channels", requested, len(urls))
 
     @staticmethod
@@ -162,12 +185,17 @@ class TelegramSpider(scrapy.Spider):
         if scraped:
             logging.info("Scraped %d posts", scraped)
             return
+        if not self.requested_channels:
+            # Every channel was read recently enough: an expected no-op, not a
+            # failure worth an error in the log.
+            logging.info("Nothing to crawl yet, every channel was read recently")
+            return
         requests = crawler.stats.get_value("downloader/request_count", 0)
         logging.error(
-            "Crawl scraped no posts at all (%d requests, reason: %s). "
-            "Either every channel was skipped by recrawl_time, or the site "
-            "layout changed, or this Scrapy version does not call the spider's "
-            "entry point.",
+            "Crawl scraped no posts from %d channels (%d requests, reason: %s). "
+            "Either the site layout changed, or this Scrapy version does not "
+            "call the spider's entry point.",
+            self.requested_channels,
             requests,
             reason,
         )

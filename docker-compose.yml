@@ -15,8 +15,8 @@ services:
       - LLM_API_KEY=${LLM_API_KEY:-}
       - LLM_BASE_URL=${LLM_BASE_URL:-https://openrouter.ai/api/v1}
       - LLM_MODEL=${LLM_MODEL:-openai/gpt-5.4-mini}
-      - LLM_TIMEOUT=${LLM_TIMEOUT:-120}
-      - LLM_MAX_RETRIES=${LLM_MAX_RETRIES:-3}
+      - LLM_TIMEOUT=${LLM_TIMEOUT:-60}
+      - LLM_MAX_RETRIES=${LLM_MAX_RETRIES:-2}
       - LLM_REASONING_EFFORT=${LLM_REASONING_EFFORT:-low}
       - PUBLISH_CHANNEL_URL=${PUBLISH_CHANNEL_URL:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
@@ -47,6 +47,9 @@ services:
       - PYTHONPATH=/app
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - NYAN_TIMEZONE=${NYAN_TIMEZONE:-Europe/Kyiv}
+      # Як часто перечитувати канал і як довго спати між проходами.
+      - RECRAWL_TIME=${RECRAWL_TIME:-300}
+      - CRAWL_INTERVAL=${CRAWL_INTERVAL:-60}
       - MONGO_HOST=${MONGO_HOST:-}
       - MONGO_PORT=${MONGO_PORT:-27017}
       - MONGO_DATABASE=${MONGO_DATABASE:-main}
@@ -75,8 +78,8 @@ services:
       - LLM_API_KEY=${LLM_API_KEY:-}
       - LLM_BASE_URL=${LLM_BASE_URL:-https://openrouter.ai/api/v1}
       - LLM_MODEL=${LLM_MODEL:-openai/gpt-5.4-mini}
-      - LLM_TIMEOUT=${LLM_TIMEOUT:-120}
-      - LLM_MAX_RETRIES=${LLM_MAX_RETRIES:-3}
+      - LLM_TIMEOUT=${LLM_TIMEOUT:-60}
+      - LLM_MAX_RETRIES=${LLM_MAX_RETRIES:-2}
       - LLM_REASONING_EFFORT=${LLM_REASONING_EFFORT:-low}
       - PUBLISH_CHANNEL_URL=${PUBLISH_CHANNEL_URL:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}

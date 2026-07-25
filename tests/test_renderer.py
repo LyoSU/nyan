@@ -171,6 +171,71 @@ def test_without_a_headline_the_first_sentence_stands_in(renderer: Renderer) -> 
     assert find(post.blocks, "paragraph")["text"] == "А це подробиці події."
 
 
+def test_a_lead_on_its_own_line_becomes_the_heading(renderer: Renderer) -> None:
+    """Telegram posts break the lead with a newline, not ". ".
+
+    Looking only for a period followed by a space left most posts with no
+    heading at all, since their text never contains one.
+    """
+    cluster = make_cluster(
+        [
+            make_doc(
+                VERIFIED,
+                "https://t.me/rbc_news/1",
+                text=(
+                    "Федорову запропонували посаду радника — Reuters.\n"
+                    "«Я зателефонував йому», — сказав міністр."
+                ),
+            )
+        ],
+        headline=None,
+    )
+    post = renderer.render_cluster(cluster, "main")
+
+    assert post is not None
+    assert post.blocks is not None
+    heading = find(post.blocks, "heading")
+    assert heading["text"] == "Федорову запропонували посаду радника — Reuters."
+    body = find(post.blocks, "paragraph")["text"]
+    assert body == "«Я зателефонував йому», — сказав міністр."
+
+
+def test_a_lead_without_final_punctuation_still_becomes_a_heading(
+    renderer: Renderer,
+) -> None:
+    cluster = make_cluster(
+        [
+            make_doc(
+                VERIFIED,
+                "https://t.me/rbc_news/1",
+                text=(
+                    "Зеленський підтвердив ураження\n"
+                    "За даними Президента, атаковано три об'єкти."
+                ),
+            )
+        ],
+        headline=None,
+    )
+    post = renderer.render_cluster(cluster, "main")
+
+    assert post is not None
+    assert post.blocks is not None
+    assert find(post.blocks, "heading")["text"] == "Зеленський підтвердив ураження"
+
+
+def test_an_overlong_lead_is_left_in_the_body(renderer: Renderer) -> None:
+    long_lead = "Дуже довгий вступ, " * 10
+    cluster = make_cluster(
+        [make_doc(VERIFIED, "https://t.me/rbc_news/1", text=f"{long_lead}\nдалі текст.")],
+        headline=None,
+    )
+    post = renderer.render_cluster(cluster, "main")
+
+    assert post is not None
+    assert post.blocks is not None
+    assert [b for b in post.blocks if b["type"] == "heading"] == []
+
+
 def test_single_sentence_without_a_headline_gets_no_heading(renderer: Renderer) -> None:
     cluster = make_cluster(
         [make_doc(VERIFIED, "https://t.me/rbc_news/1", text="Одне речення без кінця")],
@@ -254,7 +319,8 @@ def test_difference_from_an_unknown_channel_is_dropped(renderer: Renderer) -> No
     assert [b for b in post.blocks if b["type"] == "blockquote"] == []
 
 
-def test_sources_summary_counts_every_group(renderer: Renderer) -> None:
+def test_sources_summary_is_just_a_count(renderer: Renderer) -> None:
+    """A per-group row of emoji and digits read as a badge, not as information."""
     cluster = make_cluster(
         [
             make_doc(OFFICIAL, "https://t.me/rian_ru/1", pub_time=100),
@@ -266,24 +332,19 @@ def test_sources_summary_counts_every_group(renderer: Renderer) -> None:
 
     assert post is not None
     assert post.blocks is not None
-    summary = flatten_text(find(post.blocks, "details")["summary"])
-    assert "3 джерела" in summary
-    # One count per group, so the trust breakdown is visible while scrolling.
-    assert summary.count("1") == 3
+    assert find(post.blocks, "details")["summary"] == "3 джерела"
 
 
-def test_counts_are_separated_from_their_emoji(
+def test_group_titles_are_spaced_after_their_emoji(
     renderer: Renderer, two_group_cluster: Cluster
 ) -> None:
-    """An emoji and a digit set solid read as one glyph rather than a count."""
+    """A glyph set solid against the next word reads as one token."""
     post = renderer.render_cluster(two_group_cluster, "main")
 
     assert post is not None
     assert post.blocks is not None
-    summary = flatten_text(find(post.blocks, "details")["summary"])
-    assert "2 джерела" in summary
-    # No emoji immediately followed by a digit anywhere in the summary.
-    assert not re.search(r"[^\s\w]\d", summary), summary
+    listing = flatten_text(find(post.blocks, "details")["blocks"][0])
+    assert not re.search(r"[^\s\w][\wА-Яа-яІіЇїЄєҐґ]", listing), listing
 
 
 def test_documents_from_an_unlisted_channel_are_skipped(renderer: Renderer) -> None:
