@@ -63,8 +63,40 @@ def test_channels_are_found_by_any_form_of_their_id(tmp_path: Any) -> None:
 
 
 def test_production_channel_file_matches_the_defaults() -> None:
-    """The shipped file and the code should not drift apart silently."""
+    """The shipped file and the code should not drift apart silently.
+
+    Only the trust groups the file actually puts channels in are checked. Its
+    `group_names` also carries entries for issue names, which nothing looks up:
+    the renderer titles a section by the channel's trust group, never by issue.
+    """
     channels = Channels("channels.json")
 
-    for group, name in DEFAULT_GROUP_NAMES.items():
-        assert channels.group_title(group) == name
+    used = {group for _, channel in channels for group in channel.groups.values()}
+    assert used, "No channel is in any trust group"
+    for group in sorted(used):
+        assert channels.group_title(group) == DEFAULT_GROUP_NAMES[group]
+        assert channels.group_emoji(group) == DEFAULT_GROUP_EMOJIS[group]
+
+
+def test_every_channel_can_render_its_own_issue() -> None:
+    """A channel's `issue` routes its clusters; its `groups` decide what renders.
+
+    When the two disagree the renderer keeps no documents for that issue and the
+    story is dropped from every feed instead of appearing in one, so this has to
+    hold for the shipped file.
+    """
+    channels = Channels("channels.json")
+
+    mismatched = [
+        (name, channel.issue, sorted(channel.groups))
+        for name, channel in channels
+        if channel.issue not in channel.groups
+    ]
+    assert not mismatched
+
+
+def test_every_channel_is_in_the_main_feed() -> None:
+    """The ranker falls back to "main" for issues it does not configure."""
+    channels = Channels("channels.json")
+
+    assert [name for name, channel in channels if "main" not in channel.groups] == []

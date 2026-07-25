@@ -51,6 +51,11 @@ MAX_PROMPT_DOCS = 12
 # Channels whose word is treated as confirmation rather than as one more report.
 OFFICIAL_GROUP = "red"
 
+# ML categories that have a feed of their own, so a story classified as one of
+# them is routed there instead of into the main feed. Only the categories a
+# channel can actually be grouped under in channels.json belong here.
+FEED_CATEGORIES = frozenset(("war", "politics", "tech"))
+
 # Views are bucketed before hashing, so a post is only re-edited when its
 # audience changed by an order that a reader would notice.
 VIEWS_HASH_BUCKET = 100000
@@ -469,7 +474,17 @@ class Cluster:
             [doc.category for doc in self.docs if doc.category]
         )
 
-        non_main_issues = [issue for issue in issues if issue != "main"]
+        # Issues this cluster can actually appear in. The renderer keeps only
+        # documents whose channel has a group for the issue, so a cluster routed
+        # to any other issue renders empty and is dropped from every feed instead
+        # of being moved between them. Without this guard a tech story covered
+        # only by general news channels was silently swallowed: the classifier
+        # sent it to "tech", and not one of those channels has a "tech" group.
+        servable = {issue for doc in self.docs for issue in doc.groups}
+
+        non_main_issues = [
+            issue for issue in issues if issue != "main" and issue in servable
+        ]
         if non_main_issues:
             # Cluster is dominated by specialized channels (war/politics/tech) —
             # route there only to avoid cross-posting when all issues share one channel.
@@ -477,11 +492,14 @@ class Cluster:
 
         # All-main channels: use ML categories to route war/politics/tech stories
         # to their feeds; fall back to main for everything else.
-        final_issues: list[str] = list(categories)
-        feed_categories = {"war", "politics", "tech"}
-        if not any(cat in feed_categories for cat in categories):
-            final_issues.append("main")
-        return list(set(final_issues))
+        feed_issues = [
+            category
+            for category in categories
+            if category in FEED_CATEGORIES and category in servable
+        ]
+        if feed_issues:
+            return list(set(feed_issues))
+        return ["main"]
 
     def get_issue_message(self, issue: str) -> MessageId | None:
         messages = [m for m in self.messages if m.issue == issue]

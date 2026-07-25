@@ -27,10 +27,10 @@
         },
         {
             "issue_name": "tech",
-            "min_channels": 3,
-            "max_age_minutes": 360,
-            "views_percentile": 20,
-            "higher_views_percentile": 25,
+            "min_channels": 2,
+            "max_age_minutes": 720,
+            "views_percentile": 10,
+            "higher_views_percentile": 15,
             "higher_trigger_age_minutes": 20
         }
     ]

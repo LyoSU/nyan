@@ -285,3 +285,70 @@ def test_a_single_source_headline_prompt_carries_the_date(monkeypatch) -> None: 
     assert cluster.headline == "Заголовок"
 
     assert "Сьогодні 25 липня 2026 року." in calls[0]["messages"][0]["content"]
+
+
+def _issue_doc(channel_id: str, groups: dict[str, str], issue: str, category: str) -> Document:
+    return Document(
+        url=f"https://t.me/{channel_id}/1",
+        channel_id=channel_id,
+        post_id=1,
+        views=1,
+        pub_time=1,
+        groups=groups,
+        issue=issue,
+        category=category,
+    )
+
+
+def _issue_cluster(docs: list[Document]) -> Cluster:
+    cluster = Cluster()
+    for doc in docs:
+        cluster.add(doc)
+    return cluster
+
+
+def test_a_tech_story_on_general_channels_stays_in_the_main_feed() -> None:
+    """The renderer drops documents whose channel has no group for the issue.
+
+    So routing such a cluster to "tech" left nothing to render and the story
+    vanished from every feed. Every IT and AI story covered only by general news
+    channels was lost this way.
+    """
+    cluster = _issue_cluster(
+        [
+            _issue_doc(f"news{i}", {"main": "blue"}, "main", "tech")
+            for i in range(3)
+        ]
+    )
+
+    assert cluster.issues == ["main"]
+
+
+def test_a_tech_story_on_tech_channels_still_goes_to_the_tech_feed() -> None:
+    cluster = _issue_cluster(
+        [
+            _issue_doc(f"it{i}", {"main": "purple", "tech": "purple"}, "tech", "tech")
+            for i in range(3)
+        ]
+    )
+
+    assert cluster.issues == ["tech"]
+
+
+def test_a_category_feed_is_used_when_one_channel_serves_it() -> None:
+    """A mixed cluster can still reach the category feed, which is the point."""
+    docs = [
+        _issue_doc("news1", {"main": "blue"}, "main", "tech"),
+        _issue_doc("news2", {"main": "blue"}, "main", "tech"),
+        _issue_doc("it1", {"main": "purple", "tech": "purple"}, "main", "tech"),
+    ]
+
+    assert _issue_cluster(docs).issues == ["tech"]
+
+
+def test_a_category_with_no_feed_of_its_own_lands_in_main() -> None:
+    cluster = _issue_cluster(
+        [_issue_doc(f"news{i}", {"main": "blue"}, "main", "economy") for i in range(3)]
+    )
+
+    assert cluster.issues == ["main"]

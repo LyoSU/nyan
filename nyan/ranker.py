@@ -17,17 +17,40 @@ MAX_CLUSTERS_PER_ISSUE = 10
 # feed, so a single loud group cannot set the bar for everyone.
 BALANCED_GROUPS = ("blue", "red")
 
+# Where a cluster goes when it belongs to no configured issue. Every channel is
+# in the main feed (channels.json gives it as a default group), so this is the
+# one issue that can always render.
+FALLBACK_ISSUE = "main"
+
 
 class Ranker:
     def __init__(self, config_path: str) -> None:
         assert os.path.exists(config_path)
         with open(config_path) as r:
             self.config = json.load(r)
+        assert any(
+            issue["issue_name"] == FALLBACK_ISSUE for issue in self.config["issues"]
+        ), f"No '{FALLBACK_ISSUE}' issue configured for clusters to fall back to"
 
     def __call__(self, all_clusters: list[Cluster]) -> dict[str, list[Cluster]]:
+        configured = {issue["issue_name"] for issue in self.config["issues"]}
         issues = defaultdict(list)
         for cluster in all_clusters:
-            for issue in cluster.issues:
+            # A channel's issue in channels.json is not required to have an entry
+            # here, and the loop below only visits configured issues — so without
+            # this fallback a cluster of, say, purely local channels was dropped
+            # from every feed rather than landing in the main one.
+            cluster_issues = [issue for issue in cluster.issues if issue in configured]
+            if not cluster_issues:
+                # Logged without the title on purpose: rendering one picks an
+                # annotation document, which is work this filter does not need.
+                logging.info(
+                    "No configured issue among %s, falling back to '%s'",
+                    cluster.issues,
+                    FALLBACK_ISSUE,
+                )
+                cluster_issues = [FALLBACK_ISSUE]
+            for issue in cluster_issues:
                 issues[issue].append(cluster)
 
         required_language = self.config.get("required_language", "uk")
