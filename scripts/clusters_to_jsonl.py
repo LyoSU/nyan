@@ -3,7 +3,6 @@ import json
 
 from pymongo import MongoClient
 
-from nyan.util import get_current_ts
 
 
 def main(

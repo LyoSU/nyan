@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pytest
 
@@ -11,11 +11,11 @@ class FakeCompletions:
     """Stands in for client.chat.completions, recording every request."""
 
     def __init__(
-        self, errors: Optional[List[Exception]] = None, content: str = "ok"
+        self, errors: list[Exception] | None = None, content: str = "ok"
     ) -> None:
         self.errors = list(errors or ())
         self.content = content
-        self.calls: List[Dict[str, Any]] = []
+        self.calls: list[dict[str, Any]] = []
 
     def create(self, **kwargs: Any) -> SimpleNamespace:
         self.calls.append(kwargs)
@@ -29,19 +29,18 @@ class FakeCompletions:
 @pytest.fixture
 def fake_client(monkeypatch):  # type: ignore[no-untyped-def]
     def _install(
-        errors: Optional[List[Exception]] = None, content: str = "ok"
+        errors: list[Exception] | None = None, content: str = "ok"
     ) -> FakeCompletions:
         completions = FakeCompletions(errors, content)
         client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
         monkeypatch.setattr(llm, "get_client", lambda: client)
         monkeypatch.setattr(llm, "_unsupported_params", {})
-        monkeypatch.setattr(llm.time, "sleep", lambda _: None)
         return completions
 
     return _install
 
 
-def _messages() -> List[Dict[str, Any]]:
+def _messages() -> list[dict[str, Any]]:
     return [{"role": "user", "content": "hi"}]
 
 

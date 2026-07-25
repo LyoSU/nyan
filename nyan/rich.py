@@ -10,12 +10,13 @@ Reference: https://core.telegram.org/bots/api#rich-messages
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Union
+from typing import Any, Union
+from collections.abc import Sequence
 
 # A RichText is a plain string, one of the inline objects built below, or a
 # list mixing both. The API accepts all three wherever RichText is expected.
-RichText = Union[str, Dict[str, Any], List[Any]]
-Block = Dict[str, Any]
+RichText = Union[str, dict[str, Any], list[Any]]  # noqa: UP007
+Block = dict[str, Any]
 
 
 # Telegram limits, kept here so callers can budget against them.
@@ -75,9 +76,9 @@ def date_time(text: str, unix_time: int, fmt: str = "t") -> RichText:
     }
 
 
-def join(parts: Sequence[Optional[RichText]], separator: RichText = " · ") -> RichText:
+def join(parts: Sequence[RichText | None], separator: RichText = " · ") -> RichText:
     """Concatenate inline parts, dropping empties so separators never double up."""
-    result: List[Any] = []
+    result: list[Any] = []
     for part in parts:
         if part is None or part == "" or part == []:
             continue
@@ -92,7 +93,7 @@ def join(parts: Sequence[Optional[RichText]], separator: RichText = " · ") -> R
 
 def heading(text: RichText, size: int = 3) -> Block:
     """A section heading. `size` is 1-6 where 1 is the largest."""
-    assert 1 <= size <= 6, "Heading size must be 1-6, got {}".format(size)
+    assert 1 <= size <= 6, f"Heading size must be 1-6, got {size}"
     return {"type": "heading", "text": text, "size": size}
 
 
@@ -109,7 +110,7 @@ def divider() -> Block:
     return {"type": "divider"}
 
 
-def blockquote(*blocks: Block, credit: Optional[RichText] = None) -> Block:
+def blockquote(*blocks: Block, credit: RichText | None = None) -> Block:
     """A quotation. `credit` maps to <cite>, i.e. who said it."""
     block: Block = {"type": "blockquote", "blocks": list(blocks)}
     if credit:
@@ -131,18 +132,18 @@ def bullet_list(*items: Sequence[Block]) -> Block:
 
 
 def _caption(
-    text: Optional[RichText] = None, credit: Optional[RichText] = None
-) -> Optional[Dict[str, Any]]:
+    text: RichText | None = None, credit: RichText | None = None
+) -> dict[str, Any] | None:
     if not text and not credit:
         return None
-    caption: Dict[str, Any] = {"text": text if text else ""}
+    caption: dict[str, Any] = {"text": text if text else ""}
     if credit:
         caption["credit"] = credit
     return caption
 
 
 def _media_block(
-    block_type: str, media_type: str, url: str, caption: Optional[Dict[str, Any]]
+    block_type: str, media_type: str, url: str, caption: dict[str, Any] | None
 ) -> Block:
     block: Block = {
         "type": block_type,
@@ -154,25 +155,25 @@ def _media_block(
 
 
 def photo(
-    url: str, text: Optional[RichText] = None, credit: Optional[RichText] = None
+    url: str, text: RichText | None = None, credit: RichText | None = None
 ) -> Block:
     return _media_block("photo", "photo", url, _caption(text, credit))
 
 
 def video(
-    url: str, text: Optional[RichText] = None, credit: Optional[RichText] = None
+    url: str, text: RichText | None = None, credit: RichText | None = None
 ) -> Block:
     return _media_block("video", "video", url, _caption(text, credit))
 
 
 def animation(
-    url: str, text: Optional[RichText] = None, credit: Optional[RichText] = None
+    url: str, text: RichText | None = None, credit: RichText | None = None
 ) -> Block:
     return _media_block("animation", "animation", url, _caption(text, credit))
 
 
 def slideshow(
-    *blocks: Block, text: Optional[RichText] = None, credit: Optional[RichText] = None
+    *blocks: Block, text: RichText | None = None, credit: RichText | None = None
 ) -> Block:
     """Swipeable media group. Preferred over a collage for news: nothing is
     cropped into a grid and the post stays short regardless of photo count."""
@@ -192,8 +193,8 @@ class RenderedPost:
     a post needs.
     """
 
-    blocks: Optional[List[Block]] = None
-    text: Optional[str] = None
+    blocks: list[Block] | None = None
+    text: str | None = None
     photos: Sequence[str] = field(default_factory=tuple)
     videos: Sequence[str] = field(default_factory=tuple)
     animations: Sequence[str] = field(default_factory=tuple)

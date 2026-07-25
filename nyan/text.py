@@ -1,5 +1,5 @@
 import re
-from typing import Any, Dict
+from typing import Any
 
 EMOJI_PATTERN = re.compile(
     "(["
@@ -63,7 +63,7 @@ def remove_bad_punct(text: str) -> str:
 
 
 class TextProcessor:
-    def __init__(self, config: Dict[str, Any]) -> None:
+    def __init__(self, config: dict[str, Any]) -> None:
         self.pipeline = (
             remove_emoji,
             remove_hashtags,

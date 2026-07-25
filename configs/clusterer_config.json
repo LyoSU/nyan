@@ -3,14 +3,16 @@
         "n_clusters": null,
         "metric": "precomputed",
         "linkage": "average",
-        "distance_threshold": 0.10
+        "distance_threshold": 0.1
     },
     "distances": {
         "same_channels_penalty": 5.0,
         "time_penalty_modifier": 4.0,
-        "image_penalty_modifier": 1.0,
         "image_bonus": 0.5,
         "time_shift_hours": 6,
-        "no_time_penalty_issues": ["tech", "economy"]
+        "no_time_penalty_issues": [
+            "tech",
+            "economy"
+        ]
     }
 }

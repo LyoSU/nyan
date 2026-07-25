@@ -1,60 +1,67 @@
 import json
+import logging
 import os
-import traceback
 import shutil
 import hashlib
 from pathlib import Path
-from typing import Optional, Dict, List, Any, TypeVar, Sequence, cast
-from typing import Counter as CounterT
+from typing import Any, TypeVar, cast
+from collections.abc import Sequence
+from collections import Counter as CounterT
 from collections import Counter, defaultdict
 from functools import cached_property
 
 from jinja2 import Template
 
 from nyan.client import MessageId
-from nyan.document import Document
+from nyan.document import Document, crop_words
 from nyan.mongo import get_clusters_collection
 from nyan.title import choose_title
-from nyan.openai import openai_completion
+from nyan.openai import openai_completion, DEFAULT_REASONING_EFFORT
 from nyan.util import normalize_url
 
 
 BASE_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
 T = TypeVar("T")
 
+# Length of the title used in logs, long enough to recognize a story by.
+MAX_TITLE_WORDS = 14
+
+# How much of a cluster has to carry images before they are shown.
+MIN_IMAGE_DOCS_RATIO = 0.4
+MIN_IMAGE_DOCS = 3
+
+# Views are bucketed before hashing, so a post is only re-edited when its
+# audience changed by an order that a reader would notice.
+VIEWS_HASH_BUCKET = 100000
+
 # Cross-object LLM analysis cache. The daemon re-creates Cluster objects from
 # scratch on every iteration, so per-object memoization alone still re-pays
 # the LLM call each iteration for clusters that fail to post (e.g. Telegram
 # errors) and get re-rendered forever. Keyed by the normalized doc URL set:
 # a cluster with the same documents always yields the same analysis.
-_ANALYSIS_CACHE: Dict[Any, Dict[str, Any]] = {}
+_ANALYSIS_CACHE: dict[Any, dict[str, Any]] = {}
 _ANALYSIS_CACHE_MAX_SIZE = 2048
 
 
 class Cluster:
     def __init__(self) -> None:
-        self.docs: List[Document] = list()
-        self.url2doc: Dict[str, Document] = dict()
-        self.clid: Optional[int] = None
+        self.docs: list[Document] = list()
+        self.url2doc: dict[str, Document] = dict()
+        self.clid: int | None = None
         self.is_important: bool = False
 
-        self.create_time: Optional[int] = None
-        self.messages: List[MessageId] = list()
+        self.create_time: int | None = None
+        self.messages: list[MessageId] = list()
 
-        self.distances: Optional[List[float]] = None
-
-        self.saved_annotation_doc: Optional[Document] = None
-        self.saved_first_doc: Optional[Document] = None
-        self.saved_hash: Optional[str] = None
-        self.saved_analysis: Optional[Dict[str, Any]] = None
+        self.saved_annotation_doc: Document | None = None
+        self.saved_first_doc: Document | None = None
+        self.saved_hash: str | None = None
+        self.saved_analysis: dict[str, Any] | None = None
 
     def add(self, doc: Document) -> None:
         self.docs.append(doc)
         url_normalized = normalize_url(doc.url)
         self.url2doc[url_normalized] = doc
-
-    def save_distances(self, distances: List[float]) -> None:
-        self.distances = distances
 
     def has(self, doc: Document) -> bool:
         return normalize_url(doc.url) in self.url2doc
@@ -102,7 +109,7 @@ class Cluster:
         return int(self.debiased_views / age_hours)
 
     @property
-    def embedding(self) -> Optional[List[float]]:
+    def embedding(self) -> list[float] | None:
         if not self.annotation_doc:
             return None
         return self.annotation_doc.embedding
@@ -114,16 +121,19 @@ class Cluster:
 
     @cached_property
     def images(self) -> Sequence[str]:
-        image_doc_count = sum([bool(doc.images) for doc in self.unique_docs])
         doc_count = len(self.unique_docs)
         if doc_count == 0:
             return tuple()
-        images = [
-            i["url"] for i in self.annotation_doc.embedded_images if self.annotation_doc
-        ]
+        images = [image["url"] for image in self.annotation_doc.embedded_images]
         if not images:
             return tuple()
-        if image_doc_count / doc_count >= 0.4 or image_doc_count >= 3:
+        # Only show images when enough sources posted one: a picture from a
+        # single channel is usually its own branding rather than the story.
+        image_doc_count = sum(bool(doc.images) for doc in self.unique_docs)
+        if (
+            image_doc_count / doc_count >= MIN_IMAGE_DOCS_RATIO
+            or image_doc_count >= MIN_IMAGE_DOCS
+        ):
             return images
         return tuple()
 
@@ -135,21 +145,15 @@ class Cluster:
         return tuple()
 
     @cached_property
-    def cropped_title(self, max_words: int = 14) -> str:
-        text = self.annotation_doc.patched_text
-        if not text:
-            return ""
-        words = text.split()
-        if len(words) < max_words:
-            return " ".join(words)
-        return " ".join(words[:max_words]) + "..."
+    def cropped_title(self) -> str:
+        return crop_words(self.annotation_doc.patched_text, MAX_TITLE_WORDS)
 
     @property
-    def urls(self) -> List[str]:
+    def urls(self) -> list[str]:
         return list(self.url2doc.keys())
 
     @property
-    def channels(self) -> List[str]:
+    def channels(self) -> list[str]:
         return list({d.channel_id for d in self.docs})
 
     @property
@@ -159,7 +163,7 @@ class Cluster:
         return min(self.docs, key=lambda x: x.pub_time)
 
     @property
-    def analysis(self) -> Dict[str, Any]:
+    def analysis(self) -> dict[str, Any]:
         """Headline and cross-source differences, from a single LLM call.
 
         Both are derived from the same input (the cluster's documents), so
@@ -188,15 +192,15 @@ class Cluster:
         prompt = template.render(docs=other_docs, annotation_doc=annotation_doc)
         messages = [{"role": "user", "content": prompt}]
 
-        analysis: Dict[str, Any] = {"headline": None, "differences": []}
+        analysis: dict[str, Any] = {"headline": None, "differences": []}
         try:
             content = openai_completion(
                 messages=messages,
                 response_format={"type": "json_object"},
-                reasoning_effort="low",
+                reasoning_effort=DEFAULT_REASONING_EFFORT,
             )
             content = content[content.find("{") : content.rfind("}") + 1]
-            parsed_content: Dict[str, Any] = json.loads(content)
+            parsed_content: dict[str, Any] = json.loads(content)
 
             headline = parsed_content.get("headline")
             if isinstance(headline, str) and headline.strip():
@@ -210,7 +214,9 @@ class Cluster:
                     d for d in differences if d.get("text") and d.get("channel_ids")
                 ]
         except Exception:
-            traceback.print_exc()
+            # A post without a headline or differences is still a usable post,
+            # so a failed analysis degrades the post instead of the iteration.
+            logging.exception("LLM analysis failed for '%s'", self.cropped_title)
 
         self.saved_analysis = analysis
         if len(_ANALYSIS_CACHE) >= _ANALYSIS_CACHE_MAX_SIZE:
@@ -219,13 +225,13 @@ class Cluster:
         return analysis
 
     @property
-    def diff(self) -> List[Dict[str, Any]]:
-        return cast(List[Dict[str, Any]], self.analysis["differences"])
+    def diff(self) -> list[dict[str, Any]]:
+        return cast(list[dict[str, Any]], self.analysis["differences"])
 
     @property
-    def headline(self) -> Optional[str]:
+    def headline(self) -> str | None:
         """Short headline for the post, or None to fall back to the text."""
-        return cast(Optional[str], self.analysis["headline"])
+        return cast(str | None, self.analysis["headline"])
 
     @property
     def annotation_doc(self) -> Document:
@@ -236,13 +242,13 @@ class Cluster:
         return self.saved_annotation_doc
 
     @cached_property
-    def hash(self) -> str:  # noqa: A003
+    def hash(self) -> str:
         data = " ".join(sorted({d.channel_id for d in self.docs}))
-        data += " " + str(self.views // 100000)
+        data += " " + str(self.views // VIEWS_HASH_BUCKET)
         return hashlib.sha256(data.encode("utf-8")).hexdigest()
 
     @property
-    def unique_docs(self) -> List[Document]:
+    def unique_docs(self) -> list[Document]:
         return [doc for doc in self.docs if not doc.forward_from]
 
     @property
@@ -261,7 +267,11 @@ class Cluster:
 
     @property
     def group(self) -> str:
-        groups = [doc.groups.get("main") for doc in self.docs if doc.groups and doc.groups.get("main")]
+        groups = [
+            doc.groups["main"]
+            for doc in self.docs
+            if doc.groups and doc.groups.get("main")
+        ]
         if not groups:
             return "purple"
 
@@ -278,19 +288,19 @@ class Cluster:
         return "purple"
 
     @property
-    def issues(self) -> List[str]:
+    def issues(self) -> list[str]:
         if self.messages:
             return [m.issue for m in self.messages]
 
-        def get_most_common(items: List[T]) -> List[T]:
+        def get_most_common(items: list[T]) -> list[T]:
             counter = Counter(items)
             max_count = counter.most_common(1)[0][1]
             return [item for item, count in counter.items() if count == max_count]
 
-        issues: List[str] = get_most_common(
+        issues: list[str] = get_most_common(
             [doc.issue for doc in self.docs if doc.issue]
         )
-        categories: List[str] = get_most_common(
+        categories: list[str] = get_most_common(
             [doc.category for doc in self.docs if doc.category]
         )
 
@@ -302,29 +312,33 @@ class Cluster:
 
         # All-main channels: use ML categories to route war/politics/tech stories
         # to their feeds; fall back to main for everything else.
-        final_issues: List[str] = list(categories)
+        final_issues: list[str] = list(categories)
         feed_categories = {"war", "politics", "tech"}
         if not any(cat in feed_categories for cat in categories):
             final_issues.append("main")
         return list(set(final_issues))
 
-    def get_issue_message(self, issue: str) -> Optional[MessageId]:
+    def get_issue_message(self, issue: str) -> MessageId | None:
         messages = [m for m in self.messages if m.issue == issue]
         if messages:
             return messages[0]
         return None
 
-    def get_url(self, host: str, issue: str) -> Optional[str]:
+    def get_url(self, host: str, issue: str) -> str | None:
         message = self.get_issue_message(issue)
         if not message:
             return None
         message_id = message.message_id
         return f"{host}/{message_id}"
 
-    def asdict(self) -> Dict[str, Any]:
+    def asdict(self) -> dict[str, Any]:
         docs = [d.asdict(is_short=True) for d in self.docs]
         annotation_doc = self.annotation_doc.asdict()
         first_doc = self.first_doc.asdict(is_short=True)
+        # Whatever analysis exists, without asking for it: `self.diff` would
+        # call the LLM on demand, which would make serializing a cluster a
+        # network operation and require an API key just to store one.
+        analysis = self.saved_analysis or {}
         return {
             "clid": self.clid,
             "docs": docs,
@@ -332,14 +346,14 @@ class Cluster:
             "annotation_doc": annotation_doc,
             "first_doc": first_doc,
             "hash": self.hash,
-            "diff": self.diff,
-            "headline": self.headline,
+            "diff": analysis.get("differences", []),
+            "headline": analysis.get("headline"),
             "is_important": self.is_important,
             "create_time": self.create_time,
         }
 
     @classmethod
-    def fromdict(cls, d: Dict[str, Any]) -> "Cluster":
+    def fromdict(cls, d: dict[str, Any]) -> "Cluster":
         cluster = cls()
         cluster.clid = d.get("clid")
 
@@ -392,11 +406,11 @@ class Cluster:
 
 class Clusters:
     def __init__(self) -> None:
-        self.clid2cluster: Dict[int, Cluster] = dict()
-        self.message2cluster: Dict[MessageId, Cluster] = dict()
+        self.clid2cluster: dict[int, Cluster] = dict()
+        self.message2cluster: dict[MessageId, Cluster] = dict()
         self.max_clid: int = 60000
 
-    def _invalidate_caches(self) -> None:
+    def invalidate_caches(self) -> None:
         self.__dict__.pop("urls2messages", None)
 
     def find_similar(
@@ -404,7 +418,7 @@ class Clusters:
         cluster: Cluster,
         issue_name: str,
         min_intersection_ratio: float = 0.25,
-    ) -> Optional[Cluster]:
+    ) -> Cluster | None:
         messages = list()
         for url in cluster.urls:
             message = self.urls2messages[issue_name].get(normalize_url(url))
@@ -427,7 +441,7 @@ class Clusters:
             return None
         return old_cluster
 
-    def get_embedded_clusters(self, current_ts: int, issue: str) -> List[Cluster]:
+    def get_embedded_clusters(self, current_ts: int, issue: str) -> list[Cluster]:
         filtered_clusters = []
         for cluster in self.clid2cluster.values():
             if not cluster.embedding:
@@ -450,21 +464,21 @@ class Clusters:
             self.message2cluster[message] = cluster
         self.clid2cluster[cluster.clid] = cluster
         self.max_clid = max(self.max_clid, cluster.clid)
-        self._invalidate_caches()
+        self.invalidate_caches()
 
     def __len__(self) -> int:
         return len(self.clid2cluster)
 
     @cached_property
-    def urls2messages(self) -> Dict[str, Dict[str, MessageId]]:
-        result: Dict[str, Dict[str, MessageId]] = defaultdict(dict)
+    def urls2messages(self) -> dict[str, dict[str, MessageId]]:
+        result: dict[str, dict[str, MessageId]] = defaultdict(dict)
         for _, cluster in self.clid2cluster.items():
             for url in cluster.urls:
                 for message in cluster.messages:
                     result[message.issue][normalize_url(url)] = message
         return result
 
-    def update_documents(self, documents: List[Document]) -> int:
+    def update_documents(self, documents: list[Document]) -> int:
         url2doc = {normalize_url(doc.url): doc for doc in documents}
         updates_count = 0
         for _, cluster in self.clid2cluster.items():
@@ -487,7 +501,7 @@ class Clusters:
                     cluster.saved_annotation_doc = new_doc
                 updates_count += 1
         if updates_count > 0:
-            self._invalidate_caches()
+            self.invalidate_caches()
         return updates_count
 
     def save(self, path: str) -> None:

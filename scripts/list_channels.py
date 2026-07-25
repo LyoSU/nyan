@@ -22,7 +22,7 @@ def list_channels(client_config_path, channels_path):
         emoji = first_channel.emojis.get("main", "") if first_channel.emojis else ""
         text += emoji
         for ch in group:
-            text += '<a href="https://t.me/{}">{}</a> • '.format(ch.name, ch.alias)
+            text += f'<a href="https://t.me/{ch.name}">{ch.alias}</a> • '
         text += "\n\n"
     print(text)
     client.send_message(text, "main")

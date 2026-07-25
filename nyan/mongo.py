@@ -1,57 +1,60 @@
 import json
-from typing import Dict, Any
+from functools import cache
+from typing import Any
 
 from pymongo import MongoClient
 from pymongo.database import Database
 from pymongo.collection import Collection
 
 
-def read_config(mongo_config_path: str) -> Dict[str, Any]:
+def read_config(mongo_config_path: str) -> dict[str, Any]:
     with open(mongo_config_path) as r:
-        mongo_config: Dict[str, Any] = json.load(r)
+        mongo_config: dict[str, Any] = json.load(r)
     return mongo_config
 
 
-def get_database(mongo_config: Dict[str, Any]) -> Database[Dict[str, Any]]:
-    client: MongoClient[Dict[str, Any]] = MongoClient(**mongo_config["client"])
-    database_name = mongo_config["database_name"]
+@cache
+def get_database(mongo_config_path: str) -> Database[dict[str, Any]]:
+    """The database handle for a config file, built once per process.
+
+    MongoClient owns a connection pool and is meant to be long-lived. Creating
+    one per collection lookup — which the daemon did on every iteration —
+    leaks pools and sockets, because nothing ever closes them.
+    """
+    mongo_config = read_config(mongo_config_path)
+    client: MongoClient[dict[str, Any]] = MongoClient(**mongo_config["client"])
+    database_name: str = mongo_config["database_name"]
     return client[database_name]
 
 
-def get_documents_collection(mongo_config_path: str) -> Collection[Dict[str, Any]]:
-    mongo_config = read_config(mongo_config_path)
-    database = get_database(mongo_config)
-    documents_collection_name = mongo_config["documents_collection_name"]
-    return database[documents_collection_name]
+def get_collection(
+    mongo_config_path: str, config_key: str, default: str
+) -> Collection[dict[str, Any]]:
+    collection_name: str = read_config(mongo_config_path).get(config_key, default)
+    return get_database(mongo_config_path)[collection_name]
+
+
+def get_documents_collection(mongo_config_path: str) -> Collection[dict[str, Any]]:
+    return get_collection(mongo_config_path, "documents_collection_name", "documents")
 
 
 def get_annotated_documents_collection(
     mongo_config_path: str,
-) -> Collection[Dict[str, Any]]:
-    mongo_config = read_config(mongo_config_path)
-    database = get_database(mongo_config)
-    annotated_documents_collection_name = mongo_config[
-        "annotated_documents_collection_name"
-    ]
-    return database[annotated_documents_collection_name]
+) -> Collection[dict[str, Any]]:
+    return get_collection(
+        mongo_config_path,
+        "annotated_documents_collection_name",
+        "annotated_documents",
+    )
 
 
-def get_clusters_collection(mongo_config_path: str) -> Collection[Dict[str, Any]]:
-    mongo_config = read_config(mongo_config_path)
-    database = get_database(mongo_config)
-    clusters_collection_name = mongo_config["clusters_collection_name"]
-    return database[clusters_collection_name]
+def get_clusters_collection(mongo_config_path: str) -> Collection[dict[str, Any]]:
+    return get_collection(mongo_config_path, "clusters_collection_name", "clusters")
 
 
-def get_memes_collection(mongo_config_path: str) -> Collection[Dict[str, Any]]:
-    mongo_config = read_config(mongo_config_path)
-    database = get_database(mongo_config)
-    memes_collection_name = mongo_config.get("memes_collection_name", "memes")
-    return database[memes_collection_name]
+def get_memes_collection(mongo_config_path: str) -> Collection[dict[str, Any]]:
+    return get_collection(mongo_config_path, "memes_collection_name", "memes")
 
 
-def get_topics_collection(mongo_config_path: str) -> Collection[Dict[str, Any]]:
-    mongo_config = read_config(mongo_config_path)
-    database = get_database(mongo_config)
-    topics_collection_name = mongo_config.get("topics_collection_name", "topics")
-    return database[topics_collection_name]
+def get_topics_collection(mongo_config_path: str) -> Collection[dict[str, Any]]:
+    return get_collection(mongo_config_path, "topics_collection_name", "topics")

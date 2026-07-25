@@ -1,0 +1,16 @@
+# Only needed by scripts/: dataset exports, annotation bots, the RSS feed and
+# the evaluation scripts. Not installed in the production image.
+-r requirements.txt
+
+# Evaluation and reports
+wordcloud >= 1.9
+nltk >= 3.9
+pandas >= 2.1
+
+# Annotation bots
+python-telegram-bot >= 21.0
+annoy >= 1.17
+
+# Export
+feedgen >= 1.0
+ghp-import >= 2.1

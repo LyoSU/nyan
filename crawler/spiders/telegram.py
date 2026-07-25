@@ -1,13 +1,17 @@
 import json
+import logging
 import shutil
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, UTC
 
 import scrapy
 import html2text
 
 
 def get_current_ts():
-    return int(datetime.now().replace(tzinfo=timezone.utc).timestamp())
+    # now(utc), not now().replace(tzinfo=utc): the latter relabels local
+    # wall-clock time as UTC and only agrees with the rest of the pipeline when
+    # the host happens to run on UTC.
+    return int(datetime.now(UTC).timestamp())
 
 
 def process_views(views):
@@ -40,10 +44,10 @@ def to_timestamp(dt_str):
         return 0
     try:
         dt = datetime.strptime(dt_str, "%Y-%m-%dT%H:%M:%S+00:00")
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
         return int(dt.timestamp())
     except (ValueError, TypeError):
-        print(f"Warning: Invalid datetime string: {dt_str}")
+        logging.warning("Invalid datetime string: %s", dt_str)
         return 0
 
 
@@ -74,8 +78,8 @@ class TelegramSpider(scrapy.Spider):
 
         assert "hours" in kwargs
         hours = int(kwargs.pop("hours"))
-        self.until_ts = int((datetime.now() - timedelta(hours=hours)).timestamp())
-        print("Considering last {} hours".format(hours))
+        self.until_ts = get_current_ts() - hours * 3600
+        logging.info("Considering last %d hours", hours)
 
         self.html2text = html2text_setup()
 
@@ -92,9 +96,12 @@ class TelegramSpider(scrapy.Spider):
             recrawl_time = self.channels[channel_name].get("recrawl_time", 0)
             assert current_ts >= last_fetch_time
             if current_ts - last_fetch_time < recrawl_time:
-                print("Skip {}, current ts: {}, last fetch ts: {}, recrawl interval: {}".format(
-                    url, current_ts, last_fetch_time, recrawl_time
-                ))
+                logging.debug(
+                    "Skip %s, fetched %ds ago, recrawl interval %ds",
+                    url,
+                    current_ts - last_fetch_time,
+                    recrawl_time,
+                )
                 continue
             yield scrapy.Request(url=url, callback=self.parse_channel)
 
@@ -130,8 +137,8 @@ class TelegramSpider(scrapy.Spider):
                 if item is None:
                     continue
                 yield item
-            except Exception as e:
-                print(f"Unexpected error at {post_url}:", str(e))
+            except Exception:
+                logging.exception("Unexpected error at %s", post_url)
                 continue
 
         current_ts = get_current_ts()
@@ -139,12 +146,15 @@ class TelegramSpider(scrapy.Spider):
         if not min_post_ts or min_post_ts < self.until_ts:
             return
         url = url.split("?")[0]
-        url += "?before={}".format(min_post_id)
+        url += f"?before={min_post_id}"
         yield scrapy.Request(url=url, callback=self.parse_channel)
 
     def _parse_post(self, post_element, post_url):
         text_path = "div.tgme_widget_message_bubble > div.tgme_widget_message_text"
-        text_alt_path = "div.tgme_widget_message_bubble > div.media_supported_cont > div.tgme_widget_message_text"
+        text_alt_path = (
+            "div.tgme_widget_message_bubble > div.media_supported_cont"
+            " > div.tgme_widget_message_text"
+        )
         views_path = "span.tgme_widget_message_views::text"
         time_path = "time.time::attr(datetime)"
         images_path = "a.tgme_widget_message_photo_wrap::attr(style)"
@@ -164,7 +174,7 @@ class TelegramSpider(scrapy.Spider):
 
         item["text"] = self._parse_html(text_element.extract_first())
         item["links"] = text_element.css("a::attr(href)").getall()
-        item["fetch_time"] = int(datetime.now().replace(tzinfo=timezone.utc).timestamp())
+        item["fetch_time"] = get_current_ts()
 
         views_element = post_element.css(views_path)
         if not views_element:

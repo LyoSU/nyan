@@ -1,6 +1,5 @@
 import sys
 import json
-from collections import Counter
 from tqdm import tqdm
 
 input_path = sys.argv[1]
@@ -21,7 +20,7 @@ with open(input_path) as r:
             skip_idx.add(doc["idx"])
             continue
         used_urls.add(doc["url"])
-print("Found {} duplicates".format(len(skip_idx)))
+print(f"Found {len(skip_idx)} duplicates")
 
 
 with open(input_path) as r, open(output_path, "w") as w:

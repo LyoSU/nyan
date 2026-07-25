@@ -5,7 +5,7 @@ import json
 from jinja2 import Template
 from tqdm import tqdm
 
-from nyan.util import read_jsonl, gen_batch, write_jsonl
+from nyan.util import read_jsonl, gen_batch
 from nyan.openai import openai_batch_completion, DEFAULT_MODEL
 
 

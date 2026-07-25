@@ -25,7 +25,7 @@ class Client:
 
         self.last_doc1 = None
         self.last_doc2 = None
-        with open(documents_path, "r") as r:
+        with open(documents_path) as r:
             self.docs = [json.loads(line) for line in r]
 
         embedding_dim = len(self.docs[0]["embedding"])

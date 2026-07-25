@@ -1,7 +1,5 @@
-import pytest
-from typing import List, Callable
+from collections.abc import Callable
 
-from nyan.annotator import Annotator
 from nyan.clusterer import Clusterer
 from nyan.ranker import Ranker
 from nyan.document import Document
@@ -11,7 +9,7 @@ from nyan.clusters import Clusters
 def test_clusterer_and_ranker_on_snapshot(
     clusterer: Clusterer,
     ranker: Ranker,
-    output_docs: List[Document],
+    output_docs: list[Document],
     output_clusters: Clusters,
     compare_docs: Callable
 ):
@@ -21,5 +19,7 @@ def test_clusterer_and_ranker_on_snapshot(
     filtered_clusters = ranker(clusters)["main"]
     assert len(filtered_clusters) >= 1
 
-    for pcl, (_, ccl) in zip(filtered_clusters, sorted(output_clusters.clid2cluster.items())):
+    canonical = sorted(output_clusters.clid2cluster.items())
+    assert len(filtered_clusters) == len(canonical), "Different number of clusters"
+    for pcl, (_, ccl) in zip(filtered_clusters, canonical, strict=True):
         compare_docs(pcl.annotation_doc, ccl.annotation_doc, is_short=True)

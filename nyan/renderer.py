@@ -1,8 +1,9 @@
 import copy
+import logging
 import os
 import json
 from collections import defaultdict
-from typing import Dict, List, Optional, Sequence, Tuple
+from collections.abc import Sequence
 from urllib.parse import urlsplit
 
 from jinja2 import Environment, FileSystemLoader
@@ -12,7 +13,7 @@ from nyan.channels import Channels
 from nyan.clusters import Cluster
 from nyan.document import Document
 from nyan.rich import Block, RenderedPost, RichText
-from nyan.util import ts_to_dt
+from nyan.util import DEFAULT_TIMEZONE, ts_to_dt
 
 
 # Used to derive a headline from the text itself when the LLM did not supply
@@ -44,8 +45,9 @@ class Renderer:
         file_loader = FileSystemLoader(".")
         env = Environment(loader=file_loader)
         self.cluster_template = env.get_template(config["cluster_template"])
-        self.tz_offset = config["tz_offset"]
-        self.tz_name = config["tz_name"]
+        # A named zone rather than a fixed offset, so daylight saving time is
+        # handled instead of being an hour wrong for half the year.
+        self.tz_name = config.get("tz_name", DEFAULT_TIMEZONE)
 
         # "rich" builds a block tree for sendRichMessage; "legacy" keeps the
         # old HTML caption path, so a bad release can be rolled back by
@@ -53,12 +55,11 @@ class Renderer:
         self.post_format = config.get("post_format", "rich")
         self.sources_open = config.get("sources_open", False)
 
-    def render_cluster(self, cluster: Cluster, issue_name: str) -> Optional[RenderedPost]:
+    def render_cluster(self, cluster: Cluster, issue_name: str) -> RenderedPost | None:
         groups = self.group_docs(cluster, issue_name)
         if not groups:
-            print(
-                "Warning: No documents left after filtering for issue "
-                "'{}', skipping cluster".format(issue_name)
+            logging.warning(
+                "No documents left for issue '%s', skipping cluster", issue_name
             )
             return None
 
@@ -68,16 +69,28 @@ class Renderer:
 
     def group_docs(
         self, cluster: Cluster, issue_name: str
-    ) -> List[Tuple[str, List[Document]]]:
+    ) -> list[tuple[str, list[Document]]]:
         """Bucket the cluster's documents by trust group, one doc per channel."""
-        groups: Dict[str, List[Document]] = defaultdict(list)
+        groups: dict[str, list[Document]] = defaultdict(list)
         for doc in cluster.docs:
+            if doc.channel_id not in self.channels:
+                # A channel removed from channels.json still has documents in
+                # Mongo for another day. Without this the whole iteration dies
+                # on a KeyError the first time such a cluster is rendered.
+                logging.warning(
+                    "Channel %s is not in the channel list, skipping %s",
+                    doc.channel_id,
+                    doc.url,
+                )
+                continue
             channel = self.channels[doc.channel_id]
             # Skip documents from channels that don't have this issue configured
             if issue_name not in channel.groups:
-                print(
-                    "Warning: Channel {} doesn't have group configured for issue "
-                    "'{}', skipping doc {}".format(doc.channel_id, issue_name, doc.url)
+                logging.warning(
+                    "Channel %s has no group for issue '%s', skipping %s",
+                    doc.channel_id,
+                    issue_name,
+                    doc.url,
                 )
                 continue
             groups[channel.groups[issue_name]].append(doc)
@@ -101,9 +114,9 @@ class Renderer:
     # ------------------------------------------------------------------ rich
 
     def render_rich_cluster(
-        self, cluster: Cluster, groups: List[Tuple[str, List[Document]]]
+        self, cluster: Cluster, groups: list[tuple[str, list[Document]]]
     ) -> RenderedPost:
-        blocks: List[Block] = []
+        blocks: list[Block] = []
 
         headline, body = self.split_headline(cluster)
         if headline:
@@ -120,7 +133,7 @@ class Renderer:
 
         return RenderedPost(blocks=blocks)
 
-    def split_headline(self, cluster: Cluster) -> Tuple[Optional[str], Optional[str]]:
+    def split_headline(self, cluster: Cluster) -> tuple[str | None, str | None]:
         """Return (headline, body) for the cluster's text.
 
         With an LLM headline the full text becomes the body, the way a
@@ -142,7 +155,7 @@ class Renderer:
             return None, text
         return text[: split_at + 1].strip(), text[split_at + 2 :].strip() or None
 
-    def render_media(self, cluster: Cluster) -> List[Block]:
+    def render_media(self, cluster: Cluster) -> list[Block]:
         if cluster.videos:
             return [rich.video(cluster.videos[0])]
         images = list(cluster.images)[: rich.MAX_MEDIA]
@@ -152,14 +165,14 @@ class Renderer:
             return [rich.slideshow(*[rich.photo(url) for url in images])]
         return []
 
-    def render_differences(self, cluster: Cluster) -> List[Block]:
+    def render_differences(self, cluster: Cluster) -> list[Block]:
         """One quotation per difference, credited to the channels reporting it.
 
         This is the channel's own reporting rather than a metadata dump, so it
         stays visible instead of going under a disclosure.
         """
         channel_links = self.channel_links(cluster)
-        blocks: List[Block] = []
+        blocks: list[Block] = []
         for difference in cluster.diff:
             channel_ids = [
                 channel_id
@@ -176,27 +189,29 @@ class Renderer:
         return blocks
 
     def render_sources(
-        self, cluster: Cluster, groups: List[Tuple[str, List[Document]]]
+        self, cluster: Cluster, groups: list[tuple[str, list[Document]]]
     ) -> Block:
         """Collapsed source breakdown whose summary is itself the trust signal.
 
         The counts per group stay visible while scrolling, so the channel's
         promise of source transparency survives without a wall of links.
         """
-        summary_parts: List[RichText] = []
-        items: List[Sequence[Block]] = []
+        summary_parts: list[RichText] = []
+        items: list[Sequence[Block]] = []
         total = 0
         for group, docs in groups:
             emoji = self.channels.group_emoji(group)
             total += len(docs)
-            summary_parts.append("{}{}".format(emoji, len(docs)))
-            title = "{} {}".format(emoji, self.channels.group_title(group)).strip()
+            # A space after the emoji: glyph and digit set solid read as one
+            # token and the count stops being scannable.
+            summary_parts.append(f"{emoji} {len(docs)}".strip())
+            title = f"{emoji} {self.channels.group_title(group)}".strip()
             channels = rich.join(
                 [rich.link(doc.channel_title or doc.channel_id, doc.url) for doc in docs]
             )
             items.append([rich.paragraph(rich.bold(title)), rich.paragraph(channels)])
 
-        blocks: List[Block] = [rich.bullet_list(*items)]
+        blocks: list[Block] = [rich.bullet_list(*items)]
 
         provenance = self.render_provenance(cluster)
         if provenance:
@@ -206,20 +221,20 @@ class Renderer:
         summary = rich.join(
             [
                 rich.join(summary_parts, " "),
-                "{} {}".format(total, pluralize_sources(total)),
+                f"{total} {pluralize_sources(total)}",
             ]
         )
         return rich.details(summary, *blocks, is_open=self.sources_open)
 
-    def render_provenance(self, cluster: Cluster) -> List[Block]:
+    def render_provenance(self, cluster: Cluster) -> list[Block]:
         """Who published first and where the story probably originated.
 
         Neither answers "what happened", so both live next to the sources
         rather than in the always-visible part of the post.
         """
         first_doc = cluster.first_doc
-        clock = ts_to_dt(first_doc.pub_time, self.tz_offset).strftime("%H:%M")
-        blocks: List[Block] = [
+        clock = ts_to_dt(first_doc.pub_time, self.tz_name).strftime("%H:%M")
+        blocks: list[Block] = [
             rich.paragraph(
                 rich.join(
                     [
@@ -264,14 +279,14 @@ class Renderer:
                         annotation_doc.channel_title or annotation_doc.channel_id,
                         annotation_doc.url,
                     ),
-                    "👁 {}".format(self.views_to_str(cluster.views)),
+                    f"👁 {self.views_to_str(cluster.views)}",
                 ]
             )
         )
 
-    def channel_links(self, cluster: Cluster) -> Dict[str, RichText]:
+    def channel_links(self, cluster: Cluster) -> dict[str, RichText]:
         """One link per channel, pointing at that channel's earliest post."""
-        links: Dict[str, RichText] = dict()
+        links: dict[str, RichText] = dict()
         for doc in sorted(cluster.docs, key=lambda d: d.pub_time):
             if doc.channel_id in links:
                 continue
@@ -283,11 +298,11 @@ class Renderer:
     # ---------------------------------------------------------------- legacy
 
     def render_legacy_cluster(
-        self, cluster: Cluster, groups: List[Tuple[str, List[Document]]]
+        self, cluster: Cluster, groups: list[tuple[str, list[Document]]]
     ) -> RenderedPost:
         emojis = {group: self.channels.group_emoji(group) for group, _ in groups}
         first_doc = copy.deepcopy(cluster.first_doc)
-        first_doc.pub_time_dt = ts_to_dt(first_doc.pub_time, self.tz_offset)
+        first_doc.pub_time_dt = ts_to_dt(first_doc.pub_time, self.tz_name)
 
         text = self.cluster_template.render(
             annotation_doc=cluster.annotation_doc,
@@ -304,13 +319,13 @@ class Renderer:
             text=text, photos=cluster.images, videos=cluster.videos
         )
 
-    def legacy_differences(self, cluster: Cluster) -> List[Dict[str, str]]:
+    def legacy_differences(self, cluster: Cluster) -> list[dict[str, str]]:
         """Differences with channel credits pre-rendered as HTML links.
 
         Only the legacy template needs markup in the data; the rich path keeps
         channel ids and builds links structurally.
         """
-        channel_urls: Dict[str, Tuple[str, str]] = dict()
+        channel_urls: dict[str, tuple[str, str]] = dict()
         for doc in sorted(cluster.docs, key=lambda d: d.pub_time):
             if doc.channel_id in channel_urls:
                 continue
@@ -338,7 +353,7 @@ class Renderer:
 
     # ----------------------------------------------------------------- misc
 
-    def find_external_link(self, cluster: Cluster) -> Optional[Dict[str, str]]:
+    def find_external_link(self, cluster: Cluster) -> dict[str, str] | None:
         """The most linked external URL, if at least two channels cite it."""
         if not cluster.external_links:
             return None
@@ -351,12 +366,12 @@ class Renderer:
         return {"url": url, "host": urlsplit(url).netloc}
 
     def render_discussion_message(self, doc: Document) -> str:
-        return '<a href="{}">{}</a>'.format(doc.url, doc.channel_title)
+        return f'<a href="{doc.url}">{doc.channel_title}</a>'
 
     @staticmethod
     def views_to_str(views: int) -> str:
         if views >= 1000000:
-            return "{:.1f}M".format(views / 1000000).replace(".", ",")
+            return f"{views / 1000000:.1f}M".replace(".", ",")
         elif views >= 1000:
-            return "{:.1f}K".format(views / 1000).replace(".", ",")
+            return f"{views / 1000:.1f}K".replace(".", ",")
         return str(views)

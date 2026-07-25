@@ -1,9 +1,10 @@
 import os
 import json
+import logging
 from collections import Counter
 from time import sleep
-from typing import Dict, Any, Optional, List, cast
-from typing import Counter as CounterT
+from typing import Any, cast
+from collections import Counter as CounterT
 
 from sklearn.metrics.pairwise import cosine_similarity  # type: ignore
 
@@ -22,6 +23,10 @@ from nyan.document import (
     write_annotated_documents_mongo,
 )
 from nyan.util import get_current_ts, ts_to_dt
+
+
+# How long to wait before looking for documents again when there are none.
+EMPTY_INPUT_SLEEP_SECONDS = 10
 
 
 class Daemon:
@@ -44,31 +49,31 @@ class Daemon:
 
         assert os.path.exists(daemon_config_path)
         with open(daemon_config_path) as r:
-            self.config: Dict[str, Any] = json.load(r)
+            self.config: dict[str, Any] = json.load(r)
 
     def run(
         self,
-        input_path: Optional[str],
-        mongo_config_path: Optional[str],
-        posted_clusters_path: Optional[str],
+        input_path: str | None,
+        mongo_config_path: str | None,
+        posted_clusters_path: str | None,
     ) -> None:
         while True:
             self.__call__(input_path, mongo_config_path, posted_clusters_path)
 
     def __call__(
         self,
-        input_path: Optional[str],
-        mongo_config_path: Optional[str],
-        posted_clusters_path: Optional[str],
+        input_path: str | None,
+        mongo_config_path: str | None,
+        posted_clusters_path: str | None,
     ) -> None:
         assert (
-            input_path and not mongo_config_path or mongo_config_path and not input_path
+            (input_path and not mongo_config_path) or (mongo_config_path and not input_path)
         )
         if input_path and not os.path.exists(input_path):
-            print("No input documents!")
+            logging.warning("No input documents at %s", input_path)
             return
 
-        print("===== New iteration =====")
+        logging.info("===== New iteration =====")
         clusters_offset = self.config["clusters_offset"]
         posted_clusters = self.load_posted_clusters(
             mongo_config_path, posted_clusters_path, clusters_offset
@@ -77,28 +82,26 @@ class Daemon:
         documents_offset = self.config["documents_offset"]
         try:
             docs = self.read_documents(input_path, documents_offset, mongo_config_path)
-        except Exception as e:
-            print(e)
-            print("Waiting for correct documents...")
+        except Exception:
+            logging.exception("Could not read documents, waiting")
             return
         if not docs:
-            print("Waiting for documents...")
-            sleep(10)
+            logging.info("No documents yet, waiting")
+            sleep(EMPTY_INPUT_SLEEP_SECONDS)
             return
-        self.print_bad_channels(docs)
+        self.log_bad_channels(docs)
         annotated_docs = self.annotate_documents(docs, mongo_config_path)
 
         updates_count = posted_clusters.update_documents(annotated_docs)
-        print("{} updated documents".format(updates_count))
+        logging.info("%d updated documents", updates_count)
 
-        new_clusters: List[Cluster] = self.clusterer(annotated_docs)
-        print("{} clusters overall".format(len(new_clusters)))
+        new_clusters: list[Cluster] = self.clusterer(annotated_docs)
+        logging.info("%d clusters overall", len(new_clusters))
 
-        ranked_clusters: Dict[str, List[Cluster]] = self.ranker(new_clusters)
-        num_clusters = sum([len(cl) for cl in ranked_clusters.values()])
-        print("{} clusters in all issues after filtering".format(num_clusters))
+        ranked_clusters: dict[str, list[Cluster]] = self.ranker(new_clusters)
+        num_clusters = sum(len(cl) for cl in ranked_clusters.values())
+        logging.info("%d clusters in all issues after filtering", num_clusters)
 
-        print()
         for issue, clusters in ranked_clusters.items():
             for cluster in clusters:
                 self.send_cluster(
@@ -109,89 +112,81 @@ class Daemon:
                     mongo_config_path,
                 )
 
-        print()
         if posted_clusters_path:
             posted_clusters.save(posted_clusters_path)
-            print("{} clusters saved to file".format(len(posted_clusters)))
+            logging.info("%d clusters saved to file", len(posted_clusters))
         if mongo_config_path:
             saved_count = posted_clusters.save_to_mongo(mongo_config_path)
-            print("{} clusters saved to Mongo".format(saved_count))
-            print()
+            logging.info("%d clusters saved to Mongo", saved_count)
 
     def load_posted_clusters(
         self,
-        mongo_config_path: Optional[str],
-        posted_clusters_path: Optional[str],
+        mongo_config_path: str | None,
+        posted_clusters_path: str | None,
         clusters_offset: int,
     ) -> Clusters:
         posted_clusters = Clusters()
         if mongo_config_path:
-            print("Reading clusters from Mongo")
             posted_clusters = Clusters.load_from_mongo(
                 mongo_config_path, get_current_ts(), clusters_offset
             )
         elif posted_clusters_path and os.path.exists(posted_clusters_path):
-            print("Reading clusters from file")
             posted_clusters = Clusters.load(posted_clusters_path)
-        print("{} clusters loaded".format(len(posted_clusters)))
+        logging.info("%d posted clusters loaded", len(posted_clusters))
         return posted_clusters
 
     def read_documents(
         self,
-        input_path: Optional[str],
+        input_path: str | None,
         documents_offset: int,
-        mongo_config_path: Optional[str],
-    ) -> List[Document]:
+        mongo_config_path: str | None,
+    ) -> list[Document]:
         if input_path and os.path.exists(input_path):
-            print("Reading docs from file")
             docs = read_documents_file(input_path, get_current_ts(), documents_offset)
         elif mongo_config_path:
-            print("Reading docs from Mongo")
             docs = read_documents_mongo(
                 mongo_config_path, get_current_ts(), documents_offset
             )
         else:
-            raise AssertionError()
-        print("{} docs loaded".format(len(docs)))
-        max_pub_time = ts_to_dt(max([d.pub_time for d in docs])).strftime(
-            "%d-%m-%y %H:%M"
-        )
-        print("Last document: {}".format(max_pub_time))
+            raise AssertionError("Neither an input file nor a Mongo config was given")
+        if not docs:
+            return docs
+        max_pub_time = ts_to_dt(max(d.pub_time for d in docs)).strftime("%d-%m-%y %H:%M")
+        logging.info("%d docs loaded, last one at %s", len(docs), max_pub_time)
         return docs
 
-    def print_bad_channels(self, docs: List[Document]) -> None:
+    def log_bad_channels(self, docs: list[Document]) -> None:
         doc_channels_cnt: CounterT[str] = Counter()
         for doc in docs:
             doc_channels_cnt[doc.channel_id] += 1
         for channel_id, channel in self.channels:
             cnt = doc_channels_cnt.get(channel_id, 0)
             if cnt <= 1 and not channel.disabled and channel.issue == "main":
-                print("Warning: {} docs from channel {}".format(cnt, channel_id))
+                logging.warning("Only %d docs from channel %s", cnt, channel_id)
 
     def annotate_documents(
-        self, docs: List[Document], mongo_config_path: Optional[str]
-    ) -> List[Document]:
-        all_annotated_docs: List[Document] = []
+        self, docs: list[Document], mongo_config_path: str | None
+    ) -> list[Document]:
+        all_annotated_docs: list[Document] = []
         remaining_docs = docs
         if mongo_config_path:
             all_annotated_docs, remaining_docs = read_annotated_documents_mongo(
                 mongo_config_path, docs
             )
-            print(
-                "{} docs already annotated, {} docs to annotate".format(
-                    len(all_annotated_docs), len(remaining_docs)
-                )
+            logging.info(
+                "%d docs already annotated, %d docs to annotate",
+                len(all_annotated_docs),
+                len(remaining_docs),
             )
 
         if remaining_docs:
             annotated_docs = self.annotator(remaining_docs)
-            print("{} docs annotated".format(len(annotated_docs)))
             all_annotated_docs += annotated_docs
             if mongo_config_path:
                 write_annotated_documents_mongo(mongo_config_path, annotated_docs)
 
         final_docs = self.annotator.postprocess(all_annotated_docs)
-        print("{} docs before clustering".format(len(final_docs)))
+        logging.info("%d docs before clustering", len(final_docs))
 
         return final_docs
 
@@ -200,8 +195,8 @@ class Daemon:
         cluster: Cluster,
         issue_name: str,
         posted_clusters: Clusters,
-        posted_clusters_path: Optional[str],
-        mongo_config_path: Optional[str],
+        posted_clusters_path: str | None,
+        mongo_config_path: str | None,
     ) -> None:
         sleep_time = self.config["sleep_time"]
         max_time_updated = self.config["max_time_updated"]
@@ -212,55 +207,23 @@ class Daemon:
             min_intersection_ratio=self.config["similar_min_intersection_ratio"],
         )
         if posted_cluster:
-            message = posted_cluster.get_issue_message(issue_name)
-            assert message
-            discussion_message = self.client.get_discussion(message)
-
-            new_docs_pub_time = 0
-            print(f"Checking {len(cluster.docs)} docs for cluster discussion")
-            for doc in cluster.docs:
-                if not posted_cluster.has(doc):
-                    print(f"Adding new doc to discussion: {doc.url}")
-                    posted_cluster.add(doc)
-                    discussion_text = self.renderer.render_discussion_message(doc)
-                    self.client.send_discussion_message(
-                        discussion_text, discussion_message
-                    )
-                    new_docs_pub_time = max(doc.pub_time, new_docs_pub_time)
-                    sleep(sleep_time)
-                else:
-                    print(f"Doc already exists in cluster: {doc.url}")
-            posted_clusters._invalidate_caches()
-
-            current_ts = get_current_ts()
-            time_diff = abs(current_ts - posted_cluster.pub_time_percentile)
-            if time_diff < max_time_updated and posted_cluster.changed():
-                post = self.renderer.render_cluster(posted_cluster, issue_name)
-                if post is None:
-                    print("Skipping cluster update due to rendering issues: {}".format(posted_cluster.cropped_title))
-                    return
-                print(
-                    "Update message {} at {}: {}".format(
-                        message.message_id, message.issue, posted_cluster.cropped_title
-                    )
-                )
-                print("Discussion message id: {}".format(discussion_message.message_id))
-
-                self.client.update_post(message, post)
-            else:
-                print(
-                    "Same cluster {} at {}: {}".format(
-                        message.message_id, message.issue, posted_cluster.cropped_title
-                    )
-                )
-            print()
+            self.update_posted_cluster(
+                cluster,
+                posted_cluster,
+                posted_clusters,
+                issue_name,
+                sleep_time,
+                max_time_updated,
+            )
             return
 
         post = self.renderer.render_cluster(cluster, issue_name)
         if post is None:
-            print("Skipping cluster due to rendering issues: {}".format(cluster.cropped_title))
+            logging.warning(
+                "Skipping cluster, nothing to render: %s", cluster.cropped_title
+            )
             return
-        print("New cluster in {}: {}".format(issue_name, cluster.cropped_title))
+        logging.info("New cluster in %s: %s", issue_name, cluster.cropped_title)
 
         self.client.update_discussion_mapping(issue_name)
 
@@ -273,7 +236,7 @@ class Daemon:
         cluster.messages.append(message)
         posted_clusters.add(cluster)
 
-        print("Message id: {}, saving".format(message.message_id))
+        logging.info("Sent as message %d, saving", message.message_id)
         if posted_clusters_path:
             posted_clusters.save(posted_clusters_path)
         if mongo_config_path:
@@ -281,18 +244,64 @@ class Daemon:
 
         self.client.update_discussion_mapping(issue_name)
         discussion_message = self.client.get_discussion(message)
-        print("Discussion message id: {}".format(discussion_message.message_id))
-
         for doc in cluster.docs:
             discussion_text = self.renderer.render_discussion_message(doc)
             self.client.send_discussion_message(discussion_text, discussion_message)
             sleep(sleep_time)
-        print()
-        return
+
+    def update_posted_cluster(
+        self,
+        cluster: Cluster,
+        posted_cluster: Cluster,
+        posted_clusters: Clusters,
+        issue_name: str,
+        sleep_time: float,
+        max_time_updated: int,
+    ) -> None:
+        """Mirror new documents into the discussion, then refresh the post."""
+        message = posted_cluster.get_issue_message(issue_name)
+        assert message
+        discussion_message = self.client.get_discussion(message)
+
+        new_docs = [doc for doc in cluster.docs if not posted_cluster.has(doc)]
+        for doc in new_docs:
+            posted_cluster.add(doc)
+            discussion_text = self.renderer.render_discussion_message(doc)
+            self.client.send_discussion_message(discussion_text, discussion_message)
+            sleep(sleep_time)
+        if new_docs:
+            logging.info(
+                "%d new docs in cluster %d", len(new_docs), message.message_id
+            )
+            posted_clusters.invalidate_caches()
+
+        time_diff = abs(get_current_ts() - posted_cluster.pub_time_percentile)
+        if time_diff >= max_time_updated or not posted_cluster.changed():
+            logging.info(
+                "Same cluster %d at %s: %s",
+                message.message_id,
+                message.issue,
+                posted_cluster.cropped_title,
+            )
+            return
+
+        post = self.renderer.render_cluster(posted_cluster, issue_name)
+        if post is None:
+            logging.warning(
+                "Skipping update, nothing to render: %s", posted_cluster.cropped_title
+            )
+            return
+        logging.info(
+            "Updating message %d at %s: %s",
+            message.message_id,
+            message.issue,
+            posted_cluster.cropped_title,
+        )
+        self.client.update_post(message, post)
 
     def calc_reply_to(
         self, cluster: Cluster, posted_clusters: Clusters, issue_name: str
-    ) -> Optional[int]:
+    ) -> int | None:
         threshold = float(self.config["related_threshold"])
 
         current_ts = get_current_ts()
@@ -307,11 +316,11 @@ class Daemon:
         max_index = sims.argmax()
         max_sim = sims[max_index]
         best_cluster = clusters[max_index]
-        print(
-            "Closest cluster:",
-            max_sim,
+        logging.info(
+            "Closest cluster to '%s' is '%s' at %.3f",
             cluster.cropped_title,
             best_cluster.cropped_title,
+            max_sim,
         )
 
         if best_cluster.pub_time_percentile > cluster.pub_time_percentile:

@@ -1,9 +1,21 @@
 import json
+import logging
 import os
-from typing import List, Dict
 from collections import defaultdict
 
 from nyan.clusters import Cluster
+
+
+# Below this many candidates an issue publishes everything it has: percentile
+# filtering on a handful of clusters would cut the feed on noise.
+MIN_CLUSTERS_TO_FILTER = 3
+
+# Clusters kept per issue, taken from the most recent end.
+MAX_CLUSTERS_PER_ISSUE = 10
+
+# Trust groups whose view counts are balanced against each other in the main
+# feed, so a single loud group cannot set the bar for everyone.
+BALANCED_GROUPS = ("blue", "red")
 
 
 class Ranker:
@@ -12,7 +24,7 @@ class Ranker:
         with open(config_path) as r:
             self.config = json.load(r)
 
-    def __call__(self, all_clusters: List[Cluster]) -> Dict[str, List[Cluster]]:
+    def __call__(self, all_clusters: list[Cluster]) -> dict[str, list[Cluster]]:
         issues = defaultdict(list)
         for cluster in all_clusters:
             for issue in cluster.issues:
@@ -30,25 +42,25 @@ class Ranker:
             for cluster in clusters:
                 unique_channels = {d.channel_id for d in cluster.docs}
                 is_big_cluster = len(unique_channels) >= min_channels
-                has_lang_doc = (
-                    required_language is None
-                    or any(doc.language == required_language for doc in cluster.docs)
+                has_lang_doc = required_language is None or any(
+                    doc.language == required_language for doc in cluster.docs
                 )
                 is_fresh = cluster.age < max_age_minutes * 60
                 if is_big_cluster and has_lang_doc and is_fresh:
                     filtered_clusters.append(cluster)
             clusters = filtered_clusters
 
-            print()
-            print(f"Issue: {issue_name}, clusters after first filter: {len(clusters)}")
+            logging.info(
+                "Issue %s: %d clusters after the first filter", issue_name, len(clusters)
+            )
 
-            if len(clusters) <= 3:
+            if len(clusters) <= MIN_CLUSTERS_TO_FILTER:
                 final_clusters[issue_name].extend(clusters)
                 for cluster in clusters:
-                    print(
-                        "Added as no other clusters: {} {}".format(
-                            cluster.views_per_hour, cluster.cropped_title
-                        )
+                    logging.info(
+                        "Added, no other candidates: %d %s",
+                        cluster.views_per_hour,
+                        cluster.cropped_title,
                     )
                 continue
 
@@ -60,53 +72,57 @@ class Ranker:
                 issue_config["higher_trigger_age_minutes"],
             )
             clusters.sort(key=lambda c: c.pub_time_percentile)
-            clusters = clusters[-10:]
+            clusters = clusters[-MAX_CLUSTERS_PER_ISSUE:]
             final_clusters[issue_name].extend(clusters)
-        print()
         return final_clusters
+
+    def calc_group_coefs(self, clusters: list[Cluster]) -> dict[str, float]:
+        """Per-group multipliers that equalize total views between groups.
+
+        Official and news channels have very different audience sizes, so
+        without this the larger group would define the view threshold and
+        crowd the other one out of the feed entirely.
+        """
+        group_views: dict[str, int] = defaultdict(int)
+        for cluster in clusters:
+            group_views[cluster.group] += cluster.views_per_hour
+
+        max_views = max((group_views[group] for group in BALANCED_GROUPS), default=0)
+        coefs: dict[str, float] = defaultdict(lambda: 1.0)
+        for group in BALANCED_GROUPS:
+            views = group_views[group]
+            coefs[group] = (max_views / views) if views else 1.0
+            logging.info("%s views coefficient: %.2f", group, coefs[group])
+        return coefs
 
     def filter_by_views(
         self,
-        clusters: List[Cluster],
+        clusters: list[Cluster],
         issue_name: str,
         views_percentile: int,
         higher_views_percentile: int,
         higher_trigger_age_minutes: int,
-    ) -> List[Cluster]:
-        all_views_per_hour = [cluster.views_per_hour for cluster in clusters]
-
-        coefs = {"blue": 1.0, "red": 1.0, "purple": 1.0}
+    ) -> list[Cluster]:
+        coefs: dict[str, float] = defaultdict(lambda: 1.0)
         if issue_name == "main":
-            blue_views, red_views = 0, 0
-            for cluster in clusters:
-                group = cluster.group
-                views = cluster.views_per_hour
-                if group == "blue":
-                    blue_views += views
-                if group == "red":
-                    red_views += views
-            max_views = max(blue_views, red_views)
-            coefs = {
-                "blue": (max_views / blue_views) if blue_views != 0 else 1.0,
-                "red": (max_views / red_views) if red_views != 0 else 1.0,
-                "purple": 1.0,
-            }
-            print("Blue views coefficient:", coefs["blue"])
-            print("Red views coefficient:", coefs["red"])
+            coefs = self.calc_group_coefs(clusters)
 
-        all_views_per_hour = [
-            int(v * coefs[c.group]) for v, c in zip(all_views_per_hour, clusters)
-        ]
-        all_views_per_hour.sort()
+        all_views_per_hour = sorted(
+            int(cluster.views_per_hour * coefs[cluster.group]) for cluster in clusters
+        )
         n = len(all_views_per_hour)
 
         border_index = max(0, min(n - 1, n * views_percentile // 100))
         border_views_per_hour = all_views_per_hour[border_index]
-        print("Views border:", border_views_per_hour)
 
         higher_border_index = max(0, min(n - 1, n * higher_views_percentile // 100))
         higher_border_views_per_hour = all_views_per_hour[higher_border_index]
-        print("Higher views border:", higher_border_views_per_hour)
+
+        logging.info(
+            "Views border: %d, higher border: %d",
+            border_views_per_hour,
+            higher_border_views_per_hour,
+        )
 
         hta = higher_trigger_age_minutes * 60
         filtered_clusters = []
@@ -116,15 +132,15 @@ class Ranker:
             age = cluster.age
             if age > hta and views_per_hour >= border_views_per_hour:
                 filtered_clusters.append(cluster)
-                print("Added by views: {} {}".format(views_per_hour, cropped_title))
+                logging.info("Added by views: %d %s", views_per_hour, cropped_title)
             elif age < hta and views_per_hour >= higher_border_views_per_hour:
+                # Young and already popular: the story is breaking, so it gets
+                # a bigger heading in the post.
                 cluster.is_important = True
                 filtered_clusters.append(cluster)
-                print(
-                    "Added by views (important): {} {}".format(
-                        views_per_hour, cropped_title
-                    )
+                logging.info(
+                    "Added by views (important): %d %s", views_per_hour, cropped_title
                 )
             elif not cluster.messages:
-                print("Skipped by views: {} {}".format(views_per_hour, cropped_title))
+                logging.info("Skipped by views: %d %s", views_per_hour, cropped_title)
         return filtered_clusters

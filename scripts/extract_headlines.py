@@ -1,5 +1,4 @@
 import argparse
-import json
 import re
 
 from nyan.mongo import get_topics_collection

@@ -1,13 +1,24 @@
 #!/bin/bash
+# Зупиняє НЯН.
+set -uo pipefail
 
-# Скрипт для зупинки НЯН Docker
+# `docker compose` — сучасна вбудована команда; docker-compose лишився для
+# старих встановлень.
+if docker compose version &> /dev/null; then
+    COMPOSE="docker compose"
+elif command -v docker-compose &> /dev/null; then
+    COMPOSE="docker-compose"
+else
+    echo "❌ Docker Compose не встановлено!"
+    exit 1
+fi
 
 echo "🛑 Зупинка НЯН..."
 
-docker-compose down
+$COMPOSE down
 
 echo "🧹 Очищення контейнерів..."
-docker-compose ps -q | xargs -r docker rm -f
+$COMPOSE ps -q | xargs -r docker rm -f
 
 echo "✅ НЯН зупинено!"
 

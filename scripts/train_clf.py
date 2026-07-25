@@ -1,15 +1,13 @@
 import os
 import fire
 import json
-from collections import defaultdict
 from joblib import dump
 
 import torch
-import numpy as np
 from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import LabelEncoder
 
-from nyan.util import read_jsonl, write_jsonl
+from nyan.util import read_jsonl
 from nyan.embedder import Embedder
 
 CATEGORIES = '["not_news", "war", "economy", "tech", "science", "sports", "entertainment", "incident", "politics", "other"]'

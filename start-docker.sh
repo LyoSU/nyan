@@ -1,6 +1,17 @@
 #!/bin/bash
+# Запускає НЯН у Docker (MongoDB — зовнішня).
+set -uo pipefail
 
-# Скрипт для запуску НЯН в Docker (з зовнішньою MongoDB)
+# `docker compose` — сучасна вбудована команда; docker-compose лишився для
+# старих встановлень.
+if docker compose version &> /dev/null; then
+    COMPOSE="docker compose"
+elif command -v docker-compose &> /dev/null; then
+    COMPOSE="docker-compose"
+else
+    echo "❌ Docker Compose не встановлено!"
+    exit 1
+fi
 
 echo "🐱 Запуск НЯН в Docker..."
 
@@ -35,18 +46,18 @@ fi
 mkdir -p data models
 
 echo "🔨 Збираємо Docker образи..."
-docker-compose build
+$COMPOSE build
 
 echo "🚀 Запускаємо сервіси..."
-docker-compose up -d
+$COMPOSE up -d
 
 echo "✅ НЯН запущено!"
 echo ""
 echo "📊 Для перегляду логів:"
-echo "   docker-compose logs -f"
+echo "   $COMPOSE logs -f"
 echo ""
 echo "🛑 Для зупинки:"
-echo "   docker-compose down"
+echo "   $COMPOSE down"
 echo ""
 echo "🔍 Статус сервісів:"
-docker-compose ps
+$COMPOSE ps

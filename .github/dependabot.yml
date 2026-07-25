@@ -1,0 +1,19 @@
+# Keeps dependencies from going stale the way they did between 2022 and 2026.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    groups:
+      # One PR for the ML stack: these versions move together.
+      ml:
+        patterns: ["torch", "transformers", "numpy", "scikit-learn", "scipy"]
+      dev:
+        patterns: ["ruff", "mypy", "pytest*", "types-*", "pre-commit"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly

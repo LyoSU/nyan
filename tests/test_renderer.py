@@ -1,4 +1,6 @@
-from typing import Any, Dict, List, Optional, Sequence
+import re
+from typing import Any
+from collections.abc import Sequence
 
 import pytest
 
@@ -40,9 +42,9 @@ def make_doc(
 
 def make_cluster(
     docs: Sequence[Document],
-    headline: Optional[str] = "Заголовок новини",
-    differences: Sequence[Dict[str, Any]] = (),
-    embedded_images: Sequence[Dict[str, str]] = (),
+    headline: str | None = "Заголовок новини",
+    differences: Sequence[dict[str, Any]] = (),
+    embedded_images: Sequence[dict[str, str]] = (),
 ) -> Cluster:
     cluster = Cluster()
     for doc in docs:
@@ -54,7 +56,7 @@ def make_cluster(
     return cluster
 
 
-def find(blocks: Sequence[Dict[str, Any]], block_type: str) -> Dict[str, Any]:
+def find(blocks: Sequence[dict[str, Any]], block_type: str) -> dict[str, Any]:
     matches = [b for b in blocks if b["type"] == block_type]
     assert matches, "No {} block in {}".format(
         block_type, [b["type"] for b in blocks]
@@ -270,6 +272,51 @@ def test_sources_summary_counts_every_group(renderer: Renderer) -> None:
     assert summary.count("1") == 3
 
 
+def test_counts_are_separated_from_their_emoji(
+    renderer: Renderer, two_group_cluster: Cluster
+) -> None:
+    """An emoji and a digit set solid read as one glyph rather than a count."""
+    post = renderer.render_cluster(two_group_cluster, "main")
+
+    assert post is not None
+    assert post.blocks is not None
+    summary = flatten_text(find(post.blocks, "details")["summary"])
+    assert "2 джерела" in summary
+    # No emoji immediately followed by a digit anywhere in the summary.
+    assert not re.search(r"[^\s\w]\d", summary), summary
+
+
+def test_documents_from_an_unlisted_channel_are_skipped(renderer: Renderer) -> None:
+    """A channel removed from channels.json still has documents in Mongo.
+
+    Rendering used to raise KeyError on the first such cluster, which took down
+    the whole iteration.
+    """
+    cluster = make_cluster(
+        [
+            make_doc(VERIFIED, "https://t.me/rbc_news/1", pub_time=100),
+            make_doc(VERIFIED, "https://t.me/rbc_news/2", pub_time=200),
+        ]
+    )
+    cluster.docs[1].channel_id = "channel_that_was_removed"
+
+    post = renderer.render_cluster(cluster, "main")
+
+    assert post is not None
+    assert post.blocks is not None
+    listing = flatten_text(find(post.blocks, "details"))
+    assert "channel_that_was_removed" not in listing
+
+
+def test_a_cluster_of_only_unlisted_channels_renders_nothing(
+    renderer: Renderer,
+) -> None:
+    cluster = make_cluster([make_doc(VERIFIED, "https://t.me/rbc_news/1", pub_time=100)])
+    cluster.docs[0].channel_id = "channel_that_was_removed"
+
+    assert renderer.render_cluster(cluster, "main") is None
+
+
 def test_sources_are_collapsed_but_group_titles_are_readable(
     renderer: Renderer, two_group_cluster: Cluster
 ) -> None:
@@ -336,8 +383,8 @@ def test_first_publication_time_is_localized_for_the_reader(renderer: Renderer) 
     assert entities[0]["date_time_format"] == "t"
 
 
-def _collect(value: Any, predicate: Any) -> List[Dict[str, Any]]:
-    found: List[Dict[str, Any]] = []
+def _collect(value: Any, predicate: Any) -> list[dict[str, Any]]:
+    found: list[dict[str, Any]] = []
     if isinstance(value, dict):
         if predicate(value):
             found.append(value)

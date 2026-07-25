@@ -1,0 +1,14 @@
+# Linting, type checking and tests.
+-r requirements.txt
+
+# ruff replaces flake8 plus its bugbear/builtins/simplify/pie/pep8-naming
+# plugins, with one tool and one configuration in pyproject.toml.
+ruff >= 0.8
+mypy >= 1.13
+pre-commit >= 4.0
+
+pytest >= 8.0
+pytest-check >= 2.4
+
+types-requests >= 2.32
+types-tqdm >= 4.66

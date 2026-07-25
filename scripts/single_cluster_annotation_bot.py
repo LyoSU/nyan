@@ -2,7 +2,7 @@ import argparse
 import random
 import json
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import Update
 from telegram.ext import Updater, CommandHandler, Filters, CallbackContext, MessageHandler
 
 
@@ -20,11 +20,11 @@ class Client:
 
         dispatcher.add_handler(MessageHandler(callback=self.save, filters=~Filters.command))
 
-        with open(clusters_path, "r") as r:
+        with open(clusters_path) as r:
             self.clusters = [json.loads(line) for line in r][-500:]
         self.existing_clids = set()
         if existing_markup_path:
-            with open(existing_markup_path, "r") as r:
+            with open(existing_markup_path) as r:
                 self.existing_clids = {json.loads(line)["clid"] for line in r}
                 self.clusters = [cl for cl in self.clusters if cl["clid"] not in self.existing_clids]
         print("Bot is ready!")

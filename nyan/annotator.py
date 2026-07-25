@@ -1,6 +1,9 @@
 import json
+import logging
 import re
-from typing import List
+from collections import Counter, defaultdict
+from typing import Any
+from collections import Counter as CounterT
 from urllib.parse import unquote, urlparse
 
 from tqdm import tqdm
@@ -14,6 +17,18 @@ from nyan.text import TextProcessor
 from nyan.image import ImageProcessor
 from nyan.tokenizer import Tokenizer
 from nyan.util import normalize_channel_id
+
+
+# Defaults for repeated-line detection. A channel needs a few posts before its
+# habits are visible, and a line has to appear in a substantial share of them
+# before it counts as a template rather than a recurring topic.
+DEFAULT_BOILERPLATE_MIN_DOCS = 5
+DEFAULT_BOILERPLATE_MIN_RATIO = 0.5
+
+
+def boilerplate_key(line: str) -> str:
+    """Comparison key for a line, tolerating whitespace and case drift."""
+    return " ".join(line.lower().split())
 
 
 class Annotator:
@@ -38,10 +53,18 @@ class Annotator:
         if "cat_detector" in config:
             self.cat_detector = ClassifierHead(config["cat_detector"])
 
+        boilerplate_config: dict[str, Any] = config.get("boilerplate", {})
+        self.boilerplate_min_docs = boilerplate_config.get(
+            "min_docs", DEFAULT_BOILERPLATE_MIN_DOCS
+        )
+        self.boilerplate_min_ratio = boilerplate_config.get(
+            "min_ratio", DEFAULT_BOILERPLATE_MIN_RATIO
+        )
+
         self.channels = channels
 
-    def __call__(self, docs: List[Document]) -> List[Document]:
-        print(f"Starting annotation of {len(docs)} documents")
+    def __call__(self, docs: list[Document]) -> list[Document]:
+        logging.info("Annotating %d documents", len(docs))
         pre_pipeline = (
             self.process_channels_info,
             self.clean_text,
@@ -57,12 +80,10 @@ class Annotator:
                 doc = step(doc)
             processed_docs.append(doc)
         docs = processed_docs
-        print(f"Pre-embeddings pipeline completed for {len(docs)} documents")
 
         if self.embedder is not None:
-            print("Starting embeddings calculation...")
             docs = self.calc_embeddings(docs)
-            print(f"Embeddings calculated for {len(docs)} documents")
+            logging.info("Embeddings calculated for %d documents", len(docs))
 
         post_pipeline = (self.predict_category,)
         processed_docs = list()
@@ -70,11 +91,73 @@ class Annotator:
             for step in post_pipeline:
                 doc = step(doc)
             processed_docs.append(doc)
-        print(f"Annotation completed for {len(processed_docs)} documents")
+        logging.info("Annotated %d documents", len(processed_docs))
         return processed_docs
 
-    def postprocess(self, docs: List[Document]) -> List[Document]:
+    def postprocess(self, docs: list[Document]) -> list[Document]:
+        docs = self.strip_boilerplate(docs)
         return [doc for doc in docs if not doc.is_discarded()]
+
+    def find_boilerplate(self, docs: list[Document]) -> dict[str, set[str]]:
+        """Lines each channel repeats across most of its posts.
+
+        A subscribe footer says nothing about the story and is identical
+        everywhere, so its own repetition gives it away. Deriving this from the
+        documents needs no per-channel configuration to keep up to date, which
+        a hand-written list of substrings across a hundred channels would.
+        """
+        line_counts: dict[str, CounterT[str]] = defaultdict(Counter)
+        doc_counts: CounterT[str] = Counter()
+        for doc in docs:
+            if not doc.patched_text:
+                continue
+            doc_counts[doc.channel_id] += 1
+            # Counted once per document: a line repeated inside a single post
+            # says nothing about the channel's habits.
+            for key in {boilerplate_key(line) for line in doc.patched_text.split("\n")}:
+                line_counts[doc.channel_id][key] += 1
+
+        boilerplate: dict[str, set[str]] = dict()
+        for channel_id, counts in line_counts.items():
+            doc_count = doc_counts[channel_id]
+            if doc_count < self.boilerplate_min_docs:
+                continue
+            repeated = {
+                key
+                for key, count in counts.items()
+                if key and count / doc_count >= self.boilerplate_min_ratio
+            }
+            if repeated:
+                boilerplate[channel_id] = repeated
+        return boilerplate
+
+    def strip_boilerplate(self, docs: list[Document]) -> list[Document]:
+        boilerplate = self.find_boilerplate(docs)
+        if not boilerplate:
+            return docs
+
+        removed_lines = 0
+        for doc in docs:
+            channel_boilerplate = boilerplate.get(doc.channel_id)
+            if not channel_boilerplate or not doc.patched_text:
+                continue
+            lines = doc.patched_text.split("\n")
+            kept = [
+                line for line in lines if boilerplate_key(line) not in channel_boilerplate
+            ]
+            if len(kept) == len(lines):
+                continue
+            removed_lines += len(lines) - len(kept)
+            # A post that was nothing but boilerplate becomes empty here, and
+            # is_discarded() drops it, which is the correct outcome.
+            doc.patched_text = "\n".join(kept).strip()
+
+        logging.info(
+            "Removed %d repeated lines from %d channels",
+            removed_lines,
+            len(boilerplate),
+        )
+        return docs
 
     def process_channels_info(self, doc: Document) -> Document:
         channel_id = normalize_channel_id(doc.channel_id)
@@ -130,11 +213,11 @@ class Annotator:
         doc.has_obscene = self.text_processor.has_obscene(doc.patched_text)
         return doc
 
-    def calc_embeddings(self, docs: List[Document]) -> List[Document]:
+    def calc_embeddings(self, docs: list[Document]) -> list[Document]:
         ready_docs = [d for d in docs if d.patched_text is not None]
         texts = [d.patched_text for d in ready_docs if d.patched_text is not None]
         embeddings = self.embedder(texts)
-        for d, embedding in zip(ready_docs, embeddings):
+        for d, embedding in zip(ready_docs, embeddings, strict=True):
             d.embedding = embedding.numpy().tolist()
         return ready_docs
 
@@ -143,7 +226,7 @@ class Annotator:
             return doc
         if not doc.patched_text:
             return doc
-        language, prob = self.lang_detector(doc.patched_text)
+        language, _probability = self.lang_detector(doc.patched_text)
         doc.language = language
         return doc
 

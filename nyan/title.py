@@ -1,10 +1,20 @@
-from typing import List
+from collections.abc import Callable
 from statistics import mean
 
 from scipy.spatial.distance import cosine  # type: ignore
 
 from nyan.document import Document
 from nyan.util import normalize_url
+
+
+# A title longer than this reads as an article rather than a headline.
+MAX_TITLE_LENGTH = 500
+
+# A document is "fresh" when it was fetched close to when it was published, so
+# its view count and text still reflect the original post.
+MAX_FETCH_DELAY_SECONDS = 3600
+
+DocumentFilter = Callable[[Document], bool]
 
 
 def filter_uk_only(doc: Document) -> bool:
@@ -18,13 +28,13 @@ def filter_not_obscene(doc: Document) -> bool:
 def filter_not_long(doc: Document) -> bool:
     if not doc.text:
         return False
-    return len(doc.text) < 500
+    return len(doc.text) < MAX_TITLE_LENGTH
 
 
 def filter_fresh(doc: Document) -> bool:
     if not doc.fetch_time or not doc.pub_time:
         return False
-    return abs(doc.fetch_time - doc.pub_time) < 3600
+    return abs(doc.fetch_time - doc.pub_time) < MAX_FETCH_DELAY_SECONDS
 
 
 def filter_purple(doc: Document) -> bool:
@@ -33,7 +43,16 @@ def filter_purple(doc: Document) -> bool:
     return doc.groups.get("main") == "purple"
 
 
-def choose_title(docs: List[Document], issues: List[str]) -> Document:
+def make_issue_filter(issue: str) -> DocumentFilter:
+    """Accepts documents from channels that cover `issue`."""
+
+    def flt(doc: Document) -> bool:
+        return issue in doc.groups
+
+    return flt
+
+
+def choose_title(docs: list[Document], issues: list[str]) -> Document:
     assert docs
 
     avg_distances = dict()
@@ -41,31 +60,35 @@ def choose_title(docs: List[Document], issues: List[str]) -> Document:
         distances = [cosine(doc1.embedding, doc2.embedding) for doc2 in docs]
         avg_distances[normalize_url(doc1.url)] = mean(distances)
 
-    hard_filters = (filter_uk_only, filter_not_obscene, filter_fresh)
+    hard_filters: tuple[DocumentFilter, ...] = (
+        filter_uk_only,
+        filter_not_obscene,
+        filter_fresh,
+    )
     for flt in hard_filters:
         filtered_docs = list(filter(flt, docs))
         if filtered_docs:
             docs = filtered_docs
 
-    # Choosing documents specific for issues
-    issue_filters = []
-    first_doc_groups = docs[0].groups if docs[0].groups else {}
-    possible_issues = set(first_doc_groups.keys())
-    for issue in issues:
-        if issue == "main":
-            continue
-        if issue not in possible_issues:
-            continue
-        # Double lambda to capture "issue" properly
-        issue_filter = (lambda x: lambda doc: doc.groups.get(x) == x)(issue)
-        issue_filters.append(issue_filter)
+    # Prefer channels that actually cover this issue, so a war story gets its
+    # title from a war channel rather than from whichever channel happened to
+    # post it. `doc.groups` maps an issue to the channel's trust group, so
+    # membership — not the group's value — is what marks the channel as
+    # covering it.
+    issue_filters = [
+        make_issue_filter(issue)
+        for issue in issues
+        if issue != "main" and issue in docs[0].groups
+    ]
 
-    soft_filters = [filter_not_long] + issue_filters + [filter_purple]
+    soft_filters: list[DocumentFilter] = [
+        filter_not_long,
+        *issue_filters,
+        filter_purple,
+    ]
 
-    for f in soft_filters:
-        if not f:
-            continue
-        filtered_docs = list(filter(f, docs))
+    for flt in soft_filters:
+        filtered_docs = list(filter(flt, docs))
         if len(filtered_docs) >= 2:
             docs = filtered_docs
 

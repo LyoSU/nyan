@@ -1,12 +1,11 @@
 import sys
 import json
-from collections import Counter
 
 input_path = sys.argv[1]
 output_path = sys.argv[2]
 docs_path = sys.argv[3]
 
-with open(input_path) as r, open(output_path, "w") as w, open(docs_path, "r") as df:
+with open(input_path) as r, open(output_path, "w") as w, open(docs_path) as df:
     urls = {json.loads(line)["url"] for line in df}
     seen = set()
     for line in r:

@@ -1,9 +1,9 @@
 import logging
 import os
 import re
-import time
 from dataclasses import dataclass, asdict
-from typing import Optional, Sequence, Set, List, Dict, Any, cast
+from typing import Any, cast
+from collections.abc import Sequence
 from multiprocessing.pool import ThreadPool
 
 from openai import OpenAI
@@ -15,11 +15,11 @@ class OpenAIDecodingArguments:
     top_p: float = 0.95
     n: int = 1
     stream: bool = False
-    stop: Optional[Sequence[str]] = None
+    stop: Sequence[str] | None = None
     presence_penalty: float = 0.0
     frequency_penalty: float = 0.0
 
-    def as_params(self) -> Dict[str, Any]:
+    def as_params(self) -> dict[str, Any]:
         return {k: v for k, v in asdict(self).items() if v is not None}
 
 
@@ -68,12 +68,25 @@ LLM_MAX_RETRIES = int(env_number("LLM_MAX_RETRIES", "3"))
 # so this is a safety net rather than a rate limit.
 MAX_ATTEMPTS = 6
 
-_client: Optional[OpenAI] = None
+# Reasoning budget for the short analysis/digest calls. The recovery below can
+# discover that a gateway rejects the parameter, but that costs one failed
+# request per process; setting LLM_REASONING_EFFORT=none skips it up front.
+_DISABLED_VALUES = frozenset(("none", "off", "no", "0", "disabled"))
+
+
+def env_reasoning_effort(name: str = "LLM_REASONING_EFFORT") -> str | None:
+    value = env_str(name, "low").strip()
+    return None if value.lower() in _DISABLED_VALUES else value
+
+
+DEFAULT_REASONING_EFFORT = env_reasoning_effort()
+
+_client: OpenAI | None = None
 
 # Parameters a given model has already rejected, remembered per process so a
 # gateway limitation costs one failed request in total rather than one per
 # call. Populated from the errors described below.
-_unsupported_params: Dict[str, Set[str]] = {}
+_unsupported_params: dict[str, set[str]] = {}
 
 # Gateways in front of the model name the parameters they do not implement:
 #   litellm.UnsupportedParamsError: custom_openai does not support
@@ -99,9 +112,9 @@ def get_client() -> OpenAI:
     return _client
 
 
-def parse_unsupported_params(error: str) -> Set[str]:
+def parse_unsupported_params(error: str) -> set[str]:
     """Parameter names a gateway or model complained about, if any."""
-    names: Set[str] = set()
+    names: set[str] = set()
     match = _UNSUPPORTED_LIST_RE.search(error)
     if match:
         names |= {
@@ -113,16 +126,15 @@ def parse_unsupported_params(error: str) -> Set[str]:
 
 
 def openai_completion(
-    messages: List[Dict[str, Any]],
+    messages: list[dict[str, Any]],
     decoding_args: OpenAIDecodingArguments = DEFAULT_ARGS,
     model_name: str = DEFAULT_MODEL,
-    sleep_time: int = 2,
-    response_format: Optional[Dict[str, str]] = None,
-    reasoning_effort: Optional[str] = None,
+    response_format: dict[str, str] | None = None,
+    reasoning_effort: str | None = None,
 ) -> str:
     assert decoding_args.n == 1
 
-    params: Dict[str, Any] = decoding_args.as_params()
+    params: dict[str, Any] = decoding_args.as_params()
     # Only forward response_format/reasoning_effort when explicitly requested,
     # so behavior stays opt-in per call and does not leak into unrelated
     # completions. Reasoning models (e.g. gpt-5.x) otherwise default to a
@@ -145,7 +157,7 @@ def openai_completion(
     )
 
     client = get_client()
-    last_error: Optional[Exception] = None
+    last_error: Exception | None = None
     for attempt in range(MAX_ATTEMPTS):
         try:
             completion = client.chat.completions.create(
@@ -161,18 +173,21 @@ def openai_completion(
         except Exception as e:
             last_error = e
             error = str(e)
-            logging.warning("LLM error (attempt %d): %s", attempt + 1, error)
 
             if not rewrite_params(params, error, model_name):
+                logging.error("LLM call failed: %s", error)
                 raise
-            if sleep_time:
-                time.sleep(sleep_time)
+            # Recoverable: rewrite_params already logged what it changed, so the
+            # raw error is context rather than a problem in its own right.
+            # No sleep: every branch above changes the request itself, and
+            # rate limits are the SDK's job (LLM_MAX_RETRIES).
+            logging.info("LLM error (attempt %d), retrying: %s", attempt + 1, error)
 
     assert last_error is not None
     raise last_error
 
 
-def rewrite_params(params: Dict[str, Any], error: str, model_name: str) -> bool:
+def rewrite_params(params: dict[str, Any], error: str, model_name: str) -> bool:
     """Adjust `params` in place so a retry can succeed. False if it cannot.
 
     Every branch must change the request, otherwise retrying just repeats the
@@ -209,12 +224,11 @@ def rewrite_params(params: Dict[str, Any], error: str, model_name: str) -> bool:
 
 
 def openai_batch_completion(
-    batch: List[List[Dict[str, Any]]],
+    batch: list[list[dict[str, Any]]],
     decoding_args: OpenAIDecodingArguments = DEFAULT_ARGS,
     model_name: str = DEFAULT_MODEL,
-    sleep_time: int = 2,
     max_workers: int = 8,
-) -> List[str]:
+) -> list[str]:
     if not batch:
         return []
     # One thread per item saturates the gateway on large batches and makes
@@ -223,9 +237,6 @@ def openai_batch_completion(
         return list(
             pool.starmap(
                 openai_completion,
-                [
-                    (messages, decoding_args, model_name, sleep_time)
-                    for messages in batch
-                ],
+                [(messages, decoding_args, model_name) for messages in batch],
             )
         )

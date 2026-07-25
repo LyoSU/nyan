@@ -1,10 +1,11 @@
-from typing import TypeVar, Callable, Dict, List, Any, cast
+from typing import TypeVar, Any, cast
+from collections.abc import Callable
 
 import numpy as np
 from numpy.typing import NDArray
 import requests
 import torch
-from transformers import CLIPProcessor, CLIPModel  # type: ignore
+from transformers import CLIPProcessor, CLIPModel
 from tqdm.auto import tqdm
 from PIL import Image
 
@@ -27,14 +28,16 @@ class ClipEmbedder:
         enable_tqdm: bool = False,
     ):
         self.model_name = model_name
-        self.model = CLIPModel.from_pretrained(model_name).to(device)
+        # from_pretrained accepts a model id as a string; the stubs only
+        # declare the overload that takes an already loaded model.
+        self.model = CLIPModel.from_pretrained(model_name).to(device)  # type: ignore[arg-type]
         self.processor = CLIPProcessor.from_pretrained(model_name)
         self.image_batch_size = image_batch_size
         self.text_batch_size = text_batch_size
         self.normalize = normalize
         self.enable_tqdm = enable_tqdm
 
-    def fetch_images(self, urls: List[str]) -> List[Dict[str, Any]]:
+    def fetch_images(self, urls: list[str]) -> list[dict[str, Any]]:
         images = []
         for url in urls:
             if not url.startswith("http://") and not url.startswith("https://"):
@@ -45,10 +48,10 @@ class ClipEmbedder:
                 continue
             if response.status_code != 200:
                 continue
-            images.append({"url": url, "content": Image.open(response.raw)})
+            images.append({"url": url, "content": Image.open(response.raw)})  # type: ignore[arg-type]
         return images
 
-    def embed_images(self, images: List[Image.Image]) -> NDArray[np.float32]:
+    def embed_images(self, images: list[Image.Image]) -> NDArray[np.float32]:
         return self._calc_embeddings(
             func=self._process_images_batch,
             inputs=images,
@@ -56,7 +59,7 @@ class ClipEmbedder:
             desc="CLIP image embeddings",
         )
 
-    def embed_texts(self, texts: List[str]) -> NDArray[np.float32]:
+    def embed_texts(self, texts: list[str]) -> NDArray[np.float32]:
         return self._calc_embeddings(
             func=self._process_texts_batch,
             inputs=texts,
@@ -66,8 +69,8 @@ class ClipEmbedder:
 
     def _calc_embeddings(
         self,
-        func: Callable[[List[T]], torch.Tensor],
-        inputs: List[T],
+        func: Callable[[list[T]], torch.Tensor],
+        inputs: list[T],
         batch_size: int,
         desc: str,
     ) -> NDArray[np.float32]:
@@ -86,8 +89,8 @@ class ClipEmbedder:
             embeddings /= embeddings.norm(dim=-1, keepdim=True)
         return cast(NDArray[np.float32], embeddings.numpy())
 
-    def _process_images_batch(self, images: List[Image.Image]) -> torch.Tensor:
-        inputs: Dict[str, torch.Tensor] = self.processor(
+    def _process_images_batch(self, images: list[Image.Image]) -> torch.Tensor:
+        inputs: dict[str, torch.Tensor] = self.processor(
             images=images, return_tensors="pt"
         )
         inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
@@ -96,8 +99,8 @@ class ClipEmbedder:
             result = result.pooler_output
         return cast(torch.Tensor, result)
 
-    def _process_texts_batch(self, texts: List[str]) -> torch.Tensor:
-        inputs: Dict[str, torch.Tensor] = self.processor(
+    def _process_texts_batch(self, texts: list[str]) -> torch.Tensor:
+        inputs: dict[str, torch.Tensor] = self.processor(
             text=texts, return_tensors="pt", padding=True
         )
         inputs = {k: v.to(self.model.device) for k, v in inputs.items()}

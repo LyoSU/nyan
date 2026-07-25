@@ -1,0 +1,61 @@
+[project]
+name = "nyan"
+version = "0.4.0"
+description = "Новинний агрегатор для Telegram: збирає пости з каналів, кластеризує їх і публікує спільну стрічку"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["nyan", "crawler", "crawler.spiders"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+exclude = [".venv", "data", "models"]
+
+[tool.ruff.lint]
+# The rule families that used to be five separate flake8 plugins:
+# E/W pycodestyle, F pyflakes, B bugbear, A builtins, SIM simplify,
+# N pep8-naming, UP pyupgrade, C4 comprehensions, RUF ruff-specific.
+select = ["E", "W", "F", "B", "A", "SIM", "N", "UP", "C4", "RUF"]
+ignore = [
+    # Assigning a lambda is clearer than a def in the filter pipelines.
+    "E731",
+    # Ambiguous variable names: `l` is used as a loop label in numeric code.
+    "E741",
+    # dict()/list() over {}/[]: the existing style throughout this codebase.
+    "C408",
+    # Cyrillic characters that look like Latin ones: this project is Ukrainian,
+    # and the strings are deliberate.
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+# One-off research and export scripts: long data literals, and zips over
+# sequences whose lengths differ by design.
+"scripts/*" = ["E501", "B905", "SIM115"]
+# Fixtures shadow their own names by design, and tests re-import for clarity.
+"tests/*" = ["F811", "A002"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["nyan"]
+# Untyped third-party imports are silenced at the import site with an inline
+# `# type: ignore`, so a package that gains type information later surfaces as
+# an unused-ignore warning rather than being hidden here forever.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = [
+    # scikit-learn warns that the bundled category model was pickled by an
+    # older version. Retraining it is a separate task.
+    "ignore::UserWarning:sklearn.base",
+]

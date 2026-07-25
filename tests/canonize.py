@@ -1,4 +1,3 @@
-import json
 
 from tests.conftest import (
     get_input_path,
@@ -13,7 +12,7 @@ from nyan.annotator import Annotator
 from nyan.channels import Channels
 from nyan.clusterer import Clusterer
 from nyan.ranker import Ranker
-from nyan.document import read_documents_file, Document
+from nyan.document import read_documents_file
 
 annotator = Annotator(get_annotator_config_path(), Channels(get_channels_info_path()))
 clusterer = Clusterer(get_clusterer_config_path())

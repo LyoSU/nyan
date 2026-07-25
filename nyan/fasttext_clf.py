@@ -1,4 +1,3 @@
-from typing import Tuple
 
 from fasttext import load_model as ft_load_model  # type: ignore
 from pyonmttok import Tokenizer  # type: ignore
@@ -19,7 +18,7 @@ class FasttextClassifier:
         self.max_tokens = max_tokens
         self.label_offset = len("__label__")
 
-    def __call__(self, text: str) -> Tuple[str, float]:
+    def __call__(self, text: str) -> tuple[str, float]:
         text = text.replace("\xa0", " ").strip()
         text = " ".join(text.split())
 

@@ -1,63 +1,101 @@
 # НЯН
 
-[![Tests Status](https://github.com/NyanNyanovich/nyan/actions/workflows/python.yml/badge.svg)](https://github.com/NyanNyanovich/nyan/actions/workflows/python.yml)
-[![https://t.me/nyannews](https://img.shields.io/badge/Telegram-nyannews-blue.svg?logo=telegram)](https://t.me/nyannews)
-[![License](https://img.shields.io/github/license/NyanNyanovich/nyan)](https://github.com/NyanNyanovich/nyan/blob/master/LICENSE)
+[![Tests](https://github.com/LyoSU/nyan/actions/workflows/python.yml/badge.svg)](https://github.com/LyoSU/nyan/actions/workflows/python.yml)
+[![Telegram](https://img.shields.io/badge/Telegram-UAliveNews-blue.svg?logo=telegram)](https://t.me/UAliveNews)
+[![License](https://img.shields.io/github/license/LyoSU/nyan)](LICENSE)
 
-<img width="1189" alt="изображение" src="https://user-images.githubusercontent.com/104140467/193427932-f5b3ecdd-835f-493f-9901-553c03bdff9b.png">
+Новинний агрегатор для Telegram: збирає пости з українських каналів,
+об'єднує повідомлення про одну й ту саму подію в кластери й публікує спільну
+стрічку. Кожне джерело належить до групи довіри, тож читач бачить, наскільки
+можна довіряти повідомленню.
 
-НЯН (Nyan) is a news aggregator that scrapes news from different Telegram channels, clusters similar posts, and forms a united feed. All sources are split into several groups, so anyone can understand whether they can trust them.
+Канал: [UAliveNews](https://t.me/UAliveNews)
 
-Channel itself: [NyanNews](https://t.me/nyannews)
+Форк [NyanNyanovich/nyan](https://github.com/NyanNyanovich/nyan), адаптований
+під українську мову: власні групи джерел, українські заголовки від LLM і пости
+у форматі rich messages (Bot API 10.1+).
 
-Extensive description (in Russian): [Whitepaper](https://telegra.ph/NYAN-Whitepaper-04-03)
+## Як це працює
 
-Detailed instruction (in Russian): [Как поднять свой НЯН](https://github.com/NyanNyanovich/nyan/wiki/%D0%9A%D0%B0%D0%BA-%D0%BF%D0%BE%D0%B4%D0%BD%D1%8F%D1%82%D1%8C-%D1%81%D0%B2%D0%BE%D0%B9-%D0%9D%D0%AF%D0%9D)
+1. **Crawler** (`crawler/`) читає веб-версію каналів через Scrapy й складає
+   пости в MongoDB.
+2. **Annotator** (`nyan/annotator.py`) чистить текст, визначає мову й категорію,
+   рахує ембединги, викидає рядки, які канал повторює в більшості постів
+   (підписи «Підпишись на…»).
+3. **Clusterer** (`nyan/clusterer.py`) групує пости про одну подію за косинусною
+   відстанню між ембедингами, зі штрафами за час і за однаковий канал.
+4. **Ranker** (`nyan/ranker.py`) відбирає, що варте публікації, за швидкістю
+   набору переглядів.
+5. **Renderer** (`nyan/renderer.py`) будує пост із типізованих блоків:
+   заголовок, медіа, розбіжності між джерелами, згортаний список джерел.
+6. **Client** (`nyan/client.py`) публікує його через `sendRichMessage`.
 
+## Запуск у Docker
 
-## Install
+Найпростіший шлях. Потрібна зовнішня MongoDB.
 
-Install git and pip
+```bash
+cp .env.example .env      # впишіть свої MongoDB та LLM налаштування
+./test-docker.sh          # перевірка конфігурації та з'єднання
+./start-docker.sh         # запуск crawler + sender
 ```
-sudo apt-get install git python3-pip
-```
 
-Clone repo
-```
-git clone https://github.com/NyanNyanovich/nyan
-```
+Деталі, змінні середовища й типові проблеми — у [DOCKER_README.md](DOCKER_README.md).
 
-Install Python requirements
-```
-pip3 install -r requirements.txt
-```
+## Запуск без Docker
 
-Download models
-```
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
 bash download_models.sh
 ```
 
-Install Docker and Docker Compose.
-* Docker instructions: https://docs.docker.com/engine/install
-* Docker Compose instructions: https://docs.docker.com/compose/install
+Вкажіть Telegram-креденшели у `configs/client_config.json`
+(шаблон — `configs/client_config.json.example`) і MongoDB у
+`configs/mongo_config.json`.
 
-Provide Telegram API credentials to [configs/client_config.json](https://github.com/NyanNyanovich/nyan/blob/main/configs/client_config.json).
-
-## Run
-
-Run Mongo container
-```
-docker-compose up
+```bash
+./crawl.sh    # збір постів
+./send.sh     # обробка й публікація
 ```
 
-Run crawler
-```
-bash crawl.sh
+## Налаштування
+
+| Файл | Що задає |
+|---|---|
+| `channels.json` | Список каналів, їхні групи довіри та стрічки |
+| `configs/renderer_config.json` | Формат поста (`rich`/`legacy`), таймзона |
+| `configs/ranker_config.json` | Пороги публікації для кожної стрічки |
+| `configs/clusterer_config.json` | Штрафи й поріг кластеризації |
+| `configs/annotator_config.json` | Моделі, чистка тексту, детекція шаблонних рядків |
+| `configs/daemon_config.json` | Вікна часу та інтервали демона |
+| `.env` | MongoDB, LLM, канал публікації |
+
+LLM використовується для заголовків, розбіжностей між джерелами та дайджесту.
+Підходить будь-який OpenAI-сумісний шлюз — задайте `LLM_API_KEY`, `LLM_BASE_URL`
+і `LLM_MODEL`. Без ключа НЯН працює, але пости будуть без заголовків.
+
+## Дайджест
+
+```bash
+python3 -m nyan.topics --mongo-config-path configs/mongo_config.json \
+    --client-config-path configs/client_config.json --duration-hours 8
 ```
 
-Run server
-```
-bash send.sh
+## Розробка
+
+```bash
+pip install -r requirements-dev.txt
+pre-commit install
+
+ruff check .    # лінтер
+mypy            # типи
+pytest -q       # тести
 ```
 
-You can provide OPENAI_API_KEY environment variable to use LLM-related features.
+Тести порівнюють вихід із записаними снапшотами в `tests/data/` (Git LFS).
+Якщо зміна свідомо змінює результат, перегенеруйте їх:
+
+```bash
+python3 -m tests.canonize
+```

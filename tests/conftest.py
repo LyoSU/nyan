@@ -1,6 +1,4 @@
 import os
-from typing import List, Dict
-from dataclasses import fields
 
 import pytest
 import numpy as np
@@ -125,12 +123,12 @@ def renderer(renderer_config_path, channels) -> Renderer:
 
 
 @pytest.fixture
-def input_docs(input_path) -> List[Document]:
+def input_docs(input_path) -> list[Document]:
     return read_documents_file(input_path)
 
 
 @pytest.fixture
-def output_docs(annotator_output_path) -> List[Document]:
+def output_docs(annotator_output_path) -> list[Document]:
     return read_documents_file(annotator_output_path)
 
 
@@ -164,7 +162,7 @@ def compare_docs():
                         actual=p,
                         desired=c,
                         decimal=3,
-                        err_msg="{}: {} vs {}".format(key, p, c)
+                        err_msg=f"{key}: {p} vs {c}"
                     )
                 continue
             if pred_value != canon_value:
@@ -177,5 +175,5 @@ def compare_docs():
 
 
 @pytest.fixture
-def clip_data() -> List[Dict[str, str]]:
+def clip_data() -> list[dict[str, str]]:
     return list(read_jsonl("tests/data/clip.jsonl"))

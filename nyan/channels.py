@@ -1,37 +1,74 @@
 import json
-from typing import Dict, Optional, Iterator, Tuple
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 from nyan.util import Serializable, normalize_channel_id
 
 
+# Reader-facing names of the trust groups. These live in code rather than only
+# in channels.json because that file is per-deployment: a deployment with an
+# older copy would otherwise show readers the internal group key ("blue").
+DEFAULT_GROUP_NAMES = {
+    "red": "Офіційні",
+    "purple": "Перевірені медіа",
+    "blue": "Новинні",
+    "tech": "Технології",
+    "economy": "Економіка",
+    "other": "Інші",
+}
+
+# Same reasoning for the emoji: a missing key used to render an empty string,
+# which silently removed the trust marker the channel is built around.
+DEFAULT_GROUP_EMOJIS = {
+    "red": "👑",
+    "purple": "✅",
+    "blue": "📰",
+    "tech": "💻",
+    "economy": "💰",
+    "other": "🎙",
+}
+
+DEFAULT_GROUP_COLORS = {
+    "red": "#FF0000",
+    "purple": "#800080",
+    "blue": "#0000FF",
+    "tech": "#008000",
+    "economy": "#FFD700",
+    "other": "#808080",
+}
+
+
 @dataclass
 class Channel(Serializable):
     name: str
-    groups: Dict[str, str]
+    groups: dict[str, str]
     alias: str = ""
-    master: Optional[str] = None
+    master: str | None = None
     disabled: bool = False
-    emojis: Optional[Dict[str, str]] = None
-    colors: Optional[Dict[str, str]] = None
-    issue: Optional[str] = None
+    emojis: dict[str, str] | None = None
+    colors: dict[str, str] | None = None
+    issue: str | None = None
 
 
 class Channels:
     def __init__(self, path: str) -> None:
-        self.channels: Dict[str, Channel] = dict()
+        self.channels: dict[str, Channel] = dict()
 
         with open(path) as r:
             config = json.load(r)
-        emojis = config["emojis"]
-        colors = config["colors"]
-        default_groups = config["default_groups"]
-
         # A group is a trust tier, stored as a colour name ("purple"). The
         # emoji is what readers actually see; the title is what makes the
-        # emoji legible instead of a private colour code.
-        self.group_emojis: Dict[str, str] = dict(emojis)
-        self.group_names: Dict[str, str] = dict(config.get("group_names", {}))
+        # emoji legible instead of a private colour code. The file may override
+        # any of them, but never has to define them.
+        emojis = {**DEFAULT_GROUP_EMOJIS, **config.get("emojis", {})}
+        colors = {**DEFAULT_GROUP_COLORS, **config.get("colors", {})}
+        default_groups = config.get("default_groups", {})
+
+        self.group_emojis: dict[str, str] = emojis
+        self.group_names: dict[str, str] = {
+            **DEFAULT_GROUP_NAMES,
+            **config.get("group_names", {}),
+        }
         for channel in config["channels"]:
             channel = Channel.fromdict(channel)
             assert channel.groups
@@ -63,5 +100,5 @@ class Channels:
     def __contains__(self, chid: str) -> bool:
         return normalize_channel_id(chid) in self.channels
 
-    def __iter__(self) -> Iterator[Tuple[str, Channel]]:
+    def __iter__(self) -> Iterator[tuple[str, Channel]]:
         return iter(self.channels.items())

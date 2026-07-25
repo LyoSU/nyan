@@ -13,6 +13,10 @@
 
         ]
     },
+    "boilerplate": {
+        "min_docs": 5,
+        "min_ratio": 0.5
+    },
     "image_processor": {
         "rm_images": [
             "https://iili.io/HYeukLg.md.jpg"

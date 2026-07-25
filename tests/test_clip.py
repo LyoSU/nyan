@@ -1,7 +1,6 @@
 from sklearn.metrics.pairwise import cosine_similarity
 
 from nyan.clip import ClipEmbedder
-from nyan.image import ImageProcessor
 
 
 def test_clip(clip_data):
@@ -12,7 +11,8 @@ def test_clip(clip_data):
     text_embeddings = embedder.embed_texts(texts)
     image_embeddings = embedder.embed_images([i["content"] for i in images])
     similarity = cosine_similarity(text_embeddings, image_embeddings)
-    for i, (text, image) in enumerate(zip(texts, images)):
+    assert len(images) == len(texts), "Some images could not be fetched"
+    for i, (text, image) in enumerate(zip(texts, images, strict=True)):
         best_index = similarity[i].argmax()
         assert best_index == i, \
             f"CLIP: {text} vs {image} mismath, matching image: {images[best_index]}"
@@ -26,5 +26,5 @@ def test_image_processor(clip_data, annotator):
     image_embeddings = embedder.embed_images([i["content"] for i in fetched_images])
 
     embedded_images = annotator.image_processor(images)
-    for embedded_image, embedding in zip(embedded_images, image_embeddings):
+    for embedded_image, embedding in zip(embedded_images, image_embeddings, strict=True):
         assert embedded_image["embedding"] == embedding.tolist()

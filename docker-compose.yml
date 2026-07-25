@@ -10,11 +10,14 @@ services:
       - ./channels.json:/app/channels.json
     environment:
       - PYTHONPATH=/app
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - NYAN_TIMEZONE=${NYAN_TIMEZONE:-Europe/Kyiv}
       - LLM_API_KEY=${LLM_API_KEY:-}
       - LLM_BASE_URL=${LLM_BASE_URL:-https://openrouter.ai/api/v1}
       - LLM_MODEL=${LLM_MODEL:-openai/gpt-5.4-mini}
       - LLM_TIMEOUT=${LLM_TIMEOUT:-120}
       - LLM_MAX_RETRIES=${LLM_MAX_RETRIES:-3}
+      - LLM_REASONING_EFFORT=${LLM_REASONING_EFFORT:-low}
       - PUBLISH_CHANNEL_URL=${PUBLISH_CHANNEL_URL:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
@@ -28,8 +31,9 @@ services:
       - MONGO_SSL=${MONGO_SSL:-false}
       - MONGO_DIRECT_CONNECTION=${MONGO_DIRECT_CONNECTION:-true}
     restart: unless-stopped
-    command: tail -f /dev/null  # Тримає контейнер запущеним
-    
+    # Тримає контейнер запущеним для ручних команд і дебагу.
+    command: ["tail", "-f", "/dev/null"]
+
   # Crawler сервіс
   nyan-crawler:
     build: .
@@ -42,6 +46,8 @@ services:
       - ./crawler:/app/crawler
     environment:
       - PYTHONPATH=/app
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - NYAN_TIMEZONE=${NYAN_TIMEZONE:-Europe/Kyiv}
       - MONGO_HOST=${MONGO_HOST:-}
       - MONGO_PORT=${MONGO_PORT:-27017}
       - MONGO_DATABASE=${MONGO_DATABASE:-main}
@@ -52,11 +58,7 @@ services:
       - MONGO_SSL=${MONGO_SSL:-false}
       - MONGO_DIRECT_CONNECTION=${MONGO_DIRECT_CONNECTION:-true}
     restart: unless-stopped
-    command: >
-      bash -c "while true; do
-        scrapy crawl telegram -a channels_file=channels.json -a fetch_times=crawler/fetch_times.json -a hours=24;
-        sleep 60;
-      done"
+    command: ["./crawl.sh"]
 
   # Sender сервіс  
   nyan-sender:
@@ -69,11 +71,14 @@ services:
       - ./channels.json:/app/channels.json
     environment:
       - PYTHONPATH=/app
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - NYAN_TIMEZONE=${NYAN_TIMEZONE:-Europe/Kyiv}
       - LLM_API_KEY=${LLM_API_KEY:-}
       - LLM_BASE_URL=${LLM_BASE_URL:-https://openrouter.ai/api/v1}
       - LLM_MODEL=${LLM_MODEL:-openai/gpt-5.4-mini}
       - LLM_TIMEOUT=${LLM_TIMEOUT:-120}
       - LLM_MAX_RETRIES=${LLM_MAX_RETRIES:-3}
+      - LLM_REASONING_EFFORT=${LLM_REASONING_EFFORT:-low}
       - PUBLISH_CHANNEL_URL=${PUBLISH_CHANNEL_URL:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
@@ -87,8 +92,4 @@ services:
       - MONGO_SSL=${MONGO_SSL:-false}
       - MONGO_DIRECT_CONNECTION=${MONGO_DIRECT_CONNECTION:-true}
     restart: unless-stopped
-    command: >
-      bash -c "mkdir -p data && while true; do
-        python3 -m nyan.send --channels-info-path channels.json --client-config-path configs/client_config.json --mongo-config-path configs/mongo_config.json --annotator-config-path configs/annotator_config.json --renderer-config-path configs/renderer_config.json --daemon-config-path configs/daemon_config.json;
-        sleep 30;
-      done"
+    command: ["./send.sh"]

@@ -1,82 +1,73 @@
 #!/bin/bash
-
-# Скрипт для тестування НЯН Docker setup
+# Перевіряє, що образ збирається і що з контейнера видно MongoDB.
+set -uo pipefail
 
 echo "🐱 Тестування НЯН Docker налаштувань..."
 
-# Перевіряємо Docker
 if ! command -v docker &> /dev/null; then
     echo "❌ Docker не встановлено!"
     exit 1
 fi
 
-if ! command -v docker-compose &> /dev/null; then
+# `docker compose` — сучасна вбудована команда; docker-compose лишився для
+# старих встановлень.
+if docker compose version &> /dev/null; then
+    COMPOSE="docker compose"
+elif command -v docker-compose &> /dev/null; then
+    COMPOSE="docker-compose"
+else
     echo "❌ Docker Compose не встановлено!"
     exit 1
 fi
 
-# Перевіряємо файли
 echo "📋 Перевірка файлів..."
-
-if [ ! -f "channels.json" ]; then
-    echo "❌ Файл channels.json не знайдено!"
-    exit 1
-else
-    echo "✅ channels.json знайдено"
-fi
-
-if [ ! -f "configs/client_config.json" ]; then
-    echo "❌ configs/client_config.json не знайдено!"
-    exit 1
-else
-    echo "✅ client_config.json знайдено"
-fi
+for required in channels.json configs/client_config.json; do
+    if [ ! -f "$required" ]; then
+        echo "❌ Файл $required не знайдено!"
+        exit 1
+    fi
+    echo "✅ $required знайдено"
+done
 
 if [ ! -f ".env" ]; then
-    echo "⚠️  .env файл не знайдено!"
-    echo "   Створіть .env з налаштуваннями MongoDB"
+    echo "⚠️  .env не знайдено — MongoDB використає значення за замовчуванням"
 else
-    echo "✅ .env файл знайдено"
-    echo "📝 Змінні середовища:"
-    grep -E "^MONGO_" .env | sed 's/=.*/=***/' || echo "   Немає MONGO_ змінних"
+    echo "✅ .env знайдено, змінні:"
+    grep -E "^(MONGO|LLM)_" .env | sed 's/=.*/=***/' || echo "   Немає MONGO_/LLM_ змінних"
 fi
 
-# Збираємо образ
 echo "🔨 Збірка Docker образу..."
-if docker-compose build --quiet; then
-    echo "✅ Docker образ зібрано успішно"
-else
+if ! $COMPOSE build --quiet; then
     echo "❌ Помилка збірки Docker образу"
     exit 1
 fi
+echo "✅ Docker образ зібрано успішно"
 
-# Тестуємо MongoDB підключення
 echo "🔌 Тестування MongoDB підключення..."
-docker-compose run --rm nyan-app bash -c "
-echo 'Змінні середовища:'
-echo 'MONGO_HOST='$MONGO_HOST
-echo 'MONGO_PORT='$MONGO_PORT
-echo 'MONGO_USERNAME='${MONGO_USERNAME:+***}
-echo 'MONGO_PASSWORD='${MONGO_PASSWORD:+***}
-echo ''
-echo 'Створена конфігурація:'
+# Скрипт передається через stdin, а не в подвійних лапках: інакше $MONGO_HOST
+# та інші змінні розкриваються у хостовому шелі й до контейнера доходять
+# порожніми, тобто перевірка нічого не перевіряє.
+$COMPOSE run --rm -T nyan-app bash -s <<'CONTAINER'
+set -u
+echo "Змінні середовища в контейнері:"
+echo "  MONGO_HOST=${MONGO_HOST:-<не задано>}"
+echo "  MONGO_PORT=${MONGO_PORT:-<не задано>}"
+echo "  MONGO_USERNAME=${MONGO_USERNAME:+***}"
+echo "  MONGO_PASSWORD=${MONGO_PASSWORD:+***}"
+echo "  LLM_MODEL=${LLM_MODEL:-<не задано>}"
+echo
+echo "Створена конфігурація:"
 cat configs/mongo_config.json
-echo ''
-echo 'Тестування підключення...'
-python3 -c \"
+echo
+echo "Підключення:"
+python3 - <<'PYTHON'
 from nyan.mongo import get_documents_collection
-try:
-    collection = get_documents_collection('configs/mongo_config.json')
-    count = collection.count_documents({})
-    print(f'✅ MongoDB з\\'єднання успішне')
-    print(f'📊 Документів у колекції: {count}')
-except Exception as e:
-    print(f'❌ Помилка з\\'єднання з MongoDB: {e}')
-    import traceback
-    traceback.print_exc()
-    raise
-\"
-"
+
+collection = get_documents_collection("configs/mongo_config.json")
+print(f"✅ MongoDB з'єднання успішне")
+print(f"📊 Документів у колекції: {collection.count_documents({})}")
+PYTHON
+CONTAINER
 
 if [ $? -eq 0 ]; then
     echo "🎉 Всі тести пройшли успішно!"

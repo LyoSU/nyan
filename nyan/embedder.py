@@ -1,7 +1,6 @@
-from typing import List
 
 import torch
-from transformers import AutoModel, AutoTokenizer  # type: ignore
+from transformers import AutoModel, AutoTokenizer
 from tqdm.auto import tqdm
 
 from nyan.util import set_random_seed, gen_batch
@@ -32,7 +31,7 @@ class Embedder:
         self.normalize = normalize
         self.text_prefix = text_prefix
 
-    def __call__(self, texts: List[str]) -> torch.Tensor:
+    def __call__(self, texts: list[str]) -> torch.Tensor:
         embeddings: torch.Tensor = torch.zeros(
             (len(texts), self.model.config.hidden_size)
         )

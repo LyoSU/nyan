@@ -1,68 +1,83 @@
 import argparse
 import json
-from typing import List, Dict, Any
+import logging
+from pathlib import Path
+from typing import Any
 
 from jinja2 import Template
 
+from nyan import rich
 from nyan.clusters import Clusters
 from nyan.client import TelegramClient
-from nyan.util import get_current_ts, ts_to_dt, PUBLISH_CHANNEL_URL
-from nyan.openai import openai_completion, DEFAULT_MODEL
+from nyan.util import format_dt_uk, get_current_ts, ts_to_dt, PUBLISH_CHANNEL_URL
+from nyan.openai import openai_completion, DEFAULT_MODEL, DEFAULT_REASONING_EFFORT
 from nyan.mongo import get_topics_collection
 
 
+BASE_DIR = Path(__file__).parent
+
+# The digest is also mirrored to this issue, which collects long-form posts.
+SUMMARY_ISSUE = "summary"
+
+
 def extract_topics(
-    clusters: List[Dict[str, Any]],
-    issue_name: str,
+    clusters: list[dict[str, Any]],
     prompt_path: str,
-    duration_hours: int,
     model_name: str,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     with open(prompt_path) as f:
         template = Template(f.read())
 
     prompt = template.render(clusters=clusters).strip() + "\n"
-    print(prompt)
 
     messages = [{"role": "user", "content": prompt}]
     content = openai_completion(
         messages=messages,
         model_name=model_name,
         response_format={"type": "json_object"},
-        reasoning_effort="low",
+        reasoning_effort=DEFAULT_REASONING_EFFORT,
     )
-    print(content)
 
     content = content[content.find("{") : content.rfind("}") + 1]
-    topics: List[Dict[str, Any]] = json.loads(content)["topics"]
+    topics: list[dict[str, Any]] = json.loads(content)["topics"]
+    return [topic for topic in topics if topic.get("name") and topic.get("titles")]
+
+
+def render_topics(topics: list[dict[str, Any]], duration_hours: int) -> list[rich.Block]:
+    """The digest as a block tree.
+
+    Each headline is a link in its entirety, which is why the prompt no longer
+    has to name a verb for a link to be spliced onto: matching a model-provided
+    word back into its own sentence was the most fragile step in this file.
+    """
+    blocks: list[rich.Block] = [
+        rich.heading(f"Головне за {duration_hours} годин", size=2)
+    ]
     for topic in topics:
-        titles = topic["titles"]
-        final_titles = []
-        for r in titles:
-            link = "[{}]({})".format(r["verb"], r["url"])
-            fixed_title = r["title"].replace(" " + r["verb"], " " + link, 1)
-            if fixed_title == r["title"]:
-                fixed_title = r["title"].replace(r["verb"], link, 1)
-            if fixed_title == r["title"]:
-                link = "[{}]({})".format(r["verb"].capitalize(), r["url"])
-                fixed_title = fixed_title.replace(r["verb"].capitalize(), link, 1)
-            final_titles.append(fixed_title)
-        topic["titles"] = final_titles
-    return topics
+        title = " ".join(
+            part for part in (topic.get("emojis", ""), topic["name"]) if part
+        )
+        blocks.append(rich.heading(title, size=4))
+        items = []
+        for entry in topic["titles"]:
+            text = (entry.get("title") or "").strip()
+            url = entry.get("url")
+            if not text:
+                continue
+            items.append([rich.paragraph(rich.link(text, url) if url else text)])
+        if items:
+            blocks.append(rich.bullet_list(*items))
+
+    blocks.append(rich.divider())
+    blocks.append(
+        rich.footer(format_dt_uk(ts_to_dt(get_current_ts())))
+    )
+    return blocks
 
 
-def main(
-    mongo_config_path: str,
-    client_config_path: str,
-    duration_hours: int,
-    max_news_count: int,
-    min_news_count: int,
-    issue_name: str,
-    prompt_path: str,
-    template_path: str,
-    model_name: str,
-    auto: bool,
-) -> None:
+def collect_clusters(
+    mongo_config_path: str, duration_hours: int, issue_name: str
+) -> list[dict[str, Any]]:
     duration = int(duration_hours * 3600)
     clusters_obj = Clusters.load_from_mongo(
         mongo_config_path, get_current_ts(), duration
@@ -78,48 +93,67 @@ def main(
         message = messages[0]
         date_str = ""
         if cluster.create_time:
-            dt = ts_to_dt(cluster.create_time)
-            date_str = dt.strftime("%B %d, %H:%M")
+            date_str = format_dt_uk(ts_to_dt(cluster.create_time))
         fixed_clusters.append(
             {
                 "url": f"{PUBLISH_CHANNEL_URL}/{message.message_id}",
                 "dt": date_str,
                 "views": cluster.views,
-                "sources_count": len([doc.channel_title for doc in cluster.docs]),
+                "sources_count": len(cluster.channels),
                 "text": cluster.annotation_doc.patched_text,
             }
         )
+    return fixed_clusters
 
+
+def main(
+    mongo_config_path: str,
+    client_config_path: str,
+    duration_hours: int,
+    max_news_count: int,
+    min_news_count: int,
+    issue_name: str,
+    prompt_path: str,
+    model_name: str,
+    auto: bool,
+) -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+    fixed_clusters = collect_clusters(mongo_config_path, duration_hours, issue_name)
     if len(fixed_clusters) < min_news_count:
-        print("Not enough news")
+        logging.info(
+            "Only %d posts in the last %d hours, need %d",
+            len(fixed_clusters),
+            duration_hours,
+            min_news_count,
+        )
         return
     fixed_clusters = fixed_clusters[-max_news_count:]
 
     topics = extract_topics(
-        fixed_clusters,
-        issue_name=issue_name,
-        prompt_path=prompt_path,
-        duration_hours=duration_hours,
-        model_name=model_name,
+        fixed_clusters, prompt_path=prompt_path, model_name=model_name
     )
+    if not topics:
+        logging.warning("No topics extracted")
+        return
 
-    with open(template_path, "r") as f:
-        template = Template(f.read())
-    text = template.render(topics=topics, duration_hours=int(duration_hours))
-    print(text)
+    blocks = render_topics(topics, int(duration_hours))
+    for topic in topics:
+        logging.info(
+            "%s: %d headlines", topic["name"], len(topic.get("titles", []))
+        )
 
-    should_publish = False
+    should_publish = auto
     if not auto:
         should_publish = input("Publish? y/n ").strip() == "y"
 
-    if auto or should_publish:
-        client = TelegramClient(client_config_path)
-        client.send_message(text, issue_name=issue_name, parse_mode="Markdown")
-        client.send_message(text, issue_name="summary", parse_mode="Markdown")
+    if should_publish:
+        with TelegramClient(client_config_path) as client:
+            client.send_rich_message(blocks, issue_name=issue_name)
+            client.send_rich_message(blocks, issue_name=SUMMARY_ISSUE)
 
     collection = get_topics_collection(mongo_config_path)
-    record = {"clusters": fixed_clusters, "topics": topics}
-    collection.insert_one(record)
+    collection.insert_one({"clusters": fixed_clusters, "topics": topics})
 
 
 if __name__ == "__main__":
@@ -130,9 +164,8 @@ if __name__ == "__main__":
     parser.add_argument("--max-news-count", type=int, default=30)
     parser.add_argument("--min-news-count", type=int, default=5)
     parser.add_argument("--issue-name", type=str, default="main")
-    parser.add_argument("--prompt-path", type=str, default="nyan/prompts/topics.txt")
     parser.add_argument(
-        "--template-path", type=str, default="nyan/templates/topics.html"
+        "--prompt-path", type=str, default=str(BASE_DIR / "prompts/topics.txt")
     )
     parser.add_argument("--model-name", type=str, default=DEFAULT_MODEL)
     parser.add_argument("--auto", default=False, action="store_true")
