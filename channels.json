@@ -732,7 +732,8 @@
         "tech": "purple"
       },
       "alias": "AIN.UA",
-      "issue": "tech"
+      "issue": "tech",
+      "disabled": true
     },
     {
       "name": "gamedev_dou",
@@ -840,7 +841,8 @@
         "tech": "purple"
       },
       "alias": "Androprice",
-      "issue": "tech"
+      "issue": "tech",
+      "disabled": true
     },
     {
       "name": "keddr",
@@ -876,7 +878,8 @@
         "tech": "blue"
       },
       "alias": "MOYO",
-      "issue": "tech"
+      "issue": "tech",
+      "disabled": true
     },
     {
       "name": "msi_ukraine",
