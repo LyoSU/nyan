@@ -51,6 +51,15 @@ class Document(Serializable):
     has_obscene: bool = False
     patched_text: str | None = None
     groups: dict[str, str] = field(default_factory=dict)
+    #: What outside registers say about the channel, copied off the registry at
+    #: annotation time so `choose_title` can prefer a source that is in one.
+    #: Deliberately not part of CURRENT_VERSION: documents written before this
+    #: existed keep an empty list rather than being re-embedded for a label.
+    badges: list[str] = field(default_factory=list)
+    #: Mirrors `Channel.monitor_only`. Whether a channel may be quoted is a fact
+    #: about the channel, but the decision is made where only documents are in
+    #: hand — picking a post's text, counting a story's reach — so it rides along.
+    monitor_only: bool = False
     issue: str | None = None
     language: str | None = None
     category: str | None = None

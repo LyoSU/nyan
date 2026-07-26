@@ -7,26 +7,32 @@
         "tech": "other"
       },
       "alias": "РИА Новости",
-      "issue": "main"
+      "issue": "main",
+      "kind": "organization"
     },
     {
       "name": "ateobreaking",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "other"
       },
       "alias": "Ateo Breaking",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "rbc_news",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "other",
         "economy": "economy"
       },
       "alias": "РБК",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media",
+      "badges": [
+        "imi_white"
+      ]
     },
     {
       "name": "milinfolive",
@@ -35,12 +41,13 @@
         "tech": "other"
       },
       "alias": "Военный Осведомитель",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "nexta_live",
       "groups": {
-        "main": "blue",
+        "main": "grey",
         "tech": "other"
       },
       "alias": "NEXTA Live",
@@ -54,6 +61,7 @@
       },
       "alias": "Mash",
       "issue": "main",
+      "kind": "media",
       "disabled": true
     },
     {
@@ -63,25 +71,28 @@
         "tech": "other"
       },
       "alias": "Mash",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "varlamov_news",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "other"
       },
       "alias": "Varlamov News",
-      "issue": "main"
+      "issue": "main",
+      "kind": "person"
     },
     {
       "name": "ostorozhno_novosti",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "other"
       },
       "alias": "Осторожно, новости",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "bbbreaking",
@@ -90,21 +101,26 @@
         "tech": "other"
       },
       "alias": "Раньше всех. Ну почти.",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "meduzalive",
       "groups": {
-        "main": "blue",
+        "main": "grey",
         "tech": "other"
       },
       "alias": "Медуза — LIVE",
-      "issue": "main"
+      "issue": "main",
+      "badges": [
+        "sanctions"
+      ],
+      "monitor_only": true
     },
     {
       "name": "bazabazon",
       "groups": {
-        "main": "purple",
+        "main": "grey",
         "tech": "other"
       },
       "alias": "Baza",
@@ -117,7 +133,8 @@
         "tech": "other"
       },
       "alias": "Реальная Война",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "readovkanews",
@@ -126,7 +143,8 @@
         "tech": "other"
       },
       "alias": "Readovka",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "lentachold",
@@ -135,7 +153,8 @@
         "tech": "other"
       },
       "alias": "Лентач",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "rt_russian",
@@ -145,16 +164,18 @@
       },
       "alias": "RT на русском",
       "issue": "main",
+      "kind": "media",
       "disabled": true
     },
     {
       "name": "petrovtel",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "other"
       },
       "alias": "КК",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "shot_shot",
@@ -163,27 +184,29 @@
         "tech": "other"
       },
       "alias": "Shot",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "ru2ch_news",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "other"
       },
       "alias": "Ньюсач/Двач",
       "issue": "main",
-      "master": "ru2ch",
+      "kind": "media",
       "disabled": true
     },
     {
       "name": "ru2ch",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "other"
       },
       "alias": "Ньюсач/Двач",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "mediazzzona",
@@ -193,7 +216,7 @@
       },
       "alias": "Медиазона",
       "issue": "main",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "novaya_europe",
@@ -203,7 +226,7 @@
       },
       "alias": "Новая газета",
       "issue": "main",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "novaya_pishet",
@@ -212,9 +235,9 @@
         "tech": "other"
       },
       "alias": "Новая газета",
-      "master": "novaya_europe",
-      "disabled": true,
-      "issue": "main"
+      "issue": "main",
+      "kind": "media",
+      "disabled": true
     },
     {
       "name": "bbcrussian",
@@ -223,16 +246,18 @@
         "tech": "other"
       },
       "alias": "BBC News | Русская служба",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "new_militarycolumnist",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "other"
       },
       "alias": "Военный обозреватель",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "stormdaily",
@@ -241,7 +266,8 @@
         "tech": "other"
       },
       "alias": "Daily Storm",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "tass_agency",
@@ -250,7 +276,8 @@
         "tech": "other"
       },
       "alias": "ТАСС",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "chtede",
@@ -259,9 +286,9 @@
         "tech": "other"
       },
       "alias": "ЧТД",
-      "master": "chtddd",
-      "disabled": true,
-      "issue": "main"
+      "issue": "main",
+      "kind": "media",
+      "disabled": true
     },
     {
       "name": "chtddd",
@@ -270,7 +297,8 @@
         "tech": "other"
       },
       "alias": "ЧТД",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "worldprotest",
@@ -279,7 +307,8 @@
         "tech": "other"
       },
       "alias": "Протесты в мире",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "sotavision",
@@ -288,9 +317,9 @@
         "tech": "other"
       },
       "alias": "SOTA",
-      "master": "sotaproject",
-      "disabled": true,
-      "issue": "main"
+      "issue": "main",
+      "kind": "media",
+      "disabled": true
     },
     {
       "name": "sotaproject",
@@ -300,16 +329,17 @@
       },
       "alias": "SOTA",
       "issue": "main",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "redakciya_channel",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "other"
       },
       "alias": "Пивоваров (Редакция)",
       "issue": "main",
+      "kind": "media",
       "disabled": true
     },
     {
@@ -320,27 +350,29 @@
       },
       "alias": "Сталингулаг",
       "issue": "main",
-      "recrawl_time": 600,
+      "kind": "media",
       "disabled": true
     },
     {
       "name": "rusanctions",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "other"
       },
       "alias": "Санкции в РФ",
       "issue": "main",
+      "kind": "media",
       "disabled": true
     },
     {
       "name": "ovsyanka",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "other"
       },
       "alias": "Овсянка, сэр!",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "solovievlive",
@@ -349,7 +381,8 @@
         "tech": "other"
       },
       "alias": "Соловьёв",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "u_now",
@@ -358,7 +391,8 @@
         "tech": "other"
       },
       "alias": "Украина Сейчас",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "truexanewsua",
@@ -367,7 +401,8 @@
         "tech": "other"
       },
       "alias": "ТРУХА",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "doxajournal",
@@ -377,7 +412,7 @@
       },
       "alias": "DOXA",
       "issue": "main",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "thevillagemsk",
@@ -387,18 +422,18 @@
       },
       "alias": "The Village",
       "issue": "main",
-      "recrawl_time": 300,
+      "kind": "media",
       "disabled": true
     },
     {
       "name": "afishadaily",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "other"
       },
       "alias": "Афиша Daily",
       "issue": "main",
-      "recrawl_time": 600
+      "kind": "media"
     },
     {
       "name": "tjournal",
@@ -408,7 +443,7 @@
       },
       "alias": "TJ",
       "issue": "main",
-      "recrawl_time": 300,
+      "kind": "media",
       "disabled": true
     },
     {
@@ -418,18 +453,19 @@
         "tech": "other"
       },
       "alias": "RadioSvoboda",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "vcnews",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "tech",
         "economy": "economy"
       },
       "alias": "VC",
       "issue": "main",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "currenttime",
@@ -438,7 +474,8 @@
         "tech": "other"
       },
       "alias": "Настоящее Время",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "ovdinfolive",
@@ -447,7 +484,8 @@
         "tech": "other"
       },
       "alias": "ОВД-Инфо LIVE",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "avtozaklive",
@@ -457,79 +495,81 @@
       },
       "alias": "Avtozak LIVE",
       "issue": "main",
+      "kind": "media",
       "disabled": true
     },
     {
       "name": "tele_eve",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "other"
       },
       "alias": "Вечерний Телеграмъ",
       "issue": "main",
-      "recrawl_time": 600
+      "kind": "media"
     },
     {
       "name": "pdmnews",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "other"
       },
       "alias": "Подъём",
       "issue": "main",
-      "recrawl_time": 600
+      "kind": "media"
     },
     {
       "name": "concertzaal",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "other",
         "entertainment": "entertainment"
       },
       "alias": "Concertzaal",
       "issue": "main",
-      "recrawl_time": 600
+      "kind": "media"
     },
     {
       "name": "taboo_news",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "other"
       },
       "alias": "TABOO",
       "issue": "main",
-      "disabled": true,
-      "recrawl_time": 600
+      "kind": "media",
+      "disabled": true
     },
     {
       "name": "rtvimain",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "other"
       },
       "alias": "RTVI",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "rtvinews",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "other"
       },
       "alias": "RTVI Новости",
-      "master": "rtvimain",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "forbesrussia",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "other",
         "economy": "economy"
       },
       "alias": "Forbes",
       "issue": "main",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "thebell_io",
@@ -540,7 +580,7 @@
       },
       "alias": "The Bell",
       "issue": "main",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "moscowtimes_ru",
@@ -549,16 +589,18 @@
         "tech": "other"
       },
       "alias": "The Moscow Times",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "moscowach",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "other"
       },
       "alias": "Москвач",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "agentstvonews",
@@ -568,16 +610,17 @@
       },
       "alias": "Агентство. Новости",
       "issue": "main",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "kommersant",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "other"
       },
       "alias": "Коммерсантъ",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "news_sirena",
@@ -586,231 +629,236 @@
         "tech": "other"
       },
       "alias": "Сирена",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "wylsared",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "tech"
       },
       "alias": "Wylsacom Red",
       "issue": "tech",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "exploitex",
       "groups": {
-        "main": "purple"
+        "main": "blue"
       },
       "alias": "Эксплойт",
       "issue": "main",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "rozetked",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "tech"
       },
       "alias": "Rozetked",
       "issue": "tech",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "andronews_official",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "tech"
       },
       "alias": "Andro News",
       "issue": "tech",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "d_code",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "tech"
       },
       "alias": "Код Дурова",
       "issue": "tech",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "neuraldvig",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "tech"
       },
       "alias": "Нейродвиж",
       "issue": "tech",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "addmeto",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "tech"
       },
       "alias": "addmeto",
       "issue": "tech",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "trendwatching24",
       "groups": {
-        "main": "purple"
+        "main": "blue"
       },
       "alias": "TrendWatching",
       "issue": "main",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "denissexy",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "tech"
       },
       "alias": "Denis Sexy IT",
       "issue": "tech",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "naebnet",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "tech"
       },
       "alias": "NN",
       "issue": "tech",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "black_triangle_tg",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "tech"
       },
       "alias": "Чёрный Треугольник",
       "issue": "tech",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "iteach_ru",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "tech"
       },
       "alias": "ITeach",
       "issue": "tech",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "habr_com_news",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "tech"
       },
       "alias": "Хабр Новости",
-      "issue": "tech"
+      "issue": "tech",
+      "kind": "media"
     },
     {
       "name": "bell_tech",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "tech"
       },
       "alias": "The Bell Tech",
       "issue": "tech",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "tbite",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "tech"
       },
       "alias": "Терабит",
-      "issue": "tech"
+      "issue": "tech",
+      "kind": "media"
     },
     {
       "name": "techcrunchru",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "tech"
       },
       "alias": "Tech Crunch",
       "issue": "tech",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "atishnik",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "tech"
       },
       "alias": "Айтишник",
-      "issue": "tech"
+      "issue": "tech",
+      "kind": "media"
     },
     {
       "name": "stells_technology",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "tech"
       },
       "alias": "Stells Technology",
       "issue": "tech",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "itrend24",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "tech"
       },
       "alias": "iTrend",
       "issue": "tech",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "popmeh",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "tech"
       },
       "alias": "Популярная механика",
       "issue": "tech",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "notboring_tech",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "tech"
       },
       "alias": "Not Boring Tech",
       "issue": "tech",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "nplusone",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "tech"
       },
       "alias": "N + 1",
       "issue": "tech",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "mountshow",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "other"
       },
       "alias": "MountShow",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "republicmag",
@@ -820,7 +868,7 @@
       },
       "alias": "Republic",
       "issue": "main",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "theinsider",
@@ -829,7 +877,8 @@
         "tech": "other"
       },
       "alias": "The Insider",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "dwglavnoe",
@@ -838,7 +887,8 @@
         "tech": "other"
       },
       "alias": "DW",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "uranews",
@@ -847,16 +897,18 @@
         "tech": "other"
       },
       "alias": "URA",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "svtvnews",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "other"
       },
       "alias": "SVTV News",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "rgrunews",
@@ -866,17 +918,18 @@
       },
       "alias": "Российская Газета",
       "issue": "main",
+      "kind": "media",
       "disabled": true
     },
     {
       "name": "consultant_plus",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "other"
       },
       "alias": "КонсультантПлюс",
       "issue": "main",
-      "recrawl_time": 600
+      "kind": "media"
     },
     {
       "name": "fanimani_official",
@@ -885,7 +938,7 @@
       },
       "alias": "Фанимани Офишиал",
       "issue": "economy",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "wonderzinemag",
@@ -895,7 +948,7 @@
       },
       "alias": "Wonderzine",
       "issue": "main",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "kojournal",
@@ -904,17 +957,17 @@
       },
       "alias": "Журнал «Компания»",
       "issue": "economy",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "frank_media",
       "groups": {
-        "main": "purple",
+        "main": "blue",
         "tech": "other"
       },
       "alias": "Frank Media",
       "issue": "main",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "newsholod",
@@ -924,7 +977,7 @@
       },
       "alias": "Холод.Новости",
       "issue": "main",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "fontankaspb",
@@ -933,7 +986,8 @@
         "tech": "other"
       },
       "alias": "Фонтанка",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "ssigny",
@@ -942,7 +996,8 @@
         "tech": "other"
       },
       "alias": "СИГНАЛ",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "astrapress",
@@ -951,7 +1006,8 @@
         "tech": "other"
       },
       "alias": "ASTRA",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "bild_russian",
@@ -960,7 +1016,8 @@
         "tech": "other"
       },
       "alias": "BILD",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "centralbank_russia",
@@ -969,7 +1026,7 @@
       },
       "alias": "Банк России",
       "issue": "economy",
-      "recrawl_time": 600
+      "kind": "media"
     },
     {
       "name": "selfinvestor",
@@ -978,7 +1035,7 @@
       },
       "alias": "Сам ты инвестор!",
       "issue": "economy",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "banksta",
@@ -987,7 +1044,7 @@
       },
       "alias": "Банкста",
       "issue": "economy",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "rusven",
@@ -996,7 +1053,7 @@
       },
       "alias": "Русский венчур",
       "issue": "economy",
-      "recrawl_time": 600
+      "kind": "media"
     },
     {
       "name": "golosameriki",
@@ -1005,7 +1062,7 @@
       },
       "alias": "Голос Америки",
       "issue": "main",
-      "recrawl_time": 300,
+      "kind": "media",
       "disabled": true
     },
     {
@@ -1015,7 +1072,7 @@
       },
       "alias": "Говорит НеМосква",
       "issue": "main",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "ru3dnews",
@@ -1024,7 +1081,7 @@
       },
       "alias": "3DNews",
       "issue": "tech",
-      "recrawl_time": 600
+      "kind": "media"
     },
     {
       "name": "tginfo",
@@ -1033,7 +1090,7 @@
       },
       "alias": "Telegram Info",
       "issue": "tech",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "papagaz",
@@ -1042,7 +1099,7 @@
       },
       "alias": "Газ-Батюшка",
       "issue": "economy",
-      "recrawl_time": 600
+      "kind": "media"
     },
     {
       "name": "economika",
@@ -1051,7 +1108,7 @@
       },
       "alias": "Экономика",
       "issue": "economy",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "investorbiz",
@@ -1060,7 +1117,7 @@
       },
       "alias": "Инвест ревью",
       "issue": "economy",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "pravdadirty",
@@ -1069,7 +1126,8 @@
         "entertainment": "entertainment"
       },
       "alias": "ВПШ",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "truekpru",
@@ -1077,65 +1135,73 @@
         "main": "red"
       },
       "alias": "Комсомольская правда",
-      "issue": "main"
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "rotondamedia",
-      "alias": "Ротонда",
       "groups": {
         "main": "blue"
       },
-      "issue": "main"
+      "alias": "Ротонда",
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "deptone",
-      "alias": "Первый отдел",
       "groups": {
         "main": "blue"
       },
-      "issue": "main"
+      "alias": "Первый отдел",
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "enews112",
+      "groups": {
+        "main": "blue"
+      },
       "alias": "112",
       "issue": "main",
-      "groups": {
-        "main": "purple"
-      }
+      "kind": "media"
     },
     {
       "name": "staraya",
-      "alias": "Старая площадь",
-      "issue": "main",
       "groups": {
         "main": "red"
-      }
+      },
+      "alias": "Старая площадь",
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "rusbrief",
+      "groups": {
+        "main": "blue"
+      },
       "alias": "BRIEF",
       "issue": "main",
-      "groups": {
-        "main": "purple"
-      },
+      "kind": "media",
       "disabled": true
     },
     {
       "name": "starhitru",
-      "alias": "Starhit.ru",
-      "issue": "main",
       "groups": {
         "main": "red",
         "entertainment": "entertainment"
-      }
+      },
+      "alias": "Starhit.ru",
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "novoeizdanie",
-      "alias": "Новое Издание",
-      "issue": "main",
       "groups": {
         "main": "blue"
-      }
+      },
+      "alias": "Новое Издание",
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "proimport",
@@ -1144,7 +1210,7 @@
       },
       "alias": "Импорт в Россию",
       "issue": "economy",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "markettwits",
@@ -1153,401 +1219,412 @@
       },
       "alias": "MarketTwits",
       "issue": "economy",
-      "recrawl_time": 300
+      "kind": "media"
     },
     {
       "name": "prime1",
+      "groups": {
+        "main": "blue"
+      },
       "alias": "ПРАЙМ",
       "issue": "main",
-      "groups": {
-        "main": "purple"
-      }
+      "kind": "media"
     },
     {
       "name": "svobodnieslova",
-      "alias": "Вёрстка",
-      "issue": "main",
       "groups": {
         "main": "blue"
-      }
+      },
+      "alias": "Вёрстка",
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "chestnyjdetektiv",
+      "groups": {
+        "main": "blue"
+      },
       "alias": "Честный Детектив",
       "issue": "main",
-      "groups": {
-        "main": "purple"
-      },
+      "kind": "media",
       "disabled": true
     },
     {
       "name": "aifonline",
-      "alias": "Аргументы и Факты",
-      "issue": "main",
       "groups": {
         "main": "red"
-      }
+      },
+      "alias": "Аргументы и Факты",
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "news_see",
-      "alias": "NEWS_SEE_",
-      "issue": "main",
       "groups": {
         "main": "red"
-      }
+      },
+      "alias": "NEWS_SEE_",
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "moscowmap",
-      "alias": "Новости Москвы",
-      "issue": "moscow",
       "groups": {
         "moscow": "moscow"
-      }
+      },
+      "alias": "Новости Москвы",
+      "issue": "moscow",
+      "kind": "media"
     },
     {
       "name": "moscowach",
-      "alias": "Москвач",
-      "issue": "moscow",
       "groups": {
         "moscow": "moscow"
-      }
+      },
+      "alias": "Москвач",
+      "issue": "moscow",
+      "kind": "media"
     },
     {
       "name": "msk_live",
-      "alias": "Москва Live",
-      "issue": "moscow",
       "groups": {
         "moscow": "moscow"
-      }
+      },
+      "alias": "Москва Live",
+      "issue": "moscow",
+      "kind": "media"
     },
     {
       "name": "mosguru",
-      "alias": "Первый Московский",
-      "issue": "moscow",
       "groups": {
         "moscow": "moscow"
-      }
+      },
+      "alias": "Первый Московский",
+      "issue": "moscow",
+      "kind": "media"
     },
     {
       "name": "mskmolnia",
-      "alias": "Молния / Новости Москвы",
-      "issue": "moscow",
       "groups": {
         "moscow": "moscow"
-      }
+      },
+      "alias": "Молния / Новости Москвы",
+      "issue": "moscow",
+      "kind": "media"
     },
     {
       "name": "infomoscow24",
-      "alias": "Москва 24",
-      "issue": "moscow",
       "groups": {
         "moscow": "moscow",
         "main": "red"
-      }
+      },
+      "alias": "Москва 24",
+      "issue": "moscow",
+      "kind": "media"
     },
     {
       "name": "mosnow",
-      "alias": "Москва сейчас",
-      "issue": "moscow",
       "groups": {
         "moscow": "moscow"
-      }
+      },
+      "alias": "Москва сейчас",
+      "issue": "moscow",
+      "kind": "media"
     },
     {
       "name": "mskonline24",
-      "alias": "Москва онлайн",
-      "issue": "moscow",
       "groups": {
         "moscow": "moscow"
-      }
+      },
+      "alias": "Москва онлайн",
+      "issue": "moscow",
+      "kind": "media"
     },
     {
       "name": "moscowtop",
-      "alias": "Москва с огоньком",
-      "issue": "moscow",
       "groups": {
         "moscow": "moscow"
-      }
+      },
+      "alias": "Москва с огоньком",
+      "issue": "moscow",
+      "kind": "media"
     },
     {
       "name": "moskvir",
-      "alias": "Новости Москвы",
-      "issue": "moscow",
       "groups": {
         "moscow": "moscow"
-      }
+      },
+      "alias": "Новости Москвы",
+      "issue": "moscow",
+      "kind": "media"
     },
     {
       "name": "mnews_ru",
-      "alias": "Московские новости",
-      "issue": "moscow",
       "groups": {
         "moscow": "moscow"
-      }
+      },
+      "alias": "Московские новости",
+      "issue": "moscow",
+      "kind": "media"
     },
     {
       "name": "actualmck",
-      "alias": "Актуальная Москва",
-      "issue": "moscow",
       "groups": {
         "moscow": "moscow"
-      }
+      },
+      "alias": "Актуальная Москва",
+      "issue": "moscow",
+      "kind": "media"
     },
     {
       "name": "MoscowDigest",
-      "alias": "Moscow Digest",
-      "issue": "moscow",
       "groups": {
         "moscow": "moscow"
-      }
+      },
+      "alias": "Moscow Digest",
+      "issue": "moscow",
+      "kind": "media"
     },
     {
       "name": "vmoskvanews",
-      "alias": "Вечерняя Москва",
-      "issue": "moscow",
       "groups": {
         "moscow": "moscow",
         "main": "red"
-      }
+      },
+      "alias": "Вечерняя Москва",
+      "issue": "moscow",
+      "kind": "media"
     },
     {
       "name": "mosrutop",
-      "alias": "Город Москва",
-      "issue": "moscow",
       "groups": {
         "moscow": "moscow",
         "main": "red"
-      }
+      },
+      "alias": "Город Москва",
+      "issue": "moscow",
+      "kind": "media"
     },
     {
       "name": "moskwa_life",
-      "alias": "Москва Life",
-      "issue": "moscow",
       "groups": {
         "moscow": "moscow",
         "main": "red"
-      }
+      },
+      "alias": "Москва Life",
+      "issue": "moscow",
+      "kind": "media"
     },
     {
       "name": "moslentaru",
-      "alias": "Мослента",
-      "issue": "moscow",
       "groups": {
         "moscow": "moscow"
-      }
+      },
+      "alias": "Мослента",
+      "issue": "moscow",
+      "kind": "media"
     },
     {
       "name": "riamo_ru",
-      "alias": "РИАМО",
-      "issue": "moscow",
       "groups": {
         "moscow": "moscow",
         "main": "red"
-      }
+      },
+      "alias": "РИАМО",
+      "issue": "moscow",
+      "kind": "media"
     },
     {
       "name": "pyaroshnaya",
-      "alias": "Пиарошная",
-      "issue": "tech",
       "groups": {
         "tech": "tech"
       },
-      "recrawl_time": 600
+      "alias": "Пиарошная",
+      "issue": "tech",
+      "kind": "media"
     },
     {
       "name": "kinopoisk_soon",
-      "alias": "Кинопоиск",
-      "issue": "entertainment",
       "groups": {
         "entertainment": "entertainment"
       },
-      "recrawl_time": 600
+      "alias": "Кинопоиск",
+      "issue": "entertainment",
+      "kind": "media"
     },
     {
       "name": "cherevatstreams",
-      "alias": "CherevatBlog",
-      "issue": "entertainment",
       "groups": {
         "entertainment": "entertainment"
       },
-      "recrawl_time": 600
+      "alias": "CherevatBlog",
+      "issue": "entertainment",
+      "kind": "media"
     },
     {
       "name": "cronenberg1664",
-      "alias": "Кроненберг нефильтрованный",
-      "issue": "entertainment",
       "groups": {
         "entertainment": "entertainment"
       },
-      "recrawl_time": 600
+      "alias": "Кроненберг нефильтрованный",
+      "issue": "entertainment",
+      "kind": "media"
     },
     {
       "name": "filmru",
-      "alias": "Film.ru",
-      "issue": "entertainment",
       "groups": {
         "entertainment": "entertainment"
       },
-      "recrawl_time": 600
+      "alias": "Film.ru",
+      "issue": "entertainment",
+      "kind": "media"
     },
     {
       "name": "filmzru",
-      "alias": "FILMZ.RU: Настоящее кино",
-      "issue": "entertainment",
       "groups": {
         "entertainment": "entertainment"
       },
-      "recrawl_time": 600
+      "alias": "FILMZ.RU: Настоящее кино",
+      "issue": "entertainment",
+      "kind": "media"
     },
     {
       "name": "rhsnews",
-      "alias": "RHS News",
-      "issue": "entertainment",
       "groups": {
         "entertainment": "entertainment"
       },
-      "recrawl_time": 600
+      "alias": "RHS News",
+      "issue": "entertainment",
+      "kind": "media"
     },
     {
       "name": "kosti",
-      "alias": "KOSTI",
-      "issue": "entertainment",
       "groups": {
         "entertainment": "entertainment"
       },
-      "recrawl_time": 600
+      "alias": "KOSTI",
+      "issue": "entertainment",
+      "kind": "media"
     },
     {
       "name": "badmads",
-      "alias": "MADS",
-      "issue": "entertainment",
       "groups": {
         "entertainment": "entertainment"
       },
-      "recrawl_time": 600
+      "alias": "MADS",
+      "issue": "entertainment",
+      "kind": "media"
     },
     {
       "name": "superru",
-      "alias": "Super.ru",
-      "issue": "entertainment",
       "groups": {
         "entertainment": "entertainment"
       },
-      "recrawl_time": 600
+      "alias": "Super.ru",
+      "issue": "entertainment",
+      "kind": "media"
     },
     {
       "name": "ebobo_rus",
-      "alias": "ebobo",
-      "issue": "entertainment",
       "groups": {
         "entertainment": "entertainment"
       },
-      "recrawl_time": 600
+      "alias": "ebobo",
+      "issue": "entertainment",
+      "kind": "media"
     },
     {
       "name": "novostishowbiz",
-      "alias": "Новости Шоу-Бизнеса",
-      "issue": "entertainment",
       "groups": {
         "entertainment": "entertainment"
       },
-      "recrawl_time": 600
+      "alias": "Новости Шоу-Бизнеса",
+      "issue": "entertainment",
+      "kind": "media"
     },
     {
       "name": "kontext_channel",
+      "groups": {
+        "main": "blue"
+      },
       "alias": "Контекст",
       "issue": "main",
-      "groups": {
-        "main": "purple"
-      }
+      "kind": "media"
     },
     {
       "name": "groza_media",
-      "alias": "Гроза",
-      "issue": "main",
       "groups": {
         "main": "blue"
-      }
+      },
+      "alias": "Гроза",
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "tvrain",
-      "alias": "Дождь",
-      "issue": "main",
       "groups": {
         "main": "blue"
-      }
+      },
+      "alias": "Дождь",
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "bankrollo",
-      "alias": "Банки, деньги, два офшора",
-      "issue": "main",
       "groups": {
         "main": "red",
         "economy": "economy"
-      }
+      },
+      "alias": "Банки, деньги, два офшора",
+      "issue": "main",
+      "kind": "media"
     },
     {
       "name": "banki_oil",
+      "groups": {
+        "main": "blue",
+        "economy": "economy"
+      },
       "alias": "Баррель черной икры",
       "issue": "main",
-      "groups": {
-        "main": "purple",
-        "economy": "economy"
-      }
+      "kind": "media"
     },
     {
       "name": "gnews_ru",
+      "groups": {
+        "main": "blue"
+      },
       "alias": "GNews",
       "issue": "main",
-      "groups": {
-        "main": "purple"
-      },
-      "recrawl_time": 600,
+      "kind": "media",
       "disabled": true
     },
     {
       "name": "oninvest_media",
-      "alias": "Oninvest",
-      "issue": "economy",
       "groups": {
         "economy": "economy"
       },
-      "recrawl_time": 300
+      "alias": "Oninvest",
+      "issue": "economy",
+      "kind": "media"
     }
   ],
   "emojis": {
-    "red": "🇷🇺",
-    "blue": "🌎",
-    "purple": "⚖️",
-    "tech": "💻",
-    "economy": "💰",
-    "other": "📰",
-    "moscow": "🌆",
-    "entertainment": "🎭"
+    "red": "🏛",
+    "blue": "📰",
+    "grey": "🎭"
   },
   "group_names": {
     "red": "Офіційні",
-    "blue": "Новинні",
-    "purple": "Перевірені медіа",
-    "tech": "Технології",
-    "economy": "Економіка",
-    "other": "Інші"
+    "blue": "Медіа та автори",
+    "grey": "Анонімні"
   },
   "colors": {
-    "red": "🟥",
-    "blue": "🟦",
-    "purple": "🟪",
-    "tech": "⬛",
-    "economy": "🟨",
-    "other": "⬜",
-    "moscow": "⬜",
-    "entertainment": "🟩"
+    "red": "#FF0000",
+    "blue": "#0000FF",
+    "grey": "#808080"
   },
   "default_groups": {
-    "main": "purple",
-    "tech": "other",
-    "economy": "other",
-    "moscow": "other",
-    "entertainment": "other"
+    "main": "blue"
   }
 }

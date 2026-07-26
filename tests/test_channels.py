@@ -1,7 +1,12 @@
 import json
 from typing import Any
 
-from nyan.channels import DEFAULT_GROUP_EMOJIS, DEFAULT_GROUP_NAMES, Channels
+from nyan.channels import (
+    DEFAULT_GROUP_EMOJIS,
+    DEFAULT_GROUP_NAMES,
+    Channels,
+    normalize_group,
+)
 
 
 def write_channels(tmp_path: Any, config: dict[str, Any]) -> str:
@@ -46,11 +51,11 @@ def test_an_unknown_group_falls_back_to_its_key(tmp_path: Any) -> None:
 
 
 def test_default_groups_fill_in_missing_issues(tmp_path: Any) -> None:
-    config = dict(MINIMAL, default_groups={"war": "purple"})
+    config = dict(MINIMAL, default_groups={"war": "red"})
 
     channels = Channels(write_channels(tmp_path, config))
 
-    assert channels["uanews"].groups == {"main": "blue", "war": "purple"}
+    assert channels["uanews"].groups == {"main": "blue", "war": "red"}
 
 
 def test_channels_are_found_by_any_form_of_their_id(tmp_path: Any) -> None:
@@ -100,3 +105,80 @@ def test_every_channel_is_in_the_main_feed() -> None:
     channels = Channels("channels.json")
 
     assert [name for name, channel in channels if "main" not in channel.groups] == []
+
+
+def test_a_retired_group_is_read_as_the_tier_that_replaced_it(tmp_path: Any) -> None:
+    """"purple" is gone from the file but lives on in every stored document.
+
+    `Cluster.group` and the site both read the group off a document rather than
+    off the registry, so a document written before the merge has to keep naming
+    a tier that still exists.
+    """
+    config = dict(MINIMAL, channels=[{**MINIMAL["channels"][0], "groups": {"main": "purple"}}])
+
+    channels = Channels(write_channels(tmp_path, config))
+
+    assert normalize_group("purple") == "blue"
+    assert channels["uanews"].groups == {"main": "blue"}
+    assert channels.group_title("purple") == DEFAULT_GROUP_NAMES["blue"]
+
+
+def test_marks_name_the_author_then_the_registers(tmp_path: Any) -> None:
+    """Kind first, badges after: a reader asks who is speaking before asking
+    what an outside body recorded about them."""
+    config = dict(
+        MINIMAL,
+        channels=[
+            {
+                "name": "someone",
+                "groups": {"main": "blue"},
+                "issue": "main",
+                "kind": "person",
+                "badges": ["imi_white"],
+            }
+        ],
+    )
+
+    channels = Channels(write_channels(tmp_path, config))
+
+    assert channels.marks("someone") == "👤⚪"
+
+
+def test_media_is_the_unmarked_default(tmp_path: Any) -> None:
+    """A marker on most rows is not a marker.
+
+    Most channels are newsrooms, so only the departures from that get a glyph.
+    """
+    config = dict(
+        MINIMAL,
+        channels=[{"name": "outlet", "groups": {"main": "blue"}, "issue": "main", "kind": "media"}],
+    )
+
+    channels = Channels(write_channels(tmp_path, config))
+
+    assert channels.marks("outlet") == ""
+
+
+def test_an_anonymous_channel_claims_no_kind() -> None:
+    """Not knowing who is behind a channel is what puts it in the grey tier, so
+    asserting a kind for one would contradict the tier it is in."""
+    channels = Channels("channels.json")
+
+    disagreeing = [
+        name
+        for name, channel in channels
+        if (channel.kind is None) != (channel.groups["main"] == "grey")
+    ]
+    assert not disagreeing
+
+
+def test_only_registers_we_can_link_to_are_badges() -> None:
+    """A badge exists to attribute a claim to somebody else, which it cannot do
+    without a public URL for the register behind it."""
+    channels = Channels("channels.json")
+
+    used = {badge for _, channel in channels for badge in channel.badges}
+    assert used, "No channel carries a badge"
+    for badge in sorted(used):
+        assert channels.badge_title(badge) != badge, badge
+        assert channels.badge_url(badge).startswith("https://"), badge

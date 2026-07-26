@@ -11,11 +11,13 @@ from nyan.document import Document
 from nyan.renderer import Renderer, pluralize_sources
 from tests.conftest import get_renderer_config_path
 
-# Channels present in tests/channels.json, one per trust group of the "main"
-# issue, so the rendered breakdown has something to group by.
+# Channels present in tests/channels.json, one per accountability tier of the
+# "main" issue, so the rendered breakdown has something to group by.
 OFFICIAL = "rian_ru"
 VERIFIED = "rbc_news"
 AGGREGATOR = "nexta_live"
+# Crawled so that whether it carried a story can be counted, never printed.
+MONITORED = "meduzalive"
 
 
 def make_doc(
@@ -573,8 +575,8 @@ def test_sources_are_collapsed_but_group_titles_are_readable(
     details = find(post.blocks, "details")
     assert "is_open" not in details
     listing = flatten_text(details["blocks"][0])
-    assert "Перевірені медіа" in listing
-    assert "Новинні" in listing
+    assert "Медіа та автори" in listing
+    assert "Анонімні" in listing
 
 
 def test_provenance_lives_inside_the_disclosure(renderer: Renderer) -> None:

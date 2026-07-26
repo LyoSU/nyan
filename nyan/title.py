@@ -37,10 +37,38 @@ def filter_fresh(doc: Document) -> bool:
     return abs(doc.fetch_time - doc.pub_time) < MAX_FETCH_DELAY_SECONDS
 
 
-def filter_purple(doc: Document) -> bool:
+def filter_quotable(doc: Document) -> bool:
+    """Rejects channels we monitor but will not republish.
+
+    A hard filter, unlike the two below: the winning document supplies the words
+    of the post, so a sanctioned channel passing here would put us in the
+    business of forwarding it to our own readers.
+    """
+    return not doc.monitor_only
+
+
+def filter_named(doc: Document) -> bool:
+    """Rejects anonymous channels.
+
+    The post is written in the words of whichever document wins here, so an
+    anonymous aggregator should never supply them while a channel with a known
+    owner is in the cluster. A soft filter, so a story only anonymous channels
+    carried still gets a title rather than none.
+    """
     if not doc.groups:
         return False
-    return doc.groups.get("main") == "purple"
+    return doc.groups.get("main") != "grey"
+
+
+def filter_imi_white(doc: Document) -> bool:
+    """Prefers a newsroom in ІМІ's Білий список.
+
+    This replaced a preference for the retired "purple" tier, which encoded our
+    own opinion of which newsrooms were good. The register is published, has a
+    methodology and is revised twice a year, so preferring it is a claim we can
+    attribute to somebody.
+    """
+    return "imi_white" in doc.badges
 
 
 def make_issue_filter(issue: str) -> DocumentFilter:
@@ -61,6 +89,7 @@ def choose_title(docs: list[Document], issues: list[str]) -> Document:
         avg_distances[normalize_url(doc1.url)] = mean(distances)
 
     hard_filters: tuple[DocumentFilter, ...] = (
+        filter_quotable,
         filter_uk_only,
         filter_not_obscene,
         filter_fresh,
@@ -81,10 +110,14 @@ def choose_title(docs: list[Document], issues: list[str]) -> Document:
         if issue != "main" and issue in docs[0].groups
     ]
 
+    # Ordered least to most selective: each one only applies if it leaves at
+    # least two candidates, so the last to survive is the narrowest that still
+    # had a choice to make.
     soft_filters: list[DocumentFilter] = [
         filter_not_long,
         *issue_filters,
-        filter_purple,
+        filter_named,
+        filter_imi_white,
     ]
 
     for flt in soft_filters:

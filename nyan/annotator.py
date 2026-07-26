@@ -167,6 +167,8 @@ class Annotator:
 
         channel_info = self.channels[channel_id]
         doc.groups = channel_info.groups
+        doc.badges = list(channel_info.badges)
+        doc.monitor_only = channel_info.monitor_only
         doc.issue = channel_info.issue
 
         channel_alias = channel_info.alias

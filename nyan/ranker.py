@@ -13,8 +13,13 @@ MIN_CLUSTERS_TO_FILTER = 3
 # Clusters kept per issue, taken from the most recent end.
 MAX_CLUSTERS_PER_ISSUE = 10
 
-# Trust groups whose view counts are balanced against each other in the main
-# feed, so a single loud group cannot set the bar for everyone.
+# Accountability tiers whose view counts are balanced against each other in the
+# main feed, so a single loud tier cannot set the bar for everyone.
+#
+# "grey" is deliberately absent. The anonymous channels are the largest audience
+# in the roster — seven of them clear a million subscribers — so balancing them
+# against newsrooms would let their reach set the threshold every newsroom then
+# has to clear. They are here to be measured, not to decide what gets published.
 BALANCED_GROUPS = ("blue", "red")
 
 # Where a cluster goes when it belongs to no configured issue. Every channel is

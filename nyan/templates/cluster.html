@@ -4,6 +4,6 @@
 {% endif %}
 👁️{{views}}
 {% for group, sources in groups %}
-{{-emojis[group]-}}{%- for source in sources %}<a href="{{source.url}}">{{source.channel_title}}</a>{% if not loop.last %} • {% endif %}{% endfor %}
+{{-emojis[group]-}}{%- for source in sources %}<a href="{{source.url}}">{{source.channel_title}}</a>{% if marks.get(source.channel_id) %} {{marks[source.channel_id]}}{% endif %}{% if not loop.last %} • {% endif %}{% endfor %}
 {% endfor %}
 ⏱<a href="{{first_doc.url}}">{{first_doc.channel_title}}</a>, {{first_doc.pub_time_dt.strftime("%H:%M")}}

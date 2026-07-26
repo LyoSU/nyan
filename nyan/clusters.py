@@ -15,6 +15,7 @@ import numpy as np
 from numpy.typing import NDArray
 from jinja2 import Template
 
+from nyan.channels import normalize_group
 from nyan.client import MessageId
 from nyan.document import Document, crop_words
 from nyan.mongo import get_clusters_collection
@@ -50,6 +51,11 @@ MAX_PROMPT_DOCS = 12
 
 # Channels whose word is treated as confirmation rather than as one more report.
 OFFICIAL_GROUP = "red"
+
+# `Cluster.group` for a story more than one tier carried. Not a tier a channel
+# can belong to, and deliberately absent from the ranker's BALANCED_GROUPS:
+# balancing reach between tiers only makes sense for clusters that sit in one.
+MIXED_GROUP = "mixed"
 
 # ML categories that have a feed of their own, so a story classified as one of
 # them is routed there instead of into the main feed. Only the categories a
@@ -161,8 +167,19 @@ class Cluster:
         return max(times)
 
     @property
+    def quotable_docs(self) -> list[Document]:
+        """Documents from channels the digest is willing to credit.
+
+        A sanctioned channel is crawled so that whether it carried a story can
+        be measured, but it must not push a story into the feed on the strength
+        of its own million subscribers, nor have its reach counted as the
+        story's. The site still shows it: there, being a source is the finding.
+        """
+        return [doc for doc in self.docs if not doc.monitor_only]
+
+    @property
     def views(self) -> int:
-        return sum([doc.views for doc in self.docs])
+        return sum([doc.views for doc in self.quotable_docs])
 
     @property
     def debiased_views(self) -> int:
@@ -428,7 +445,7 @@ class Cluster:
 
     @property
     def unique_docs(self) -> list[Document]:
-        return [doc for doc in self.docs if not doc.forward_from]
+        return [doc for doc in self.quotable_docs if not doc.forward_from]
 
     @property
     def external_links(self) -> CounterT[str]:
@@ -446,25 +463,23 @@ class Cluster:
 
     @property
     def group(self) -> str:
-        groups = [
-            doc.groups["main"]
-            for doc in self.docs
+        """One accountability tier for the whole cluster, for view balancing.
+
+        The ranker equalizes reach between tiers, so a cluster is filed under a
+        tier only when that tier carried it alone — a story both ministries and
+        newsrooms covered belongs to neither side of that comparison and goes to
+        MIXED_GROUP, which sits out the balancing. This is what the retired
+        "purple" return value used to mean here; it is named now because it was
+        never a tier a channel could be in.
+        """
+        groups = {
+            normalize_group(doc.groups["main"])
+            for doc in self.quotable_docs
             if doc.groups and doc.groups.get("main")
-        ]
-        if not groups:
-            return "purple"
-
-        groups_count = Counter(groups)
-
-        all_count = len(groups)
-        blue_part = groups_count.get("blue", 0) / all_count
-        red_part = groups_count.get("red", 0) / all_count
-
-        if blue_part == 0.0 and red_part > 0.5:
-            return "red"
-        if red_part == 0.0 and blue_part > 0.5:
-            return "blue"
-        return "purple"
+        }
+        if len(groups) != 1:
+            return MIXED_GROUP
+        return groups.pop()
 
     @property
     def issues(self) -> list[str]:

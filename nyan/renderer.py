@@ -10,13 +10,13 @@ from jinja2 import Environment, FileSystemLoader
 
 from nyan import rich
 from nyan import summary as nyan_summary
-from nyan.channels import Channels
+from nyan.channels import GROUP_ORDER, Channels
 from nyan.clusters import Cluster
 from nyan.document import Document
 from nyan.markup import link_emphasis, parse_markup
-from nyan.rich import Block, RenderedPost
+from nyan.rich import Block, RenderedPost, RichText
 from nyan.summary import Summary
-from nyan.util import DEFAULT_TIMEZONE, ts_to_dt
+from nyan.util import DEFAULT_TIMEZONE, normalize_channel_id, ts_to_dt
 
 
 # Used to derive a headline from the text itself when the LLM did not supply
@@ -43,6 +43,13 @@ DEFAULT_HEADLINE_SIZE = 3
 # An em dash, the way print attributes a passage to its author. Not a hyphen:
 # "- Укрінформ" reads as a bullet point, which is the wrong signal entirely.
 CREDIT_DASH = "—"
+
+# The tier whose share of a story's coverage is worth stating outright.
+ANONYMOUS_GROUP = "grey"
+
+# Below this many sources the share is noise: "з 2 джерел 1 — анонімний" tells a
+# reader nothing they cannot see by reading the two names above it.
+MIN_SOURCES_FOR_COMPOSITION = 4
 
 MIN_HEADING_SIZE = 1
 MAX_HEADING_SIZE = 6
@@ -173,6 +180,11 @@ class Renderer:
                 )
                 continue
             channel = self.channels[doc.channel_id]
+            # A channel we watch but do not republish. It stays in the cluster so
+            # the site can report that it carried the story; naming it here would
+            # be handing it our readers.
+            if channel.monitor_only:
+                continue
             # Skip documents from channels that don't have this issue configured
             if issue_name not in channel.groups:
                 logging.warning(
@@ -195,9 +207,15 @@ class Renderer:
                 filtered_group.append(doc)
             groups[group_name] = filtered_group
 
+        # Explicit tier order, not alphabetical. Sorting by the group key put
+        # "grey" between "blue" and "red", so the reader met the anonymous
+        # channels in the middle of the list instead of at the end of a scale.
         return sorted(
             ((name, docs) for name, docs in groups.items() if docs),
-            key=lambda x: x[0],
+            key=lambda x: (
+                GROUP_ORDER.index(x[0]) if x[0] in GROUP_ORDER else len(GROUP_ORDER),
+                x[0],
+            ),
         )
 
     # ------------------------------------------------------------------ rich
@@ -332,12 +350,18 @@ class Renderer:
             emoji = self.channels.group_emoji(group)
             total += len(docs)
             title = f"{emoji} {self.channels.group_title(group)}".strip()
-            channels = rich.join(
-                [rich.link(doc.channel_title or doc.channel_id, doc.url) for doc in docs]
-            )
+            channels = rich.join([self.render_source(doc) for doc in docs])
             items.append([rich.paragraph(rich.bold(title)), rich.paragraph(channels)])
 
         blocks: list[Block] = [rich.bullet_list(*items)]
+
+        composition = self.render_composition(groups, total)
+        if composition:
+            blocks.append(composition)
+
+        legend = self.render_marks_legend(groups)
+        if legend:
+            blocks.append(legend)
 
         provenance = self.render_provenance(cluster)
         if provenance:
@@ -346,6 +370,68 @@ class Renderer:
 
         summary = f"{total} {pluralize_sources(total)}"
         return rich.details(summary, *blocks, is_open=self.sources_open)
+
+    def render_source(self, doc: Document) -> RichText:
+        """A channel's name, then the glyphs that say what kind of channel it is.
+
+        The link keeps the name alone: a marker inside the link text reads as
+        part of the outlet's title, which is exactly what it is not.
+        """
+        link = rich.link(doc.channel_title or doc.channel_id, doc.url)
+        marks = self.channels.marks(doc.channel_id)
+        return rich.join([link, marks], " ") if marks else link
+
+    def render_composition(
+        self, groups: list[tuple[str, list[Document]]], total: int
+    ) -> Block | None:
+        """How much of this story's coverage came from anonymous channels.
+
+        The one number in the post that no source can report about itself, and
+        the reason the anonymous tier exists at all: a reader who sees that nine
+        of twelve sources will not say who owns them knows something about the
+        story that no amount of reading the story would tell them.
+        """
+        anonymous = sum(len(docs) for group, docs in groups if group == ANONYMOUS_GROUP)
+        if not anonymous or total < MIN_SOURCES_FOR_COMPOSITION:
+            return None
+        return rich.paragraph(
+            f"З {total} {pluralize_sources(total)} {anonymous} — "
+            f"{'анонімний канал' if anonymous == 1 else 'анонімні канали'}."
+        )
+
+    def render_marks_legend(
+        self, groups: list[tuple[str, list[Document]]]
+    ) -> Block | None:
+        """Names only the glyphs this post actually used.
+
+        A fixed legend of every possible marker is longer than the source list it
+        explains, and after two posts a reader stops reading it. Listing what is
+        on screen keeps it to a line or two.
+        """
+        kinds: list[str] = []
+        badges: list[str] = []
+        for _, docs in groups:
+            for doc in docs:
+                channel = self.channels.channels.get(normalize_channel_id(doc.channel_id))
+                if channel is None:
+                    continue
+                if channel.kind and self.channels.kind_emoji(channel.kind):
+                    kinds.append(channel.kind)
+                badges.extend(channel.badges)
+
+        # Kinds before badges, and not in the order the sources happened to fall:
+        # the two answer different questions, and interleaving them made the line
+        # read as one undifferentiated row of symbols.
+        parts = [
+            f"{self.channels.kind_emoji(kind)} {self.channels.kind_title(kind)}"
+            for kind in dict.fromkeys(kinds)
+        ] + [
+            f"{self.channels.badge_emoji(badge)} {self.channels.badge_title(badge)}"
+            for badge in dict.fromkeys(badges)
+        ]
+        if not parts:
+            return None
+        return rich.paragraph(rich.italic(" · ".join(parts)))
 
     def render_provenance(self, cluster: Cluster) -> list[Block]:
         """Who published first and where the story probably originated.
@@ -412,6 +498,11 @@ class Renderer:
         the simple thing it was — one channel's text, quoted.
         """
         emojis = {group: self.channels.group_emoji(group) for group, _ in groups}
+        marks = {
+            doc.channel_id: self.channels.marks(doc.channel_id)
+            for _, docs in groups
+            for doc in docs
+        }
         first_doc = copy.deepcopy(cluster.first_doc)
         first_doc.pub_time_dt = ts_to_dt(first_doc.pub_time, self.tz_name)
 
@@ -420,6 +511,7 @@ class Renderer:
             first_doc=first_doc,
             groups=groups,
             emojis=emojis,
+            marks=marks,
             views=self.views_to_str(cluster.views),
             is_important=cluster.is_important,
             external_link=self.find_external_link(cluster),
