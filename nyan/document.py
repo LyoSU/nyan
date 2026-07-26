@@ -7,6 +7,7 @@ from datetime import datetime
 from pymongo import ReplaceOne
 from tqdm import tqdm
 
+from nyan.channels import Channels
 from nyan.mongo import get_documents_collection, get_annotated_documents_collection
 from nyan.util import Serializable, gen_batch, normalize_url
 
@@ -61,9 +62,22 @@ class Document(Serializable):
 
     version: int = CURRENT_VERSION
 
-    def is_reannotation_needed(self, new_doc: "Document") -> bool:
+    def is_reannotation_needed(
+        self, new_doc: "Document", is_known_channel: bool = False
+    ) -> bool:
         assert normalize_url(new_doc.url) == normalize_url(self.url)
         if self.version != CURRENT_VERSION:
+            return True
+        # An annotation of a configured channel that carries no channel data was
+        # written while the channel list was unreachable. Neither the version nor
+        # the text betrays it, so without this check the document keeps its empty
+        # issue forever and `is_discarded()` drops it from every feed — which is
+        # what happened to several hundred documents on 2026-07-25.
+        #
+        # Only for channels that are configured now: for a channel absent from
+        # channels.json the empty annotation is the correct answer, and asking
+        # for it again would recompute an embedding every iteration to no end.
+        if is_known_channel and (self.issue is None or not self.groups):
             return True
         return new_doc.text != self.text
 
@@ -113,13 +127,17 @@ def read_documents_mongo(
 
 
 def read_annotated_documents_mongo(
-    mongo_config_path: str, docs: list[Document]
+    mongo_config_path: str, docs: list[Document], channels: "Channels | None" = None
 ) -> tuple[list[Document], list[Document]]:
     """Split `docs` into those already annotated in Mongo and those still to do.
 
     Documents are fetched in batches rather than one query per document: a day
     of crawling is thousands of documents, and a round trip each turns this into
     the slowest step of the iteration.
+
+    `channels` lets a stored annotation be recognized as damaged: one that has
+    no issue although its channel is configured has to be redone. Without it the
+    check cannot tell that case apart from a channel nobody configured.
     """
     collection = get_annotated_documents_collection(mongo_config_path)
 
@@ -139,7 +157,10 @@ def read_annotated_documents_mongo(
             continue
 
         annotated_doc_loaded: Document = Document.fromdict(annotated_doc)
-        if annotated_doc_loaded.is_reannotation_needed(doc):
+        is_known_channel = channels is not None and doc.channel_id in channels
+        if annotated_doc_loaded.is_reannotation_needed(
+            doc, is_known_channel=is_known_channel
+        ):
             remaining_docs.append(doc)
             continue
 

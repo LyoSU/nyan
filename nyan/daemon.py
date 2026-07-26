@@ -171,7 +171,7 @@ class Daemon:
         remaining_docs = docs
         if mongo_config_path:
             all_annotated_docs, remaining_docs = read_annotated_documents_mongo(
-                mongo_config_path, docs
+                mongo_config_path, docs, self.channels
             )
             logging.info(
                 "%d docs already annotated, %d docs to annotate",
