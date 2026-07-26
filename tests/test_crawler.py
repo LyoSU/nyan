@@ -14,21 +14,55 @@ import pytest
 from scrapy.exceptions import DropItem
 from scrapy.http import HtmlResponse, Request
 
-from crawler.pipelines import JsonlPipeline, MongoPipeline, as_record
+from crawler.pipelines import (
+    ChannelStatsPipeline,
+    JsonlPipeline,
+    MongoPipeline,
+    as_record,
+)
 from crawler.spiders.telegram import (
+    CHANNEL_STATS_KIND,
     DEFAULT_RECRAWL_TIME,
     TelegramSpider,
     get_current_ts,
     parse_post_url,
+    process_counter,
     process_views,
     to_timestamp,
 )
 
 
-# A cut-down copy of the structure t.me/s/<channel> serves: one post with text,
-# a photo, a view count and a timestamp.
-CHANNEL_HTML = """
-<body><main><div><section class="tgme_channel_history"><div>
+def as_datetime_attr(ts: int) -> str:
+    return datetime.fromtimestamp(ts, UTC).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+
+
+# Anchored to the moment the suite runs, not to a calendar date.
+#
+# These used to be literal 2026-07-25 timestamps, which made the paging test a
+# time bomb: the spider's window is the last 24 hours counted from now, so the
+# day after that date the fixture posts fell outside it, the spider correctly
+# stopped paging, and the test that checks paging happens began to fail with no
+# change to the crawler at all.
+POST_TIMES = tuple(get_current_ts() - hours * 3600 for hours in (1, 2, 3))
+
+# A cut-down copy of the structure t.me/s/<channel> serves: the channel header
+# with its counters, then posts with text, a photo, a view count and a time.
+CHANNEL_HTML = f"""
+<body><main><div>
+<div class="tgme_channel_info">
+  <div class="tgme_channel_info_header">
+    <div class="tgme_channel_info_header_title"><span dir="auto">UA News</span></div>
+  </div>
+  <div class="tgme_channel_info_counters">
+    <div class="tgme_channel_info_counter">
+      <span class="counter_value">713K</span> <span class="counter_type">subscribers</span>
+    </div>
+    <div class="tgme_channel_info_counter">
+      <span class="counter_value">108K</span> <span class="counter_type">photos</span>
+    </div>
+  </div>
+</div>
+<section class="tgme_channel_history"><div>
   <div class="tgme_widget_message" data-post="uanews/100">
     <div class="tgme_widget_message_bubble">
       <div class="tgme_widget_message_text">
@@ -39,7 +73,7 @@ CHANNEL_HTML = """
       <a class="tgme_widget_message_photo_wrap"
          style="background-image:url('https://cdn.telesco.pe/a.jpg');width:50px"></a>
       <span class="tgme_widget_message_views">12.5K</span>
-      <time class="time" datetime="2026-07-25T09:00:00+00:00"></time>
+      <time class="time" datetime="{as_datetime_attr(POST_TIMES[0])}"></time>
     </div>
   </div>
   <div class="tgme_widget_message" data-post="uanews/101">
@@ -49,13 +83,13 @@ CHANNEL_HTML = """
       </div>
       <video class="tgme_widget_message_video" src="https://cdn.telesco.pe/v.mp4"></video>
       <span class="tgme_widget_message_views">900</span>
-      <time class="time" datetime="2026-07-25T08:00:00+00:00"></time>
+      <time class="time" datetime="{as_datetime_attr(POST_TIMES[1])}"></time>
     </div>
   </div>
   <div class="tgme_widget_message" data-post="uanews/102">
     <div class="tgme_widget_message_bubble">
       <div class="tgme_widget_message_text">Пост без переглядів (службовий)</div>
-      <time class="time" datetime="2026-07-25T07:00:00+00:00"></time>
+      <time class="time" datetime="{as_datetime_attr(POST_TIMES[2])}"></time>
     </div>
   </div>
 </div></section></div></main></body>
@@ -207,9 +241,16 @@ def test_disabled_channels_are_not_requested(tmp_path: Any) -> None:
     assert [r.url for r in spider.channel_requests()] == ["https://t.me/s/other"]
 
 
+def posts_from(results: list[Any]) -> list[dict[str, Any]]:
+    """Only the post items. The same crawl also yields audience measurements."""
+    return [
+        r for r in results if isinstance(r, dict) and r.get("_kind") != CHANNEL_STATS_KIND
+    ]
+
+
 def test_posts_are_parsed_from_channel_markup(spider: TelegramSpider) -> None:
     results = list(spider.parse_channel(channel_response()))
-    items = [r for r in results if isinstance(r, dict)]
+    items = posts_from(results)
 
     # The third post has no view counter, which marks it as a service message.
     assert len(items) == 2
@@ -219,7 +260,7 @@ def test_posts_are_parsed_from_channel_markup(spider: TelegramSpider) -> None:
     assert first["channel_id"] == "uanews"
     assert first["post_id"] == 100
     assert first["views"] == 12500
-    assert first["pub_time"] == to_timestamp("2026-07-25T09:00:00+00:00")
+    assert first["pub_time"] == POST_TIMES[0]
     assert "Новина про подію." in first["text"]
     assert first["links"] == ["https://example.com/story"]
     # The same url appears in two style blocks and must be stored once.
@@ -357,9 +398,14 @@ def test_incomplete_posts_are_dropped() -> None:
 class FakeCollection:
     def __init__(self) -> None:
         self.batches: list[list[Any]] = []
+        self.indexes: list[Any] = []
 
     def bulk_write(self, operations: list[Any], ordered: bool = True) -> None:
         self.batches.append(list(operations))
+
+    def create_index(self, keys: Any, **kwargs: Any) -> str:
+        self.indexes.append(keys)
+        return str(kwargs.get("name", ""))
 
 
 class FakeSettings:
@@ -413,6 +459,125 @@ def test_mongo_pipeline_writes_in_batches(monkeypatch: Any) -> None:
     pipeline.close_spider()
     assert [len(b) for b in collection.batches] == [2, 2, 1]
     assert pipeline.written == 5
+
+
+def test_counter_values_are_parsed_from_the_header_forms() -> None:
+    """The header spaces its thousands where the per-post view count does not."""
+    assert process_counter("713K") == 713000
+    assert process_counter("1 234") == 1234
+    assert process_counter("1,234") == 1234
+    assert process_counter("23") == 23
+    assert process_counter(None) == 0
+
+
+def test_the_subscriber_count_is_read_from_the_channel_header(
+    spider: TelegramSpider,
+) -> None:
+    results = list(spider.parse_channel(channel_response()))
+    stats = [r for r in results if isinstance(r, dict) and r.get("_kind") == CHANNEL_STATS_KIND]
+
+    assert len(stats) == 1
+    assert stats[0]["channel_id"] == "uanews"
+    assert stats[0]["subscribers"] == 713000
+    assert stats[0]["channel_title"] == "UA News"
+    # Bucketed to the hour, so a channel crawled every five minutes leaves one
+    # row an hour rather than twelve.
+    assert stats[0]["hour_ts"] % 3600 == 0
+    assert stats[0]["hour_ts"] <= stats[0]["ts"]
+
+
+def test_the_photo_counter_is_not_mistaken_for_subscribers(
+    spider: TelegramSpider,
+) -> None:
+    """Counters differ only by their label, so the label is what must match."""
+    results = list(spider.parse_channel(channel_response()))
+    stats = [r for r in results if isinstance(r, dict) and r.get("_kind") == CHANNEL_STATS_KIND]
+
+    assert stats[0]["subscribers"] != 108000
+
+
+def test_history_pages_do_not_repeat_the_measurement(spider: TelegramSpider) -> None:
+    """?before= pages carry the same header; measuring again would be noise."""
+    url = "https://t.me/s/uanews?before=100"
+    response = HtmlResponse(
+        url=url, body=CHANNEL_HTML.encode("utf-8"), encoding="utf-8", request=Request(url)
+    )
+
+    results = list(spider.parse_channel(response))
+
+    assert not [r for r in results if isinstance(r, dict) and r.get("_kind") == CHANNEL_STATS_KIND]
+    assert posts_from(results), "posts are still parsed on a history page"
+
+
+def test_a_channel_that_hides_its_count_yields_no_measurement(
+    spider: TelegramSpider,
+) -> None:
+    """A missing count is a fact about the channel, not a zero to record."""
+    html = CHANNEL_HTML.replace("subscribers", "photos")
+    results = list(spider.parse_channel(channel_response(html)))
+
+    assert not [r for r in results if isinstance(r, dict) and r.get("_kind") == CHANNEL_STATS_KIND]
+
+
+def measurement(channel: str = "uanews", hour_ts: int = 1784973600) -> dict[str, Any]:
+    return {
+        "_kind": CHANNEL_STATS_KIND,
+        "channel_id": channel,
+        "channel_title": "UA News",
+        "ts": hour_ts + 42,
+        "hour_ts": hour_ts,
+        "subscribers": 713000,
+    }
+
+
+def test_measurements_never_reach_the_post_pipelines(
+    monkeypatch: Any, tmp_path: Any
+) -> None:
+    """A measurement has no url or text, so a post pipeline must wave it through
+    rather than reject it — otherwise every crawl logs a DropItem for an item
+    that is working exactly as intended."""
+    collection = FakeCollection()
+    monkeypatch.setattr(
+        "crawler.pipelines.get_documents_collection", lambda _: collection
+    )
+
+    mongo = MongoPipeline.from_crawler(fake_crawler(MONGO_BATCH_SIZE=1))
+    mongo.open_spider()
+    assert mongo.process_item(measurement()) is not None
+    mongo.close_spider()
+    assert collection.batches == []
+    assert mongo.written == 0
+
+    output = tmp_path / "out.jsonl"
+    jsonl = JsonlPipeline.from_crawler(fake_crawler(JSONL_OUTPUT_PATH=str(output)))
+    jsonl.open_spider()
+    jsonl.process_item(measurement())
+    jsonl.close_spider()
+    assert output.read_text() == ""
+
+
+def test_channel_stats_are_upserted_once_per_channel_hour(monkeypatch: Any) -> None:
+    collection = FakeCollection()
+    monkeypatch.setattr(
+        "crawler.pipelines.get_channel_stats_collection", lambda _: collection
+    )
+
+    pipeline = ChannelStatsPipeline.from_crawler(fake_crawler())
+    pipeline.open_spider()
+    pipeline.process_item(measurement("uanews", 1784973600))
+    pipeline.process_item(measurement("other", 1784973600))
+    # A post passes straight through and must not be recorded as a measurement.
+    pipeline.process_item(post(1))
+    pipeline.close_spider()
+
+    assert pipeline.written == 2
+    assert [("channel_id", 1), ("hour_ts", 1)] in collection.indexes
+
+    written = collection.batches[0]
+    assert len(written) == 2
+    # The routing marker is storage-layer noise and must not be persisted.
+    for operation in written:
+        assert "_kind" not in operation._doc["$set"]
 
 
 def test_jsonl_pipeline_deduplicates_by_url(tmp_path: Any) -> None:

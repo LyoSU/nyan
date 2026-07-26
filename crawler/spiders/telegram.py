@@ -15,6 +15,10 @@ from scrapy.http import Response
 # requested as ?before=<lowest id seen>.
 Item = dict[str, Any]
 
+# Marks an item as an audience measurement rather than a post, so the pipelines
+# can tell the two apart. Posts carry no `_kind` at all.
+CHANNEL_STATS_KIND = "channel_stats"
+
 # Default delay before a channel is read again. Five minutes keeps the feed
 # close to real time while cutting the crawl volume fivefold compared to the
 # per-minute loop the sender's restart cycle produces. Override globally with
@@ -42,6 +46,17 @@ def process_views(views: str | None) -> int:
             return int(views)
     except (ValueError, AttributeError):
         return 0
+
+
+def process_counter(value: str | None) -> int:
+    """A header counter such as "713K" or "1 234" as a number.
+
+    Separate from `process_views` only because the channel header spaces its
+    thousands where the per-post view count does not.
+    """
+    if not value:
+        return 0
+    return process_views(value.replace(" ", "").replace(" ", "").replace(",", ""))
 
 
 def parse_post_url(url: str) -> Item:
@@ -203,6 +218,16 @@ class TelegramSpider(scrapy.Spider):
     def parse_channel(self, response: Response) -> Iterator[Item | scrapy.Request]:
         url = response.url
         channel_name = url.split("/")[-1].split("?")[0].lower()
+        # The subscriber count sits in the header of the very page we are
+        # already reading for posts, so tracking audience size over time costs
+        # no extra request. Head page only: the ?before= pages repeat the same
+        # header, and parsing it again would write four identical measurements
+        # per crawl of a busy channel.
+        if "before=" not in url:
+            stats = self.parse_channel_stats(response, channel_name)
+            if stats is not None:
+                yield stats
+
         history_path = "//body/main/div/section[contains(@class, 'tgme_channel_history')]/div"
         posts = response.xpath(history_path + "/div")
 
@@ -238,6 +263,48 @@ class TelegramSpider(scrapy.Spider):
         url = url.split("?")[0]
         url += f"?before={min_post_id}"
         yield scrapy.Request(url=url, callback=self.parse_channel)
+
+    @staticmethod
+    def parse_channel_stats(response: Response, channel_name: str) -> Item | None:
+        """How many people the channel was talking to, right now.
+
+        The header carries several counters — subscribers, photos, videos,
+        links — distinguished only by their label, so the label is what we match
+        on rather than position. Telegram writes "subscriber" in the singular
+        for a channel with one, hence the prefix test.
+
+        Returns None when the count is absent, which happens on a channel that
+        hides it. That is a fact about the channel, not an error, and a missing
+        measurement is better than a zero that would look like collapse.
+        """
+        subscribers = 0
+        for counter in response.css("div.tgme_channel_info_counter"):
+            label = (counter.css("span.counter_type::text").get() or "").strip().lower()
+            if label.startswith("subscriber"):
+                subscribers = process_counter(counter.css("span.counter_value::text").get())
+                break
+
+        if subscribers <= 0:
+            return None
+
+        title = (
+            response.css("div.tgme_channel_info_header_title span::text").get()
+            or response.css("div.tgme_channel_info_header_title::text").get()
+            or ""
+        ).strip()
+
+        ts = get_current_ts()
+        return {
+            "_kind": CHANNEL_STATS_KIND,
+            "channel_id": channel_name,
+            "channel_title": title,
+            "ts": ts,
+            # Bucketed to the hour so a channel crawled every five minutes
+            # leaves one row an hour instead of twelve. Subscriber counts do not
+            # move fast enough for the finer resolution to say anything.
+            "hour_ts": ts - ts % 3600,
+            "subscribers": subscribers,
+        }
 
     def _parse_post(self, post_element: Any, post_url: str) -> Item | None:
         text_path = "div.tgme_widget_message_bubble > div.tgme_widget_message_text"

@@ -4,10 +4,11 @@ import os
 from typing import Any
 
 from itemadapter import ItemAdapter
-from pymongo import ReplaceOne
+from pymongo import ReplaceOne, UpdateOne
 from scrapy.exceptions import DropItem
 
-from nyan.mongo import get_documents_collection
+from crawler.spiders.telegram import CHANNEL_STATS_KIND
+from nyan.mongo import get_channel_stats_collection, get_documents_collection
 from nyan.util import normalize_url
 
 
@@ -19,6 +20,17 @@ DEFAULT_MONGO_CONFIG_PATH = os.getenv("MONGO_CONFIG_PATH") or "configs/mongo_con
 DEFAULT_JSONL_OUTPUT_PATH = "telegram_news.jsonl"
 
 REQUIRED_FIELDS = ("url", "text", "pub_time", "views")
+
+
+def is_channel_stats(item: Any) -> bool:
+    """Whether this item is an audience measurement rather than a post.
+
+    The crawl now yields two kinds of thing from the same page, and every
+    pipeline has to let the kind it does not handle pass through untouched —
+    otherwise the post pipeline rejects every measurement as a post with no
+    text, and the log fills with DropItem noise for items working as intended.
+    """
+    return ItemAdapter(item).get("_kind") == CHANNEL_STATS_KIND
 
 
 def as_record(item: Any) -> dict[str, Any]:
@@ -67,6 +79,8 @@ class MongoPipeline:
         self.collection = get_documents_collection(self.config_path)
 
     def process_item(self, item: Any, spider: Any = None) -> Any:
+        if is_channel_stats(item):
+            return item
         record = as_record(item)
         self.operations.append(ReplaceOne({"url": record["url"]}, record, upsert=True))
         if len(self.operations) >= self.batch_size:
@@ -76,6 +90,64 @@ class MongoPipeline:
     def close_spider(self, spider: Any = None) -> None:
         self.flush()
         logging.info("Wrote %d posts to Mongo", self.written)
+
+    def flush(self) -> None:
+        if not self.operations:
+            return
+        self.collection.bulk_write(self.operations, ordered=False)
+        self.written += len(self.operations)
+        self.operations = []
+
+
+class ChannelStatsPipeline:
+    """Records how many subscribers each channel had, hour by hour.
+
+    Views tell you how far one post travelled; subscribers tell you how far it
+    could have. Only the ratio of the two compares a 700k channel to a 20k one,
+    and only a series of measurements shows a channel growing, stalling, or
+    buying its audience overnight.
+
+    Upserts on (channel_id, hour_ts), so a channel crawled twelve times an hour
+    leaves one row rather than twelve, and re-running a crawl is harmless.
+    """
+
+    def __init__(self, config_path: str = DEFAULT_MONGO_CONFIG_PATH) -> None:
+        self.config_path = config_path
+        self.operations: list[UpdateOne] = []
+        self.written = 0
+
+    @classmethod
+    def from_crawler(cls, crawler: Any) -> "ChannelStatsPipeline":
+        return cls(
+            config_path=crawler.settings.get("MONGO_CONFIG_PATH", DEFAULT_MONGO_CONFIG_PATH)
+        )
+
+    def open_spider(self, spider: Any = None) -> None:
+        self.collection = get_channel_stats_collection(self.config_path)
+        # Idempotent, and the only place that knows this collection's shape.
+        self.collection.create_index(
+            [("channel_id", 1), ("hour_ts", 1)], unique=True, name="channel_hour"
+        )
+        self.collection.create_index([("hour_ts", -1)], name="hour")
+
+    def process_item(self, item: Any, spider: Any = None) -> Any:
+        if not is_channel_stats(item):
+            return item
+
+        record = ItemAdapter(item).asdict()
+        record.pop("_kind", None)
+        self.operations.append(
+            UpdateOne(
+                {"channel_id": record["channel_id"], "hour_ts": record["hour_ts"]},
+                {"$set": record},
+                upsert=True,
+            )
+        )
+        return item
+
+    def close_spider(self, spider: Any = None) -> None:
+        self.flush()
+        logging.info("Wrote %d channel measurements to Mongo", self.written)
 
     def flush(self) -> None:
         if not self.operations:
@@ -114,6 +186,8 @@ class JsonlPipeline:
         logging.info("Wrote %d posts to %s", len(self.items), self.output_path)
 
     def process_item(self, item: Any, spider: Any = None) -> Any:
+        if is_channel_stats(item):
+            return item
         record = as_record(item)
         self.items[record["url"]] = record
         return item

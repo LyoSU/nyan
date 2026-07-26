@@ -58,3 +58,16 @@ def get_memes_collection(mongo_config_path: str) -> Collection[dict[str, Any]]:
 
 def get_topics_collection(mongo_config_path: str) -> Collection[dict[str, Any]]:
     return get_collection(mongo_config_path, "topics_collection_name", "topics")
+
+
+def get_channel_stats_collection(mongo_config_path: str) -> Collection[dict[str, Any]]:
+    """Subscriber counts over time, one document per channel per hour.
+
+    Separate from `documents` because it answers a different kind of question:
+    documents are what a channel said, this is how big its audience was while it
+    said it. Together they give reach per subscriber, which is the only view
+    figure that compares one channel to another.
+    """
+    return get_collection(
+        mongo_config_path, "channel_stats_collection_name", "channel_stats"
+    )
