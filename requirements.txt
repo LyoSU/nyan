@@ -24,7 +24,14 @@ requests >= 2.32
 
 # Clustering
 scipy >= 1.11
-scikit-learn >= 1.4
+# Capped on purpose: models/multilingual_e5_base_cat_detect.joblib was pickled
+# by scikit-learn 1.1.2, and unpickling across versions is only promised to
+# work by accident. It was verified to still produce identical probabilities on
+# 1.8.0 (softmax intact, rows summing to 1), but nothing guarantees the next
+# release keeps that, and a silently reshaped MLPClassifier would route every
+# story to the main feed without failing a single test. Raise the cap only
+# after re-checking the category mix, or retrain the model.
+scikit-learn >= 1.4, < 1.9
 joblib >= 1.3
 # fasttext-wheel still imports pkg_resources, removed in setuptools 81.
 setuptools < 81
