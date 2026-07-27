@@ -27,11 +27,19 @@ class RubricDetector:
     substring anywhere would take the news with the ritual.
 
     A pattern may name a macro as `%name%`, expanded from `config["macros"]`
-    before compiling. One condition — that a post naming casualties or damage is
-    a report of the strike and not of the siren — has to hold for every air-raid
-    pattern, and writing that lookahead out six times is how five of them come
-    to disagree with the sixth. An unknown macro raises rather than compiling to
-    a literal `%name%` that would silently never match.
+    before compiling. Whatever holds for the whole air-raid group is written
+    once as a macro, because writing it out eight times is how seven of them
+    come to disagree with the eighth — which is exactly what happened: only the
+    siren pattern spelled out the `<place> — <event>` prefix a regional channel
+    writes, so the all-clear and the ballistic-threat warning kept reaching the
+    feed. Three conditions: a post naming casualties or damage is a report of
+    the strike and not of the siren (`not_a_strike`), the event may be preceded
+    by the place (`where`), and an alert may end by saying what triggered it
+    (`why`). An unknown macro raises rather than compiling to a literal
+    `%name%` that would silently never match.
+
+    `where` is deliberately narrow — a dash, at most fifty characters, and no
+    comma — because a place name has no comma and a news lede usually does.
     """
 
     def __init__(self, config: dict[str, Any]) -> None:

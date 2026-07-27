@@ -70,6 +70,15 @@ ROUTINE = [
     "БпЛА курсом на Київ, прямуйте в укриття",
     "Негайно прямуйте в укриття — у місті працює ППО",
     "Зліт МіГ-31К — загроза застосування балістичного озброєння по всій Україні",
+    # Posts that still reached the feed after the patterns above were written.
+    # Every one of them names the place first and the event after a dash, which
+    # is how a regional channel writes all of these, not only the siren.
+    "🔴 Тульчинський район - повітряна тривога!",
+    "🟢 Тульчинський район - відбій тривоги!",
+    "‼️ Київ та низка областей — загроза балістики",
+    "🟢 Відбій повітряної тривоги у Києві та низці областей",
+    # The alert says where, and then why. The reason is part of the alert.
+    "❗️Тривога в Києві та низці областей через загрозу БпЛА.",
 ]
 
 # News. Every one of these is about the same subjects — the minute of silence,
