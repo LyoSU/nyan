@@ -182,6 +182,12 @@ def test_missing_issues_are_reported_not_raised(
     assert "Missing issue" in caplog.text
 
 
+def test_has_issue_answers_before_anything_is_sent(client: TelegramClient) -> None:
+    """Asked by the daemon, so an unpostable issue costs nothing to discover."""
+    assert client.has_issue("main")
+    assert not client.has_issue("war")
+
+
 def test_message_equality_tolerates_other_types() -> None:
     message = MessageId(message_id=1, issue="main")
 

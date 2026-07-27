@@ -1,4 +1,5 @@
 from typing import Any
+from collections.abc import Sequence
 
 from nyan.client import MessageId
 from nyan.clusters import Cluster, Clusters
@@ -103,8 +104,12 @@ class _FakeRenderer:
 
 
 class _FakeClient:
-    def __init__(self) -> None:
+    def __init__(self, issues: Sequence[str] = ("main",)) -> None:
         self.reply_to: int | None = None
+        self.issues = set(issues)
+
+    def has_issue(self, issue_name: str) -> bool:
+        return issue_name in self.issues
 
     def update_discussion_mapping(self, issue_name: str) -> None:
         pass
@@ -154,3 +159,33 @@ def test_a_post_with_no_neighbour_stands_under_nothing() -> None:
     assert renderer.rendered_under == [""]
     client: Any = daemon.client
     assert client.reply_to is None
+
+
+def test_an_issue_with_no_channel_is_dropped_before_rendering(caplog: Any) -> None:
+    """An issue absent from the client config has nowhere to post.
+
+    Discovering that inside the send meant rendering every one of its clusters
+    first — and the post's text is written inside render_cluster, by the LLM.
+    Both warnings then arrived per cluster; this one arrives per issue.
+    """
+    daemon = _daemon()
+    daemon.client = _FakeClient(issues=("main",))  # type: ignore[assignment]
+
+    postable = daemon.drop_unpostable_issues(
+        {
+            "main": [_cluster([1.0, 0.0])],
+            "war": [_cluster([0.0, 1.0]), _cluster([1.0, 1.0])],
+        }
+    )
+
+    assert list(postable) == ["main"]
+    assert "war" in caplog.text
+    assert "2 clusters" in caplog.text
+
+
+def test_every_configured_issue_survives_the_check() -> None:
+    daemon = _daemon()
+    daemon.client = _FakeClient(issues=("main", "war"))  # type: ignore[assignment]
+    ranked = {"main": [_cluster([1.0, 0.0])], "war": [_cluster([0.0, 1.0])]}
+
+    assert daemon.drop_unpostable_issues(ranked) == ranked

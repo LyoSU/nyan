@@ -84,6 +84,15 @@ class TelegramClient:
         for issue_name in self.issues:
             self.update_discussion_mapping(issue_name)
 
+    def has_issue(self, issue_name: str) -> bool:
+        """Whether this issue has a channel to post to.
+
+        Asked by the daemon before it renders anything: without a channel every
+        send is refused, and finding that out afterwards means the post has
+        already been written.
+        """
+        return issue_name in self.issues
+
     def close(self) -> None:
         self.client.close()
 

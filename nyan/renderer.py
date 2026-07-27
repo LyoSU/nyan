@@ -185,9 +185,13 @@ class Renderer:
             # be handing it our readers.
             if channel.monitor_only:
                 continue
-            # Skip documents from channels that don't have this issue configured
+            # A channel with no group for this issue is not republished in this
+            # feed — the ordinary case, not a fault: 126 of the 163 channels
+            # carry no group for 'war'. Logged at debug because a war cluster
+            # otherwise warns once per document for working as configured, and
+            # drowns the warning above, which means a channel has disappeared.
             if issue_name not in channel.groups:
-                logging.warning(
+                logging.debug(
                     "Channel %s has no group for issue '%s', skipping %s",
                     doc.channel_id,
                     issue_name,

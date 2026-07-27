@@ -102,7 +102,7 @@ class Daemon:
         num_clusters = sum(len(cl) for cl in ranked_clusters.values())
         logging.info("%d clusters in all issues after filtering", num_clusters)
 
-        for issue, clusters in ranked_clusters.items():
+        for issue, clusters in self.drop_unpostable_issues(ranked_clusters).items():
             for cluster in clusters:
                 self.send_cluster(
                     cluster,
@@ -189,6 +189,29 @@ class Daemon:
         logging.info("%d docs before clustering", len(final_docs))
 
         return final_docs
+
+    def drop_unpostable_issues(
+        self, ranked_clusters: dict[str, list[Cluster]]
+    ) -> dict[str, list[Cluster]]:
+        """Issues the client has no channel for, dropped before anything renders.
+
+        The ranker groups clusters by issue regardless of what the deployment
+        publishes, so a host configured for `main` alone still ranks `war` and
+        `tech`. Every send for those was refused anyway — but only after
+        `render_cluster` had written the post, which is where the LLM is called.
+        Answered once per issue instead of twice per cluster.
+        """
+        postable: dict[str, list[Cluster]] = dict()
+        for issue, clusters in ranked_clusters.items():
+            if self.client.has_issue(issue):
+                postable[issue] = clusters
+                continue
+            logging.warning(
+                "No channel for issue '%s' in the client config, dropping %d clusters",
+                issue,
+                len(clusters),
+            )
+        return postable
 
     def send_cluster(
         self,

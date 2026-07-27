@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from typing import Any
 from collections.abc import Sequence
@@ -554,6 +555,35 @@ def test_documents_from_an_unlisted_channel_are_skipped(renderer: Renderer) -> N
     assert post.blocks is not None
     listing = flatten_text(find(post.blocks, "details"))
     assert "channel_that_was_removed" not in listing
+
+
+def test_a_channel_outside_the_issue_is_skipped_quietly(
+    renderer: Renderer, caplog: Any
+) -> None:
+    """No group for an issue means "not republished there", which is not news.
+
+    126 of the 163 channels carry no group for 'war', so a war cluster logged a
+    warning for every document that was behaving exactly as configured — and
+    buried the warning right above it, which fires when a channel has vanished
+    from channels.json altogether.
+    """
+    cluster = make_cluster(
+        [
+            make_doc(VERIFIED, "https://t.me/rbc_news/1", pub_time=100),
+            make_doc(AGGREGATOR, "https://t.me/nexta_live/1", pub_time=200),
+        ]
+    )
+
+    # Only rbc_news has a group for "economy" in tests/channels.json.
+    with caplog.at_level(logging.DEBUG):
+        post = renderer.render_cluster(cluster, "economy")
+
+    assert post is not None
+    assert post.blocks is not None
+    listing = flatten_text(find(post.blocks, "details"))
+    assert "nexta" not in listing.lower()
+    assert any("has no group" in record.getMessage() for record in caplog.records)
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
 
 def test_a_cluster_of_only_unlisted_channels_renders_nothing(
