@@ -493,6 +493,94 @@ def test_a_disagreement_between_sources_is_labelled(renderer: Renderer) -> None:
     ]
 
 
+def test_each_version_of_a_dispute_names_the_channels_behind_it(
+    renderer: Renderer,
+) -> None:
+    """The finding is who says what, so the credit has to be in the post.
+
+    An unattributed "sources differ" line tells a reader that somebody is wrong
+    without saying who, which is the one thing they cannot check.
+    """
+    blocks = summarized_post(
+        renderer,
+        {"type": "text", "text": "Лід."},
+        {
+            "type": "disputed",
+            "claims": [
+                {"text": "поранених дев'ятеро", "channels": [VERIFIED]},
+                {"text": "поранених одинадцятеро", "channels": [AGGREGATOR]},
+            ],
+        },
+    )
+
+    paragraphs = [b for b in blocks if b["type"] == "paragraph"]
+    assert paragraphs[-1]["text"] == {"type": "bold", "text": "Джерела різняться"}
+
+    items = find(blocks, "list")["items"]
+    assert [squeeze(flatten_text(item["blocks"])) for item in items] == [
+        "поранених дев'ятеро — 📰 RBC_NEWS ⚪",
+        "поранених одинадцятеро — 🎭 NEXTA_LIVE",
+    ]
+
+
+def test_a_credit_carries_the_channel_tier(renderer: Renderer) -> None:
+    """Who is alone on a claim decides how the claim reads.
+
+    An anonymous aggregator by itself on a detail is the shape a planted item
+    takes; a state body by itself on one is the body announcing its own
+    business. The reader can only tell them apart if the mark is on the line.
+    """
+    blocks = summarized_post(
+        renderer,
+        {"type": "text", "text": "Лід."},
+        {
+            "type": "attributed",
+            "claims": [{"text": "подробиця", "channels": [AGGREGATOR]}],
+        },
+    )
+
+    item = find(blocks, "list")["items"][0]
+    credit = item["blocks"][0]["text"][-1][0]
+    assert credit[0] == renderer.channels.group_emoji("grey")
+    assert credit[-1]["url"] == "https://t.me/nexta_live/1"
+
+
+def test_a_credited_channel_links_to_the_post_it_made(renderer: Renderer) -> None:
+    blocks = summarized_post(
+        renderer,
+        {"type": "text", "text": "Лід."},
+        {
+            "type": "attributed",
+            "claims": [{"text": "уламки впали на школу", "channels": [AGGREGATOR]}],
+        },
+    )
+
+    item = find(blocks, "list")["items"][0]
+    link = item["blocks"][0]["text"][-1][0][-1]
+    assert link == {
+        "type": "url",
+        "text": "NEXTA_LIVE",
+        "url": "https://t.me/nexta_live/1",
+    }
+
+
+def test_a_claim_whose_channel_left_the_cluster_is_not_printed_bare(
+    renderer: Renderer,
+) -> None:
+    """A raw channel id mid-sentence is noise; better no line than that."""
+    blocks = summarized_post(
+        renderer,
+        {"type": "text", "text": "Лід."},
+        {
+            "type": "attributed",
+            "claims": [{"text": "подробиця", "channels": ["gone_channel"]}],
+        },
+    )
+
+    assert "подробиця" not in flatten_text(blocks)
+    assert "gone_channel" not in flatten_text(blocks)
+
+
 def test_summary_list_items_become_bullets(renderer: Renderer) -> None:
     blocks = summarized_post(
         renderer,

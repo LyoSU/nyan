@@ -390,7 +390,13 @@ class Cluster:
             if isinstance(headline, str) and headline.strip():
                 analysis["headline"] = headline.strip()
             if is_multi_source:
-                summary = parse_summary(parsed_content, context=self.cropped_title)
+                summary = parse_summary(
+                    parsed_content,
+                    context=self.cropped_title,
+                    # Only the channels this prompt actually showed may be
+                    # credited with a claim.
+                    allowed_channels={doc.channel_id for doc in docs},
+                )
                 if summary:
                     analysis["summary"] = summary.asdict()
         except Exception:

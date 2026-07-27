@@ -3,7 +3,8 @@ import logging
 import os
 import json
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 from urllib.parse import urlsplit
 
 from jinja2 import Environment, FileSystemLoader
@@ -29,9 +30,13 @@ from nyan.util import DEFAULT_TIMEZONE, normalize_channel_id, ts_to_dt
 _SENTENCE_END_CHARS = ".!?"
 MAX_DERIVED_HEADLINE_LENGTH = 120
 
-# Prefix for the line that says the sources contradict each other. A reader
-# skimming has to be able to see the disagreement without reading the sentence.
+# Titles for the two attributed blocks. Both are stated as a relation between
+# the sources rather than as a label on the text, because that relation is the
+# finding: one says the sources contradict each other, the other says a claim
+# stands on fewer sources than the post does. A reader skimming has to see which
+# of the two it is before reading the sentence under it.
 DISPUTED_TITLE = "Джерела різняться"
+ATTRIBUTED_TITLE = "Пишуть окремі джерела"
 
 # Heading size of the post's headline, 1-6, where 1 is the largest. 3 is the
 # smallest size that still reads as a headline rather than as emphasized body
@@ -59,7 +64,42 @@ def clamp_heading_size(size: int) -> int:
     return max(MIN_HEADING_SIZE, min(MAX_HEADING_SIZE, size))
 
 
-def summary_blocks(summary: Summary, section_size: int) -> list[Block]:
+def claim_credit(
+    channel_ids: Sequence[str], sources: Mapping[str, RichText]
+) -> RichText:
+    """Who said it, in the same form the source list names them.
+
+    Unresolvable ids are skipped rather than printed raw: a bare `some_channel`
+    in the middle of a sentence is noise to a reader who cannot click it. The
+    caller drops the claim if nothing survives here.
+    """
+    parts = [sources[cid] for cid in channel_ids if cid in sources]
+    return rich.join(parts, ", ")
+
+
+def claim_items(
+    claims: Sequence[Mapping[str, Any]], sources: Mapping[str, RichText]
+) -> list[Sequence[Block]]:
+    """Claims as list items, each ending in the channels behind it.
+
+    The credit sits at the end of the line, the way a byline follows a passage —
+    put in front, the channel names would be read as the subject of the sentence.
+    """
+    items: list[Sequence[Block]] = []
+    for claim in claims:
+        credit = claim_credit(claim.get("channels", ()), sources)
+        if not credit:
+            continue
+        text = str(claim.get("text", "")).rstrip(".")
+        items.append([rich.paragraph(rich.join([text, credit], f" {CREDIT_DASH} "))])
+    return items
+
+
+def summary_blocks(
+    summary: Summary,
+    section_size: int,
+    sources: Mapping[str, RichText] | None = None,
+) -> list[Block]:
     """The model's blocks as Telegram blocks.
 
     The model chooses the shape — neither a news story nor a digest comes in one
@@ -68,6 +108,7 @@ def summary_blocks(summary: Summary, section_size: int) -> list[Block]:
     digest share this function because they share the vocabulary; only the
     frame around it differs.
     """
+    by_channel = sources or {}
     blocks: list[Block] = []
     for block in summary.blocks:
         if block.type == nyan_summary.TEXT:
@@ -98,12 +139,25 @@ def summary_blocks(summary: Summary, section_size: int) -> list[Block]:
             )
         elif block.type == nyan_summary.SUBHEADING:
             blocks.append(rich.heading(block.text, size=section_size))
-        elif block.type == nyan_summary.DISPUTED:
-            # Marked rather than merely stated: a reader skimming has to see
-            # that the sources do not agree.
-            blocks.append(
-                rich.paragraph(rich.join([rich.bold(DISPUTED_TITLE), block.text], ": "))
+        elif block.type in (nyan_summary.DISPUTED, nyan_summary.ATTRIBUTED):
+            title = (
+                DISPUTED_TITLE
+                if block.type == nyan_summary.DISPUTED
+                else ATTRIBUTED_TITLE
             )
+            items = claim_items(block.claims, by_channel)
+            if items:
+                # Title on its own line above the versions, not a prefix to the
+                # first one: with two or more sides there is no single sentence
+                # for it to introduce, and a bullet that starts with bold text
+                # reads as the heading of the list rather than as a member of it.
+                blocks.append(rich.paragraph(rich.bold(title)))
+                blocks.append(rich.bullet_list(*items))
+            elif block.text:
+                # The old unattributed shape, still stored on earlier posts.
+                blocks.append(
+                    rich.paragraph(rich.join([rich.bold(title), block.text], ": "))
+                )
     return blocks
 
 
@@ -254,7 +308,7 @@ class Renderer:
         blocks.extend(self.render_media(cluster))
 
         if summary:
-            blocks.extend(self.render_summary(summary))
+            blocks.extend(self.render_summary(summary, groups))
         else:
             body = self.split_headline(cluster)[1]
             if body:
@@ -267,8 +321,42 @@ class Renderer:
 
         return RenderedPost(blocks=blocks)
 
-    def render_summary(self, summary: Summary) -> list[Block]:
-        return summary_blocks(summary, section_size=self.section_size)
+    def render_summary(
+        self,
+        summary: Summary,
+        groups: list[tuple[str, list[Document]]] | None = None,
+    ) -> list[Block]:
+        return summary_blocks(
+            summary,
+            section_size=self.section_size,
+            sources=self.index_sources(groups) if groups else None,
+        )
+
+    def index_sources(
+        self, groups: list[tuple[str, list[Document]]]
+    ) -> dict[str, RichText]:
+        """How to name each channel when a claim is credited to it.
+
+        Built from the grouped documents rather than from `cluster.docs`, which
+        gets the tier glyph for free — and the tier is the point. A detail only
+        one channel carries reads differently depending on who that channel is:
+        an anonymous aggregator alone on a claim is the shape a planted item
+        takes, and a state body alone on one is simply the body announcing its
+        own business. The reader can only tell those apart if the mark travels
+        with the name.
+
+        `group_docs` has already reduced this to one post per channel, so the
+        claim links to the channel's first post in the cluster.
+        """
+        sources: dict[str, RichText] = {}
+        for group, docs in groups:
+            emoji = self.channels.group_emoji(group)
+            for doc in docs:
+                name = self.render_source(doc)
+                sources[doc.channel_id] = (
+                    rich.join([emoji, name], " ") if emoji else name
+                )
+        return sources
 
     def split_headline(self, cluster: Cluster) -> tuple[str | None, str | None]:
         """Return (headline, body) for the cluster's text.

@@ -9,6 +9,7 @@ reach the renderer.
 from typing import Any
 
 from nyan.summary import (
+    ATTRIBUTED,
     DISPUTED,
     HIDDEN,
     LIST,
@@ -230,3 +231,131 @@ def test_as_text_leaves_the_markup_behind() -> None:
     )
 
     assert summary.as_text() == "Загинуло троє людей Дев'ятеро поранені Дві будівлі"
+
+
+# --------------------------------------------------- attribution on the claims
+#
+# The point of these two blocks is whose claim it is, so the cases below are
+# about attribution surviving, being checked, and failing safely — a claim
+# credited to a channel that was never a source here is worse than no claim.
+
+
+def test_a_dispute_keeps_every_version_with_its_channels() -> None:
+    summary = parse_summary(
+        blocks(
+            {"type": TEXT, "text": "Лід."},
+            {
+                "type": DISPUTED,
+                "claims": [
+                    {"text": "поранених дев'ятеро", "channels": ["suspilne"]},
+                    {"text": "поранених одинадцятеро", "channels": ["trukha", "ok"]},
+                ],
+            },
+        ),
+        allowed_channels={"suspilne", "trukha", "ok"},
+    )
+
+    assert types(summary) == [TEXT, DISPUTED]
+    assert summary.blocks[1].claims == [
+        {"text": "поранених дев'ятеро", "channels": ["suspilne"]},
+        {"text": "поранених одинадцятеро", "channels": ["trukha", "ok"]},
+    ]
+
+
+def test_a_channel_that_was_not_a_source_cannot_be_credited() -> None:
+    """The one failure this feature must not have: an invented byline."""
+    summary = parse_summary(
+        blocks(
+            {"type": TEXT, "text": "Лід."},
+            {
+                "type": ATTRIBUTED,
+                "claims": [
+                    {"text": "уламки впали на школу", "channels": ["suspilne", "нема"]},
+                    {"text": "тривога тривала дві години", "channels": ["вигадка"]},
+                ],
+            },
+        ),
+        allowed_channels={"suspilne"},
+    )
+
+    assert types(summary) == [TEXT, ATTRIBUTED]
+    assert summary.blocks[1].claims == [
+        {"text": "уламки впали на школу", "channels": ["suspilne"]}
+    ]
+
+
+def test_an_unattributed_claim_is_dropped_rather_than_shown_bare() -> None:
+    summary = parse_summary(
+        blocks(
+            {"type": TEXT, "text": "Лід."},
+            {"type": ATTRIBUTED, "claims": [{"text": "подробиця", "channels": []}]},
+        ),
+        allowed_channels={"suspilne"},
+    )
+
+    assert types(summary) == [TEXT]
+
+
+def test_one_version_is_not_a_disagreement() -> None:
+    """A `disputed` block with a single side is a lone claim, so it is labelled
+    as one: telling the reader the sources conflict when only one of them said
+    anything is a stronger claim than the sources support."""
+    summary = parse_summary(
+        blocks(
+            {"type": TEXT, "text": "Лід."},
+            {
+                "type": DISPUTED,
+                "claims": [{"text": "загиблих п'ятеро", "channels": ["trukha"]}],
+            },
+        ),
+        allowed_channels={"trukha"},
+    )
+
+    assert types(summary) == [TEXT, ATTRIBUTED]
+
+
+def test_the_same_channels_are_not_credited_twice_in_one_block() -> None:
+    summary = parse_summary(
+        blocks(
+            {"type": TEXT, "text": "Лід."},
+            {
+                "type": ATTRIBUTED,
+                "claims": [
+                    {"text": "перша подробиця", "channels": ["ok"]},
+                    {"text": "та сама подробиця інакше", "channels": ["ok"]},
+                ],
+            },
+        ),
+        allowed_channels={"ok"},
+    )
+
+    assert types(summary) == [TEXT, ATTRIBUTED]
+    assert summary.blocks[1].claims == [{"text": "перша подробиця", "channels": ["ok"]}]
+
+
+def test_a_dispute_with_no_usable_attribution_keeps_its_line() -> None:
+    """Every post stored before attribution existed has this shape."""
+    summary = parse_summary(
+        blocks(
+            {"type": TEXT, "text": "Лід."},
+            {"type": DISPUTED, "text": "поранених від дев'яти до одинадцяти"},
+        )
+    )
+
+    assert types(summary) == [TEXT, DISPUTED]
+    assert summary.blocks[1].text == "поранених від дев'яти до одинадцяти"
+
+
+def test_claims_survive_a_round_trip_through_storage() -> None:
+    original = parse_summary(
+        blocks(
+            {"type": TEXT, "text": "Лід."},
+            {
+                "type": ATTRIBUTED,
+                "claims": [{"text": "подробиця", "channels": ["ok"]}],
+            },
+        ),
+        allowed_channels={"ok"},
+    )
+
+    assert Summary.fromdict(original.asdict()).asdict() == original.asdict()

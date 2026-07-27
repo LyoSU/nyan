@@ -33,10 +33,15 @@ LINKS = "links"
 QUOTE = "quote"
 HIDDEN = "hidden"
 DISPUTED = "disputed"
+ATTRIBUTED = "attributed"
 SUBHEADING = "subheading"
 
 MAX_LIST_ITEMS = 6
 MAX_LINKS = 12
+MAX_CLAIMS = 4
+# Three names is where a credit line stops being a credit line and becomes a
+# second source list. The upstream diff renderer cut at three for the same reason.
+MAX_CLAIM_CHANNELS = 3
 MAX_TEXT_LENGTH = 1000
 MAX_SUMMARY_LENGTH = 100
 MAX_AUTHOR_LENGTH = 120
@@ -71,7 +76,7 @@ class Limits:
 # opening with bullets, a subheading or a caveat is not.
 POST_LIMITS = Limits(
     max_blocks=10,
-    per_type={QUOTE: 2, HIDDEN: 2, SUBHEADING: 2, DISPUTED: 1},
+    per_type={QUOTE: 2, HIDDEN: 2, SUBHEADING: 2, DISPUTED: 1, ATTRIBUTED: 1},
     opening=(TEXT, QUOTE),
 )
 
@@ -80,7 +85,7 @@ POST_LIMITS = Limits(
 # quiet period the whole digest is one list, so it may open with one.
 DIGEST_LIMITS = Limits(
     max_blocks=24,
-    per_type={QUOTE: 2, HIDDEN: 3, DISPUTED: 1},
+    per_type={QUOTE: 2, HIDDEN: 3, DISPUTED: 1, ATTRIBUTED: 1},
     opening=(TEXT, QUOTE, LINKS, SUBHEADING),
 )
 
@@ -96,12 +101,16 @@ class SummaryBlock:
     text: str = ""
     items: list[str] = field(default_factory=list)
     links: list[dict[str, str]] = field(default_factory=list)
+    # For `attributed` and `disputed`: a statement plus the channels that made
+    # it. Whose claim it is *is* the content of these two blocks — a lone
+    # channel's version is a different fact from the same version in six.
+    claims: list[dict[str, Any]] = field(default_factory=list)
     author: str = ""
     summary: str = ""
 
     def asdict(self) -> dict[str, Any]:
         record: dict[str, Any] = {"type": self.type}
-        for key in ("text", "items", "links", "author", "summary"):
+        for key in ("text", "items", "links", "claims", "author", "summary"):
             value = getattr(self, key)
             if value:
                 record[key] = value
@@ -116,6 +125,13 @@ class SummaryBlock:
             links=[
                 {"text": str(link.get("text", "")), "url": str(link.get("url", ""))}
                 for link in record.get("links", [])
+            ],
+            claims=[
+                {
+                    "text": str(claim.get("text", "")),
+                    "channels": [str(name) for name in claim.get("channels", [])],
+                }
+                for claim in record.get("claims", [])
             ],
             author=str(record.get("author", "")),
             summary=str(record.get("summary", "")),
@@ -153,12 +169,16 @@ class Summary:
         """
         parts: list[str] = []
         for block in self.blocks:
-            if block.type in (TEXT, DISPUTED, SUBHEADING, HIDDEN):
+            if block.type in (TEXT, SUBHEADING, HIDDEN):
                 parts.append(block.text)
             elif block.type == LIST:
                 parts.extend(block.items)
             elif block.type == LINKS:
                 parts.extend(link["text"] for link in block.links)
+            elif block.type in (ATTRIBUTED, DISPUTED):
+                # Whichever shape arrived: `text` is the old unattributed line.
+                parts.append(block.text)
+                parts.extend(claim["text"] for claim in block.claims)
             elif block.type == QUOTE:
                 parts.append(f"{block.author}: {block.text}")
         return strip_markup(" ".join(part for part in parts if part))
@@ -177,6 +197,7 @@ def parse_summary(
     context: str = "",
     allowed_urls: Collection[str] = (),
     limits: Limits = POST_LIMITS,
+    allowed_channels: Collection[str] = (),
 ) -> Summary:
     """A `Summary` built from whatever the model returned.
 
@@ -184,6 +205,11 @@ def parse_summary(
     puts in a `links` block is a URL it made up, and a made-up link in a digest
     sends the reader to a post that does not exist. Empty by default, which
     means a `links` block cannot survive unless the caller is a digest.
+
+    `allowed_channels` is the same guard for attribution: the channel ids the
+    model was shown. An invented id would credit a claim to a channel that never
+    made it, which is worse than leaving the claim unattributed — so it is
+    dropped. Empty means nothing can be attributed at all.
 
     Never raises: unusable input yields an empty summary, and unusable parts of
     usable input are dropped.
@@ -198,10 +224,11 @@ def parse_summary(
         raw_blocks = []
 
     known_urls = frozenset(allowed_urls)
+    known_channels = frozenset(allowed_channels)
     blocks: list[SummaryBlock] = []
     counts: dict[str, int] = {}
     for raw_block in raw_blocks[: limits.max_blocks]:
-        block = _parse_block(raw_block, context, known_urls)
+        block = _parse_block(raw_block, context, known_urls, known_channels)
         if block is None:
             continue
         counts[block.type] = counts.get(block.type, 0) + 1
@@ -238,7 +265,7 @@ def parse_summary(
 
 
 def _parse_block(
-    raw: Any, context: str, known_urls: frozenset[str]
+    raw: Any, context: str, known_urls: frozenset[str], known_channels: frozenset[str]
 ) -> SummaryBlock | None:
     if not isinstance(raw, dict):
         logging.info("Skipping a non-object block for '%s': %r", context, type(raw))
@@ -249,7 +276,10 @@ def _parse_block(
     if block_type == LINKS:
         return _parse_links(raw, context, known_urls)
 
-    if block_type in (TEXT, DISPUTED, SUBHEADING):
+    if block_type in (DISPUTED, ATTRIBUTED):
+        return _parse_claims(raw, block_type, context, known_channels)
+
+    if block_type in (TEXT, SUBHEADING):
         text = _clean(raw.get("text"), MAX_TEXT_LENGTH)
         return SummaryBlock(type=block_type, text=text) if text else None
 
@@ -286,6 +316,82 @@ def _parse_block(
         return SummaryBlock(type=HIDDEN, text=text, summary=summary)
 
     logging.info("Skipping an unknown block type %r for '%s'", block_type, context)
+    return None
+
+
+def _parse_claims(
+    raw: dict[str, Any],
+    block_type: str,
+    context: str,
+    known_channels: frozenset[str],
+) -> SummaryBlock | None:
+    """Statements with the channels behind them.
+
+    Both kinds live here because they are one measurement read two ways. Two
+    channel groups saying different things about the same fact is a dispute; one
+    group saying something nobody else does is a detail only they carry. The
+    difference is how many groups there are, and the model's own labelling of
+    that is worth checking — so a `disputed` block that arrived with a single
+    side becomes `attributed` instead. One version is not a disagreement, and
+    calling it one tells the reader the sources conflict when they simply differ
+    in what they cover.
+
+    An unattributed claim is dropped: without a name the reader cannot tell a
+    lone channel's addition from what everyone reported, which is the whole
+    reason these blocks exist.
+    """
+    raw_claims = raw.get("claims")
+    claims: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    if isinstance(raw_claims, list):
+        for raw_claim in raw_claims[:MAX_CLAIMS]:
+            if not isinstance(raw_claim, dict):
+                continue
+            text = _clean(raw_claim.get("text"), MAX_TEXT_LENGTH)
+            if not text:
+                continue
+            raw_names = raw_claim.get("channels")
+            if not isinstance(raw_names, list):
+                raw_names = []
+            names: list[str] = []
+            for raw_name in raw_names:
+                name = _clean(raw_name, MAX_AUTHOR_LENGTH).lstrip("@")
+                if name in known_channels and name not in names:
+                    names.append(name)
+                elif name and name not in known_channels:
+                    logging.info(
+                        "Dropping %r from a %s claim for '%s': not a source here",
+                        name,
+                        block_type,
+                        context,
+                    )
+            if not names:
+                logging.info(
+                    "Dropping an unattributed %s claim for '%s': %r",
+                    block_type,
+                    context,
+                    text,
+                )
+                continue
+            # The same channel credited twice in one block reads as two
+            # independent reports of the thing it said once.
+            key = " ".join(sorted(names))
+            if key in seen:
+                continue
+            seen.add(key)
+            claims.append({"text": text, "channels": names[:MAX_CLAIM_CHANNELS]})
+
+    if len(claims) > 1:
+        return SummaryBlock(type=block_type, claims=claims)
+    if len(claims) == 1:
+        return SummaryBlock(type=ATTRIBUTED, claims=claims)
+
+    # No usable attribution left. A `disputed` line still stands on its own —
+    # that is the shape every stored post before this used — but an
+    # `attributed` block without names has nothing left to say.
+    text = _clean(raw.get("text"), MAX_TEXT_LENGTH)
+    if block_type == DISPUTED and text:
+        return SummaryBlock(type=DISPUTED, text=text)
     return None
 
 
