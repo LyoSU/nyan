@@ -405,6 +405,16 @@
       "kind": "media"
     },
     {
+      "name": "dw_ukraina",
+      "groups": {
+        "main": "blue",
+        "war": "blue"
+      },
+      "alias": "DW Україна",
+      "issue": "main",
+      "kind": "media"
+    },
+    {
       "name": "nvua_official",
       "groups": {
         "main": "blue",
@@ -859,15 +869,14 @@
       "kind": "media"
     },
     {
-      "name": "ain_ua_tg",
+      "name": "ain_ukraine",
       "groups": {
         "main": "blue",
         "tech": "blue"
       },
-      "alias": "AIN.UA",
+      "alias": "AIN",
       "issue": "tech",
-      "kind": "media",
-      "disabled": true
+      "kind": "media"
     },
     {
       "name": "gamedev_dou",
@@ -1143,6 +1152,16 @@
       "kind": "media"
     },
     {
+      "name": "incrypted_UA",
+      "groups": {
+        "main": "blue",
+        "economy": "blue"
+      },
+      "alias": "Incrypted UA",
+      "issue": "economy",
+      "kind": "media"
+    },
+    {
       "name": "ssternenko",
       "groups": {
         "main": "blue",
@@ -1229,6 +1248,27 @@
         "other": "blue"
       },
       "alias": "OLDboi",
+      "issue": "other",
+      "kind": "person"
+    },
+    {
+      "name": "RostyslavS",
+      "groups": {
+        "main": "blue",
+        "politics": "blue",
+        "other": "blue"
+      },
+      "alias": "Shaposhnikov News",
+      "issue": "politics",
+      "kind": "person"
+    },
+    {
+      "name": "Ukrcentr",
+      "groups": {
+        "main": "blue",
+        "other": "blue"
+      },
+      "alias": "Сурма. Україноцентризм",
       "issue": "other",
       "kind": "person"
     },
@@ -1521,6 +1561,23 @@
       },
       "alias": "Сплетница",
       "issue": "main"
+    },
+    {
+      "name": "hrinovyny",
+      "groups": {
+        "main": "grey"
+      },
+      "alias": "Дріт",
+      "issue": "main"
+    },
+    {
+      "name": "business_ua",
+      "groups": {
+        "main": "grey",
+        "economy": "grey"
+      },
+      "alias": "Про Бізнес, стартапи, IT",
+      "issue": "economy"
     },
     {
       "name": "legitimniy",
