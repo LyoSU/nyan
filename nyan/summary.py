@@ -20,11 +20,12 @@ renderer fall back to quoting one channel directly.
 """
 
 import logging
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
 from nyan.markup import strip_markup
+from nyan.util import normalize_channel_id
 
 
 TEXT = "text"
@@ -83,6 +84,12 @@ POST_LIMITS = Limits(
 # A digest: one heading per topic, so headings are the structure rather than an
 # exception, and there is no single story for sources to disagree about. On a
 # quiet period the whole digest is one list, so it may open with one.
+#
+# The two attributed kinds stay in this table as runaway protection rather than
+# as an offer: a digest is built from other posts of ours, so it is never given
+# channel ids, and `_parse_claims` therefore drops every claim it is handed. The
+# digest prompt asks for neither, and a caller that wanted them would have to
+# pass `allowed_channels` for the whole period first.
 DIGEST_LIMITS = Limits(
     max_blocks=24,
     per_type={QUOTE: 2, HIDDEN: 3, DISPUTED: 1, ATTRIBUTED: 1},
@@ -224,7 +231,14 @@ def parse_summary(
         raw_blocks = []
 
     known_urls = frozenset(allowed_urls)
-    known_channels = frozenset(allowed_channels)
+    # Normalized id to the form the documents use, so a claim is stored under
+    # the id the renderer and the site look it up by. The model copies these out
+    # of the prompt and gets the copy slightly wrong — "@Suspilne" for
+    # "suspilne" — often enough that matching them verbatim would drop real
+    # attributions, and storing what it wrote would credit nobody findable.
+    known_channels = {
+        normalize_channel_id(channel): channel for channel in allowed_channels
+    }
     blocks: list[SummaryBlock] = []
     counts: dict[str, int] = {}
     for raw_block in raw_blocks[: limits.max_blocks]:
@@ -265,7 +279,10 @@ def parse_summary(
 
 
 def _parse_block(
-    raw: Any, context: str, known_urls: frozenset[str], known_channels: frozenset[str]
+    raw: Any,
+    context: str,
+    known_urls: frozenset[str],
+    known_channels: Mapping[str, str],
 ) -> SummaryBlock | None:
     if not isinstance(raw, dict):
         logging.info("Skipping a non-object block for '%s': %r", context, type(raw))
@@ -323,7 +340,7 @@ def _parse_claims(
     raw: dict[str, Any],
     block_type: str,
     context: str,
-    known_channels: frozenset[str],
+    known_channels: Mapping[str, str],
 ) -> SummaryBlock | None:
     """Statements with the channels behind them.
 
@@ -355,16 +372,19 @@ def _parse_claims(
                 raw_names = []
             names: list[str] = []
             for raw_name in raw_names:
-                name = _clean(raw_name, MAX_AUTHOR_LENGTH).lstrip("@")
-                if name in known_channels and name not in names:
-                    names.append(name)
-                elif name and name not in known_channels:
+                canonical = known_channels.get(
+                    normalize_channel_id(_clean(raw_name, MAX_AUTHOR_LENGTH))
+                )
+                if canonical is None:
                     logging.info(
                         "Dropping %r from a %s claim for '%s': not a source here",
-                        name,
+                        raw_name,
                         block_type,
                         context,
                     )
+                    continue
+                if canonical not in names:
+                    names.append(canonical)
             if not names:
                 logging.info(
                     "Dropping an unattributed %s claim for '%s': %r",
@@ -373,13 +393,16 @@ def _parse_claims(
                     text,
                 )
                 continue
-            # The same channel credited twice in one block reads as two
-            # independent reports of the thing it said once.
+            names = names[:MAX_CLAIM_CHANNELS]
+            # The same channels credited twice in one block reads as two
+            # independent reports of the thing they said once. Keyed on the
+            # names that will actually be printed, so two claims that differ
+            # only in a name past the cut still count as one.
             key = " ".join(sorted(names))
             if key in seen:
                 continue
             seen.add(key)
-            claims.append({"text": text, "channels": names[:MAX_CLAIM_CHANNELS]})
+            claims.append({"text": text, "channels": names})
 
     if len(claims) > 1:
         return SummaryBlock(type=block_type, claims=claims)

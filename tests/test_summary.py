@@ -359,3 +359,26 @@ def test_claims_survive_a_round_trip_through_storage() -> None:
     )
 
     assert Summary.fromdict(original.asdict()).asdict() == original.asdict()
+
+
+def test_a_channel_named_a_little_wrong_is_still_matched() -> None:
+    """The model copies these ids out of the prompt and misses by a case or an @.
+
+    Matching verbatim would drop real attributions, and storing what it wrote
+    would leave the renderer looking up an id no document has — so the id it is
+    stored under is the document's own.
+    """
+    summary = parse_summary(
+        blocks(
+            {"type": TEXT, "text": "Лід."},
+            {
+                "type": ATTRIBUTED,
+                "claims": [{"text": "подробиця", "channels": ["@Suspilne_ZP"]}],
+            },
+        ),
+        allowed_channels={"suspilne_zp"},
+    )
+
+    assert summary.blocks[1].claims == [
+        {"text": "подробиця", "channels": ["suspilne_zp"]}
+    ]
