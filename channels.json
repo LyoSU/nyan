@@ -10,15 +10,6 @@
       "kind": "media"
     },
     {
-      "name": "unnworldnews",
-      "groups": {
-        "main": "blue"
-      },
-      "alias": "УНН",
-      "issue": "main",
-      "kind": "media"
-    },
-    {
       "name": "v_zelenskiy_official",
       "groups": {
         "main": "red",
@@ -47,16 +38,6 @@
       "alias": "Верховна Рада України",
       "issue": "politics",
       "kind": "organization"
-    },
-    {
-      "name": "m_podolyak",
-      "groups": {
-        "main": "red",
-        "politics": "red"
-      },
-      "alias": "Михайло Подоляк",
-      "issue": "politics",
-      "kind": "person"
     },
     {
       "name": "vereshchuk_iryna",
@@ -267,16 +248,6 @@
       "alias": "Служба безпеки України",
       "issue": "war",
       "kind": "organization"
-    },
-    {
-      "name": "cincafu",
-      "groups": {
-        "main": "red",
-        "war": "red"
-      },
-      "alias": "Головнокомандувач ЗСУ",
-      "issue": "war",
-      "kind": "person"
     },
     {
       "name": "generalstaffzsu",
@@ -570,18 +541,6 @@
       ]
     },
     {
-      "name": "HromadskeRadioNews",
-      "groups": {
-        "main": "blue"
-      },
-      "alias": "Громадське радіо",
-      "issue": "main",
-      "kind": "media",
-      "badges": [
-        "imi_white"
-      ]
-    },
-    {
       "name": "Novynarnia",
       "groups": {
         "main": "blue",
@@ -589,19 +548,6 @@
       },
       "alias": "Новинарня",
       "issue": "main",
-      "kind": "media",
-      "badges": [
-        "imi_white"
-      ]
-    },
-    {
-      "name": "donbasfrontliner",
-      "groups": {
-        "main": "blue",
-        "war": "blue"
-      },
-      "alias": "Frontliner",
-      "issue": "war",
       "kind": "media",
       "badges": [
         "imi_white"
@@ -643,7 +589,7 @@
         "main": "blue",
         "war": "blue"
       },
-      "alias": "3-тя штурмова",
+      "alias": "Третій армійський корпус",
       "issue": "war",
       "kind": "organization"
     },
@@ -728,7 +674,7 @@
       "kind": "media"
     },
     {
-      "name": "apostrophe_online",
+      "name": "ApostropheUA",
       "groups": {
         "main": "blue"
       },
@@ -765,17 +711,6 @@
       "kind": "person"
     },
     {
-      "name": "presidentporoshenko",
-      "groups": {
-        "main": "blue",
-        "politics": "blue",
-        "other": "blue"
-      },
-      "alias": "Петро Порошенко",
-      "issue": "politics",
-      "kind": "person"
-    },
-    {
       "name": "oleksiihoncharenko",
       "groups": {
         "main": "blue",
@@ -794,17 +729,6 @@
         "other": "blue"
       },
       "alias": "Залізний нардеп",
-      "issue": "politics",
-      "kind": "person"
-    },
-    {
-      "name": "biletskyandriy",
-      "groups": {
-        "main": "blue",
-        "politics": "blue",
-        "war": "blue"
-      },
-      "alias": "Андрій Білецький",
       "issue": "politics",
       "kind": "person"
     },
@@ -844,7 +768,7 @@
         "main": "blue",
         "tech": "blue"
       },
-      "alias": "Mezha.Media",
+      "alias": "Межа",
       "issue": "tech",
       "kind": "media"
     },
@@ -915,16 +839,6 @@
         "tech": "blue"
       },
       "alias": "Olena Kirichok's tech",
-      "issue": "tech",
-      "kind": "person"
-    },
-    {
-      "name": "startup_ukr",
-      "groups": {
-        "main": "blue",
-        "tech": "blue"
-      },
-      "alias": "Стартапенко",
       "issue": "tech",
       "kind": "person"
     },
@@ -1051,17 +965,6 @@
       "kind": "organization"
     },
     {
-      "name": "nachasi_com",
-      "groups": {
-        "main": "blue",
-        "tech": "blue"
-      },
-      "alias": "Na chasi",
-      "issue": "tech",
-      "kind": "media",
-      "disabled": true
-    },
-    {
       "name": "AI_Dvizh",
       "groups": {
         "main": "blue",
@@ -1097,7 +1000,7 @@
         "main": "blue",
         "economy": "blue"
       },
-      "alias": "Економічна правда",
+      "alias": "ЕП. Економічні хроніки війни",
       "issue": "economy",
       "kind": "media"
     },
@@ -1127,7 +1030,7 @@
         "main": "blue",
         "economy": "blue"
       },
-      "alias": "Опендатабот",
+      "alias": "Опендатамедіа",
       "issue": "economy",
       "kind": "organization"
     },
@@ -1202,16 +1105,6 @@
       "kind": "person"
     },
     {
-      "name": "toisamyibabich",
-      "groups": {
-        "main": "blue",
-        "other": "blue"
-      },
-      "alias": "Той самий Бабіч",
-      "issue": "other",
-      "kind": "person"
-    },
-    {
       "name": "artemborodatiuk",
       "groups": {
         "main": "blue",
@@ -1273,7 +1166,7 @@
       "kind": "person"
     },
     {
-      "name": "othernot",
+      "name": "blognot",
       "groups": {
         "main": "blue",
         "tech": "blue",
@@ -1282,37 +1175,6 @@
       "alias": "БлоGнот",
       "issue": "other",
       "kind": "person"
-    },
-    {
-      "name": "addmeto",
-      "groups": {
-        "main": "blue",
-        "tech": "blue",
-        "other": "blue"
-      },
-      "alias": "addmeto",
-      "issue": "other",
-      "kind": "person"
-    },
-    {
-      "name": "ukrainer_net",
-      "groups": {
-        "main": "blue",
-        "culture": "blue"
-      },
-      "alias": "UKRAЇNER",
-      "issue": "culture",
-      "kind": "media"
-    },
-    {
-      "name": "kunshtmagazine",
-      "groups": {
-        "main": "blue",
-        "culture": "blue"
-      },
-      "alias": "Куншт",
-      "issue": "culture",
-      "kind": "media"
     },
     {
       "name": "footballuaonline",
