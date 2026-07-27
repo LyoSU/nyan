@@ -12,7 +12,12 @@ from nyan.mongo import get_documents_collection, get_annotated_documents_collect
 from nyan.util import Serializable, gen_batch, normalize_url
 
 
-CURRENT_VERSION = 6
+# Bumped whenever a change to the annotation pipeline makes stored annotations
+# unusable, which sends every cached document back through the annotator.
+# 7: the image encoder became SigLIP 2 and the language detector changed, so
+# annotations from before carry 512-wide image vectors next to the new 768-wide
+# ones, and a `language` decided by a different classifier.
+CURRENT_VERSION = 7
 
 MAX_CROPPED_WORDS = 50
 

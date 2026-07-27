@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+from collections import defaultdict
 from typing import Any, cast
 
 import numpy as np
@@ -175,10 +176,20 @@ class Clusterer:
         if len(embeddings) < 2:
             return dict()
 
-        dim = len(embeddings[0])
-        np_embeddings = np.zeros((len(image2doc), dim), dtype=np.float32)
+        # Vectors of different widths can meet in one batch: annotations are
+        # cached in Mongo, so for as long as documents from before an image
+        # encoder swap are still in the window, what the old model wrote arrives
+        # alongside what the new one produces. Comparing across widths is
+        # meaningless, but each width is worth clustering on its own — while the
+        # alternative, one ragged matrix, is a crash that takes the iteration
+        # and the sender loop with it.
+        by_width: dict[int, list[int]] = defaultdict(list)
         for i, embedding in enumerate(embeddings):
-            np_embeddings[i, :] = embedding
+            by_width[len(embedding)].append(i)
+        if len(by_width) > 1:
+            logging.warning(
+                "Image embeddings of several widths: %s", sorted(by_width)
+            )
 
         clustering = AgglomerativeClustering(
             n_clusters=None,
@@ -187,6 +198,20 @@ class Clusterer:
             distance_threshold=0.02,
         )
 
-        labels = clustering.fit_predict(np_embeddings).tolist()
+        labels = [0] * len(embeddings)
+        offset = 0
+        for indices in by_width.values():
+            # A width held by a single image has nothing to be a duplicate of,
+            # but it still needs a label of its own so it matches nothing.
+            if len(indices) < 2:
+                labels[indices[0]] = offset
+                offset += 1
+                continue
+            matrix = np.array([embeddings[i] for i in indices], dtype=np.float32)
+            group = clustering.fit_predict(matrix).tolist()
+            for i, label in zip(indices, group, strict=True):
+                labels[i] = offset + label
+            offset += max(group) + 1
+
         logging.info("%d images in %d groups", len(labels), len(set(labels)))
         return {image2doc[i]: label for i, label in enumerate(labels)}

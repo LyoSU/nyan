@@ -86,11 +86,13 @@ GENERATION_GROWTH = 1.5
 def _deduplicate_images(images: Sequence[dict[str, Any]]) -> tuple[str, ...]:
     """`images` with near-duplicates and repeats of the same URL removed.
 
-    Comparison is by CLIP embedding, because the same photo redistributed by
+    Comparison is by image embedding, because the same photo redistributed by
     several channels gets a different URL from each of them. Images stored
     without an embedding (older documents, or a fetch that failed) are kept on
     URL identity alone — a possible duplicate is a smaller price than dropping
-    the only picture of an event.
+    the only picture of an event. The same goes for one whose embedding is of a
+    width nothing else here shares, which is what an encoder swap leaves behind
+    in the annotation cache.
     """
     kept: list[str] = []
     kept_embeddings: list[NDArray[np.float32]] = []
@@ -101,10 +103,12 @@ def _deduplicate_images(images: Sequence[dict[str, Any]]) -> tuple[str, ...]:
             continue
         embedding = image.get("embedding")
         vector = _unit_vector(embedding) if embedding else None
-        if vector is not None and kept_embeddings:
-            similarity = float(np.max(np.stack(kept_embeddings) @ vector))
-            if similarity >= DUPLICATE_IMAGE_SIMILARITY:
-                continue
+        if vector is not None:
+            comparable = [v for v in kept_embeddings if v.shape == vector.shape]
+            if comparable:
+                similarity = float(np.max(np.stack(comparable) @ vector))
+                if similarity >= DUPLICATE_IMAGE_SIMILARITY:
+                    continue
         seen_urls.add(url)
         kept.append(url)
         if vector is not None:

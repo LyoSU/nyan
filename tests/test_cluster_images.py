@@ -157,6 +157,21 @@ def test_a_single_source_story_still_shows_its_photo() -> None:
     assert cluster.images == ("a.jpg",)
 
 
+def test_embeddings_of_different_widths_do_not_break_comparison() -> None:
+    """An encoder swap leaves both widths in the annotation cache at once.
+
+    They cannot be compared with each other, so the picture of the odd width is
+    kept — but the pair that does share a width is still deduplicated.
+    """
+    cluster = make_cluster(
+        make_doc("a", [{"url": "a.jpg", "embedding": unit(0.0)}]),
+        make_doc("b", [{"url": "b.jpg", "embedding": [1.0, 0.0, 0.0]}]),
+        make_doc("c", [{"url": "c.jpg", "embedding": unit(NEAR)}]),
+    )
+
+    assert cluster.images == ("a.jpg", "b.jpg")
+
+
 def test_a_zero_embedding_does_not_break_comparison() -> None:
     """It carries no direction, so it cannot be compared — keep the photo."""
     cluster = make_cluster(

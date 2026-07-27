@@ -147,6 +147,24 @@ def test_matching_images_pull_documents_together(tmp_path: Any) -> None:
     )
 
 
+def test_image_embeddings_of_different_widths_do_not_crash(tmp_path: Any) -> None:
+    """A swap of the image encoder leaves both widths in one batch.
+
+    Annotations are cached in Mongo, so on the first iteration after the swap
+    the documents already stored carry the old model's vectors while freshly
+    annotated ones carry the new model's. Comparing them is meaningless, but it
+    must not take the whole sender down with it.
+    """
+    clusterer = make_clusterer(tmp_path, image_bonus=0.5)
+    old = make_doc("a", 0, images=1)
+    new = make_doc("b", 100)
+    new.embedded_images = ({"url": "i0", "embedding": [0.0, 1.0, 0.0, 0.0, 0.0, 0.0]},)
+
+    distances = clusterer.calc_distances([old, new])
+
+    assert distances.shape == (2, 2)
+
+
 def test_a_single_document_still_clusters(tmp_path: Any) -> None:
     clusterer = make_clusterer(tmp_path, same_channels_penalty=5.0)
 
