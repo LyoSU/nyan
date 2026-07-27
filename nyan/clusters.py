@@ -369,11 +369,23 @@ class Cluster:
         # are minutes apart in the daemon, but not when a cluster is re-analysed
         # after its coverage grew.
         today = format_date_uk(ts_to_dt(self.create_time or get_current_ts()))
+        # What we already published about this story, when this call is a
+        # rewrite. Reaching this line means the stored generation was outgrown,
+        # so `saved` is the version now in the channel and on the site — a
+        # version a reader may already have read, and one that recorded which
+        # channel each attributed claim came from. Passed as the same JSON the
+        # model itself wrote, so the attribution survives the round trip: a
+        # detail that stood on one channel and is now given independently by
+        # others belongs in the prose, and one that is still alone does not.
+        previous_post = ""
+        if saved is not None and saved.get("summary"):
+            previous_post = json.dumps(saved["summary"], ensure_ascii=False)
         prompt = template.render(
             docs=docs,
             annotation_doc=self.annotation_doc,
             today=today,
             reply_to_headline=self.reply_to_headline,
+            previous_post=previous_post,
         )
 
         analysis: dict[str, Any] = {"headline": None, "generation": current}

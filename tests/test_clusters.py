@@ -405,3 +405,70 @@ def test_a_cluster_stored_before_replies_were_passed_has_no_neighbour() -> None:
     del record["reply_to_headline"]
 
     assert Cluster.fromdict(record).reply_to_headline == ""
+
+
+# ------------------------------------------------- what the rewrite already said
+#
+# A rewrite edits a post that is already in the channel and on the site, so the
+# model has to be told what it published — otherwise every growth step is an
+# unrelated take on the same event, and the attribution it recorded last time is
+# thrown away with it.
+
+
+def test_a_rewrite_is_shown_the_version_it_replaces(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    cluster = _make_multi_channel_cluster()
+    calls = _patch_llm(monkeypatch)
+
+    assert cluster.summary
+    cluster.add(_make_doc("https://t.me/source_c/1", channel_id="channel_c"))
+    assert cluster.summary
+    assert len(calls) == 2
+
+    rewrite_prompt = calls[1]["messages"][0]["content"]
+    assert "Про попередню версію цього поста" in rewrite_prompt
+    assert "Що сталося." in rewrite_prompt
+
+
+def test_a_first_pass_has_no_previous_version_to_show(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Nothing published yet, so the section has to be absent rather than empty."""
+    cluster = _make_multi_channel_cluster()
+    calls = _patch_llm(monkeypatch)
+
+    assert cluster.summary
+    assert "Про попередню версію цього поста" not in calls[0]["messages"][0]["content"]
+
+
+def test_a_rewrite_carries_the_attribution_it_recorded(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Which channel a claim stood on is the part a fresh take would lose.
+
+    It is what lets the next version notice that a lone detail is now given by
+    others too, and belongs in the prose without a credit.
+    """
+    cluster = _make_multi_channel_cluster()
+    _patch_llm(
+        monkeypatch,
+        response=json.dumps(
+            {
+                "headline": "Заголовок",
+                "blocks": [
+                    {"type": "text", "text": "Що сталося."},
+                    {
+                        "type": "attributed",
+                        "claims": [
+                            {"text": "уламки впали на школу", "channels": ["channel_b"]}
+                        ],
+                    },
+                ],
+            },
+            ensure_ascii=False,
+        ),
+    )
+    assert cluster.summary
+
+    calls = _patch_llm(monkeypatch)
+    cluster.add(_make_doc("https://t.me/source_c/1", channel_id="channel_c"))
+    assert cluster.summary
+
+    rewrite_prompt = calls[0]["messages"][0]["content"]
+    assert "уламки впали на школу" in rewrite_prompt
+    assert "channel_b" in rewrite_prompt
