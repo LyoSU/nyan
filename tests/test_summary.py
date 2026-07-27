@@ -296,13 +296,13 @@ def test_an_unattributed_claim_is_dropped_rather_than_shown_bare() -> None:
     assert types(summary) == [TEXT]
 
 
-def test_one_version_is_not_a_disagreement() -> None:
-    """A `disputed` block with a single side is a lone claim, so it is labelled
-    as one: telling the reader the sources conflict when only one of them said
-    anything is a stronger claim than the sources support."""
+def test_one_channel_against_the_rest_is_a_whole_dispute() -> None:
+    """The sides of a dispute are deviations from the prose, and the consensus
+    version is the prose — so it is never one of them. A lone deviation is the
+    most informative case there is, not a half-filled block."""
     summary = parse_summary(
         blocks(
-            {"type": TEXT, "text": "Лід."},
+            {"type": TEXT, "text": "Загинуло четверо людей."},
             {
                 "type": DISPUTED,
                 "claims": [{"text": "загиблих п'ятеро", "channels": ["trukha"]}],
@@ -311,7 +311,10 @@ def test_one_version_is_not_a_disagreement() -> None:
         allowed_channels={"trukha"},
     )
 
-    assert types(summary) == [TEXT, ATTRIBUTED]
+    assert types(summary) == [TEXT, DISPUTED]
+    assert summary.blocks[1].claims == [
+        {"text": "загиблих п'ятеро", "channels": ["trukha"]}
+    ]
 
 
 def test_the_same_channels_are_not_credited_twice_in_one_block() -> None:

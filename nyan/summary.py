@@ -344,14 +344,12 @@ def _parse_claims(
 ) -> SummaryBlock | None:
     """Statements with the channels behind them.
 
-    Both kinds live here because they are one measurement read two ways. Two
-    channel groups saying different things about the same fact is a dispute; one
-    group saying something nobody else does is a detail only they carry. The
-    difference is how many groups there are, and the model's own labelling of
-    that is worth checking — so a `disputed` block that arrived with a single
-    side becomes `attributed` instead. One version is not a disagreement, and
-    calling it one tells the reader the sources conflict when they simply differ
-    in what they cover.
+    Both kinds hold the same shape because both are deviations from the prose
+    above them, and they differ only in what kind: `attributed` adds something
+    the other sources do not carry, `disputed` contradicts what the post says.
+    Neither ever restates the consensus — that is what the prose is — so a
+    single claim is a complete block. One channel against everyone else is the
+    most informative case there is, not a malformed dispute.
 
     An unattributed claim is dropped: without a name the reader cannot tell a
     lone channel's addition from what everyone reported, which is the whole
@@ -404,10 +402,8 @@ def _parse_claims(
             seen.add(key)
             claims.append({"text": text, "channels": names})
 
-    if len(claims) > 1:
+    if claims:
         return SummaryBlock(type=block_type, claims=claims)
-    if len(claims) == 1:
-        return SummaryBlock(type=ATTRIBUTED, claims=claims)
 
     # No usable attribution left. A `disputed` line still stands on its own —
     # that is the shape every stored post before this used — but an
