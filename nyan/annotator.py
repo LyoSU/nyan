@@ -15,6 +15,7 @@ from nyan.classifier import ClassifierHead
 from nyan.embedder import Embedder
 from nyan.text import TextProcessor
 from nyan.image import ImageProcessor
+from nyan.rubrics import RubricDetector
 from nyan.tokenizer import Tokenizer
 from nyan.util import normalize_channel_id
 
@@ -53,6 +54,10 @@ class Annotator:
         if "cat_detector" in config:
             self.cat_detector = ClassifierHead(config["cat_detector"])
 
+        self.rubric_detector = None
+        if "rubric_detector" in config:
+            self.rubric_detector = RubricDetector(config["rubric_detector"])
+
         boilerplate_config: dict[str, Any] = config.get("boilerplate", {})
         self.boilerplate_min_docs = boilerplate_config.get(
             "min_docs", DEFAULT_BOILERPLATE_MIN_DOCS
@@ -85,7 +90,10 @@ class Annotator:
             docs = self.calc_embeddings(docs)
             logging.info("Embeddings calculated for %d documents", len(docs))
 
-        post_pipeline = (self.predict_category,)
+        # The rubric check runs after the model, and overrides it: the model has
+        # no way to know that a funeral notice is routine rather than news, so
+        # whatever category it picked for one is wrong.
+        post_pipeline = (self.predict_category, self.detect_rubrics)
         processed_docs = list()
         for doc in tqdm(docs, desc="Annotator post-embeddings pipeline"):
             for step in post_pipeline:
@@ -242,6 +250,13 @@ class Annotator:
         category, scores = self.cat_detector(doc.embedding, doc.embedding_key)
         doc.category_scores = scores
         doc.category = category
+        return doc
+
+    def detect_rubrics(self, doc: Document) -> Document:
+        if not self.rubric_detector or not doc.patched_text:
+            return doc
+        if self.rubric_detector(doc.patched_text):
+            doc.category = "not_news"
         return doc
 
     def process_images(self, doc: Document) -> Document:

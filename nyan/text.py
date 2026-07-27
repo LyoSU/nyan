@@ -72,9 +72,14 @@ class TextProcessor:
             remove_bad_punct,
             fix_paragraphs,
         )
-        self.skip_substrings = config["skip_substrings"]
+        # Both checks are case-insensitive: the substrings are here to recognise
+        # a recurring rubric or a swear word, and a channel that writes its
+        # rubric heading in caps one day is doing the same thing. `rm_substrings`
+        # stays literal, because it edits the text rather than judging it, and a
+        # case-insensitive replacement would have to guess what to put back.
+        self.skip_substrings = [ss.lower() for ss in config["skip_substrings"]]
         self.rm_substrings = config["rm_substrings"]
-        self.obscene_substrings = config["obscene_substrings"]
+        self.obscene_substrings = [ss.lower() for ss in config["obscene_substrings"]]
 
     def __call__(self, text: str) -> str:
         if not text:
@@ -93,10 +98,12 @@ class TextProcessor:
         return text.strip()
 
     def has_obscene(self, text: str) -> bool:
-        return any(ss in text for ss in self.obscene_substrings)
+        lowered = text.lower()
+        return any(ss in lowered for ss in self.obscene_substrings)
 
     def is_bad_text(self, text: str) -> bool:
-        return any(ss in text for ss in self.skip_substrings)
+        lowered = text.lower()
+        return any(ss in lowered for ss in self.skip_substrings)
 
     def remove_bad_text(self, text: str) -> str:
         for ss in self.rm_substrings:
