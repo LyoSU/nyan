@@ -2,13 +2,17 @@ import re
 from typing import Any
 
 
+MACRO = re.compile(r"%(\w+)%")
+
+
 class RubricDetector:
     """Recognises posts that are a channel's routine rather than news.
 
     The daily 9am minute of silence, a digest of what already happened, a
-    funeral notice — a reader scrolling the feed does not want any of these, and
-    the category model does not catch them: it was trained on what a post is
-    about, and these are about war, politics and grief like the news around them.
+    funeral notice, the siren going off and the all-clear — a reader scrolling
+    the feed does not want any of these, and the category model does not catch
+    them: it was trained on what a post is about, and these are about war,
+    politics and grief like the news around them.
 
     This is deliberately not part of `TextProcessor`. That class decides whether
     text is usable — obscene, empty, mangled — and answers by returning an empty
@@ -21,26 +25,46 @@ class RubricDetector:
     heading sits at the start of a post; a news story that merely mentions the
     minute of silence mentions it in the middle of a longer text. Matching a bare
     substring anywhere would take the news with the ritual.
+
+    A pattern may name a macro as `%name%`, expanded from `config["macros"]`
+    before compiling. One condition — that a post naming casualties or damage is
+    a report of the strike and not of the siren — has to hold for every air-raid
+    pattern, and writing that lookahead out six times is how five of them come
+    to disagree with the sixth. An unknown macro raises rather than compiling to
+    a literal `%name%` that would silently never match.
     """
 
     def __init__(self, config: dict[str, Any]) -> None:
-        self.patterns = [
-            re.compile(pattern, re.IGNORECASE)
+        macros: dict[str, str] = config.get("macros", {})
+        # Kept beside the compiled form so `explain` can answer with the line as
+        # written in the config, which is the line a human has to edit.
+        self.patterns: list[tuple[str, re.Pattern[str]]] = [
+            (pattern, re.compile(self.expand(pattern, macros), re.IGNORECASE))
             for pattern in config.get("patterns", [])
         ]
+
+    @staticmethod
+    def expand(pattern: str, macros: dict[str, str]) -> str:
+        def substitute(match: re.Match[str]) -> str:
+            name = match.group(1)
+            if name not in macros:
+                raise KeyError(f"Unknown rubric macro '{name}' in {pattern!r}")
+            return macros[name]
+
+        return MACRO.sub(substitute, pattern)
 
     def __call__(self, text: str) -> bool:
         stripped = text.strip()
         if not stripped:
             return False
-        return any(pattern.search(stripped) for pattern in self.patterns)
+        return any(regexp.search(stripped) for _, regexp in self.patterns)
 
     def explain(self, text: str) -> str | None:
         """The pattern that matched, for working out why a post disappeared."""
         stripped = text.strip()
         if not stripped:
             return None
-        for pattern in self.patterns:
-            if pattern.search(stripped):
-                return pattern.pattern
+        for source, regexp in self.patterns:
+            if regexp.search(stripped):
+                return source
         return None
