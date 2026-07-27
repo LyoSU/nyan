@@ -182,6 +182,16 @@
       "kind": "organization"
     },
     {
+      "name": "tax_gov_ua",
+      "groups": {
+        "main": "red",
+        "economy": "red"
+      },
+      "alias": "Податкова служба",
+      "issue": "economy",
+      "kind": "organization"
+    },
+    {
       "name": "dsns_telegram",
       "groups": {
         "main": "red"
@@ -366,6 +376,16 @@
       ]
     },
     {
+      "name": "cxemu",
+      "groups": {
+        "main": "blue",
+        "politics": "blue"
+      },
+      "alias": "Схеми",
+      "issue": "main",
+      "kind": "media"
+    },
+    {
       "name": "bbcukrainian",
       "groups": {
         "main": "blue",
@@ -479,6 +499,24 @@
         "politics": "blue"
       },
       "alias": "Bihus.Info",
+      "issue": "main",
+      "kind": "media"
+    },
+    {
+      "name": "stopfake",
+      "groups": {
+        "main": "blue"
+      },
+      "alias": "StopFake",
+      "issue": "main",
+      "kind": "media"
+    },
+    {
+      "name": "detector_media",
+      "groups": {
+        "main": "blue"
+      },
+      "alias": "Детектор медіа",
       "issue": "main",
       "kind": "media"
     },
@@ -718,6 +756,17 @@
         "other": "blue"
       },
       "alias": "Олексій Гончаренко",
+      "issue": "politics",
+      "kind": "person"
+    },
+    {
+      "name": "irynagerashchenko",
+      "groups": {
+        "main": "blue",
+        "politics": "blue",
+        "other": "blue"
+      },
+      "alias": "Ірина Геращенко",
       "issue": "politics",
       "kind": "person"
     },
@@ -1065,6 +1114,57 @@
       "kind": "media"
     },
     {
+      "name": "retailers_ua",
+      "groups": {
+        "main": "blue",
+        "economy": "blue"
+      },
+      "alias": "Retailers.ua",
+      "issue": "economy",
+      "kind": "media"
+    },
+    {
+      "name": "delo_ua",
+      "groups": {
+        "main": "blue",
+        "economy": "blue"
+      },
+      "alias": "delo.ua",
+      "issue": "economy",
+      "kind": "media"
+    },
+    {
+      "name": "finclub_ua",
+      "groups": {
+        "main": "blue",
+        "economy": "blue"
+      },
+      "alias": "FinClub",
+      "issue": "economy",
+      "kind": "media"
+    },
+    {
+      "name": "vctrmedia",
+      "groups": {
+        "main": "blue",
+        "economy": "blue",
+        "tech": "blue"
+      },
+      "alias": "Vector",
+      "issue": "economy",
+      "kind": "media"
+    },
+    {
+      "name": "bizcensor",
+      "groups": {
+        "main": "blue",
+        "economy": "blue"
+      },
+      "alias": "Бізнес Цензор",
+      "issue": "economy",
+      "kind": "media"
+    },
+    {
       "name": "ssternenko",
       "groups": {
         "main": "blue",
@@ -1183,6 +1283,26 @@
         "culture": "blue"
       },
       "alias": "FOOTBALL.UA",
+      "issue": "culture",
+      "kind": "media"
+    },
+    {
+      "name": "chytomo",
+      "groups": {
+        "main": "blue",
+        "culture": "blue"
+      },
+      "alias": "Читомо",
+      "issue": "culture",
+      "kind": "media"
+    },
+    {
+      "name": "suspilne_culture",
+      "groups": {
+        "main": "blue",
+        "culture": "blue"
+      },
+      "alias": "Суспільне Культура",
       "issue": "culture",
       "kind": "media"
     },
