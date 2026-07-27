@@ -5,7 +5,7 @@ import numpy as np
 from numpy.typing import NDArray
 import requests
 import torch
-from transformers import CLIPProcessor, CLIPModel
+from transformers import AutoModel, AutoProcessor
 from tqdm.auto import tqdm
 from PIL import Image
 
@@ -13,14 +13,34 @@ from nyan.util import gen_batch
 
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-DEFAULT_CLIP_PATH = "openai/clip-vit-base-patch32"
+
+# SigLIP 2 in place of the original CLIP. Same idea — one shared space for
+# images and texts, compared by cosine — but trained with a sigmoid loss, which
+# separates near-identical images much better. That is precisely the job here:
+# recognising the same photo reposted by several channels, and a channel's own
+# recurring boilerplate image. The thresholds that consume these similarities
+# are calibrated per model, so changing this id means re-checking them.
+# The NaFlex variant, not the fixed-224 one: it keeps a picture's native
+# aspect ratio instead of squashing it to a square, which matters for the
+# screenshots and wide news photos that make up much of the feed. It is also
+# the variant that loads cleanly — the fixed-resolution siglip2 checkpoints
+# report `model_type: siglip`, for which transformers 5.2 has a null tokenizer
+# mapping and raises AttributeError inside AutoProcessor.
+DEFAULT_MODEL_PATH = "google/siglip2-base-patch16-naflex"
+
+# SigLIP was trained with every caption padded to a fixed length, and the text
+# tower expects that shape. Padding to the longest item in the batch instead
+# would make one text's embedding depend on what else happened to be batched
+# with it — a difference that is invisible until retrieval quality drifts.
+TEXT_MAX_LENGTH = 64
+
 T = TypeVar("T")
 
 
-class ClipEmbedder:
+class VisionEmbedder:
     def __init__(
         self,
-        model_name: str = DEFAULT_CLIP_PATH,
+        model_name: str = DEFAULT_MODEL_PATH,
         normalize: bool = True,
         image_batch_size: int = 16,
         text_batch_size: int = 32,
@@ -28,10 +48,8 @@ class ClipEmbedder:
         enable_tqdm: bool = False,
     ):
         self.model_name = model_name
-        # from_pretrained accepts a model id as a string; the stubs only
-        # declare the overload that takes an already loaded model.
-        self.model = CLIPModel.from_pretrained(model_name).to(device)  # type: ignore[arg-type]
-        self.processor = CLIPProcessor.from_pretrained(model_name)
+        self.model = AutoModel.from_pretrained(model_name).to(device)
+        self.processor = AutoProcessor.from_pretrained(model_name)  # type: ignore[no-untyped-call]
         self.image_batch_size = image_batch_size
         self.text_batch_size = text_batch_size
         self.normalize = normalize
@@ -56,7 +74,7 @@ class ClipEmbedder:
             func=self._process_images_batch,
             inputs=images,
             batch_size=self.image_batch_size,
-            desc="CLIP image embeddings",
+            desc="Image embeddings",
         )
 
     def embed_texts(self, texts: list[str]) -> NDArray[np.float32]:
@@ -64,7 +82,7 @@ class ClipEmbedder:
             func=self._process_texts_batch,
             inputs=texts,
             batch_size=self.text_batch_size,
-            desc="CLIP text embeddings",
+            desc="Text embeddings",
         )
 
     def _calc_embeddings(
@@ -74,17 +92,19 @@ class ClipEmbedder:
         batch_size: int,
         desc: str,
     ) -> NDArray[np.float32]:
-        embeddings: torch.Tensor = torch.zeros((len(inputs), self.model.projection_dim))
-        total = len(inputs) // batch_size + 1
-        gen = enumerate(gen_batch(inputs, batch_size))
-        for batch_num, batch in tqdm(
-            gen, total=total, desc=desc, disable=not self.enable_tqdm
-        ):
+        # The width of the output is whatever the model returns, discovered from
+        # the batches themselves rather than read off a config attribute:
+        # `projection_dim` exists on CLIP and not on SigLIP, and hard-coding
+        # either one is how this breaks again at the next encoder swap.
+        if not inputs:
+            return np.zeros((0, 0), dtype=np.float32)
+        batches: list[torch.Tensor] = []
+        total = (len(inputs) + batch_size - 1) // batch_size
+        gen = gen_batch(inputs, batch_size)
+        for batch in tqdm(gen, total=total, desc=desc, disable=not self.enable_tqdm):
             with torch.no_grad():
-                batch_embeddings = func(batch)
-            start_index = batch_num * batch_size
-            end_index = (batch_num + 1) * batch_size
-            embeddings[start_index:end_index, :] = batch_embeddings
+                batches.append(func(batch).cpu())
+        embeddings = torch.cat(batches, dim=0)
         if self.normalize:
             embeddings /= embeddings.norm(dim=-1, keepdim=True)
         return cast(NDArray[np.float32], embeddings.numpy())
@@ -101,7 +121,11 @@ class ClipEmbedder:
 
     def _process_texts_batch(self, texts: list[str]) -> torch.Tensor:
         inputs: dict[str, torch.Tensor] = self.processor(
-            text=texts, return_tensors="pt", padding=True
+            text=texts,
+            return_tensors="pt",
+            padding="max_length",
+            max_length=TEXT_MAX_LENGTH,
+            truncation=True,
         )
         inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
         result = self.model.get_text_features(**inputs)

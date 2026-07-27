@@ -8,7 +8,7 @@ from nyan.annotator import Annotator
 from nyan.document import read_documents_file, Document
 from nyan.clusterer import Clusterer
 from nyan.ranker import Ranker
-from nyan.fasttext_clf import FasttextClassifier
+from nyan.lang_detector import LanguageDetector
 from nyan.renderer import Renderer
 from nyan.channels import Channels
 from nyan.clusters import Clusters
@@ -57,8 +57,8 @@ def annotator_output_path() -> str:
 
 
 @pytest.fixture
-def lang_detector() -> FasttextClassifier:
-    return FasttextClassifier("models/lid.176.bin")
+def lang_detector() -> LanguageDetector:
+    return LanguageDetector("models/lid.176.bin")
 
 
 def get_ranker_output_path() -> str:
@@ -175,5 +175,5 @@ def compare_docs():
 
 
 @pytest.fixture
-def clip_data() -> list[dict[str, str]]:
-    return list(read_jsonl("tests/data/clip.jsonl"))
+def image_data() -> list[dict[str, str]]:
+    return list(read_jsonl("tests/data/images.jsonl"))

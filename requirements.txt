@@ -15,8 +15,12 @@ html2text >= 2024.2.26
 fasttext-wheel >= 0.9.2
 # The pinned ML stack still resolves numpy 1.x; 2.x is untested here.
 numpy >= 1.26, < 2.0
-transformers >= 4.40
+# 4.49+ specifically: that release added SigLIP 2, which nyan/vision.py loads.
+transformers >= 4.49
 torch >= 2.2
+# Without it transformers falls back to a pure-Python image processor, and
+# every post with a photo pays for it.
+torchvision >= 0.17
 pyonmttok >= 1.37
 natasha >= 1.6
 pillow >= 10.4

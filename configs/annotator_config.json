@@ -18,10 +18,7 @@
         "min_ratio": 0.5
     },
     "image_processor": {
-        "rm_images": [
-            "https://iili.io/HYeukLg.md.jpg"
-        ],
-        "rm_threshold": 0.9
+        "model_name": "google/siglip2-base-patch16-naflex"
     },
     "rubric_detector": {
         "patterns": [
@@ -47,7 +44,10 @@
             "^(?=[\\s\\S]{0,400}$)[\\s\\S]{0,90}?\\b(?:йому|їй)\\s+назавжди\\s+\\d+"
         ]
     },
-    "lang_detector": "models/lid.176.bin",
+    "lang_detector": {
+        "path": "models/lid.176.bin",
+        "min_probability": 0.5
+    },
     "cat_detector": {
         "path": "models/multilingual_e5_base_cat_detect.joblib",
         "embedding_key": "multilingual_e5_base",

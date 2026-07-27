@@ -10,7 +10,7 @@ from tqdm import tqdm
 
 from nyan.channels import Channels
 from nyan.document import Document
-from nyan.fasttext_clf import FasttextClassifier
+from nyan.lang_detector import LanguageDetector
 from nyan.classifier import ClassifierHead
 from nyan.embedder import Embedder
 from nyan.text import TextProcessor
@@ -48,7 +48,7 @@ class Annotator:
 
         self.lang_detector = None
         if "lang_detector" in config:
-            self.lang_detector = FasttextClassifier(config["lang_detector"])
+            self.lang_detector = LanguageDetector(config["lang_detector"])
 
         self.cat_detector = None
         if "cat_detector" in config:

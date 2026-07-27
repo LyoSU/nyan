@@ -1,12 +1,12 @@
 from sklearn.metrics.pairwise import cosine_similarity
 
-from nyan.clip import ClipEmbedder
+from nyan.vision import VisionEmbedder
 
 
-def test_clip(clip_data):
-    texts = [r["en_text"] for r in clip_data]
-    images = [r["image"] for r in clip_data]
-    embedder = ClipEmbedder()
+def test_vision_matches_texts_to_images(image_data):
+    texts = [r["en_text"] for r in image_data]
+    images = [r["image"] for r in image_data]
+    embedder = VisionEmbedder()
     images = embedder.fetch_images(images)
     text_embeddings = embedder.embed_texts(texts)
     image_embeddings = embedder.embed_images([i["content"] for i in images])
@@ -15,13 +15,13 @@ def test_clip(clip_data):
     for i, (text, image) in enumerate(zip(texts, images, strict=True)):
         best_index = similarity[i].argmax()
         assert best_index == i, \
-            f"CLIP: {text} vs {image} mismath, matching image: {images[best_index]}"
+            f"{text} vs {image} mismatch, matching image: {images[best_index]}"
 
 
-def test_image_processor(clip_data, annotator):
-    images = [r["image"] for r in clip_data]
+def test_image_processor(image_data, annotator):
+    images = [r["image"] for r in image_data]
 
-    embedder = ClipEmbedder()
+    embedder = VisionEmbedder()
     fetched_images = embedder.fetch_images(images)
     image_embeddings = embedder.embed_images([i["content"] for i in fetched_images])
 
