@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 
 import pytest
 
@@ -80,6 +81,43 @@ ROUTINE = [
     "🟢 Відбій повітряної тривоги у Києві та низці областей",
     # The alert says where, and then why. The reason is part of the alert.
     "❗️Тривога в Києві та низці областей через загрозу БпЛА.",
+    # Collected by running the detector over 262 live posts from thirty of the
+    # channels in channels.json. Each block below is a format a whole channel
+    # publishes many times a day, and every one of them was getting through.
+    #
+    # The passive voice: "оголошена" is not "оголосили", and the siren is
+    # announced in the nominative, not the accusative the pattern asked for.
+    "🚨УВАГА🚨\nОголошена повітряна тривога по всій Запорізькій області!\n"
+    "Бережіть себе і терміново прослідуйте у безпечне місце!",
+    "‼УВАГА! У Києві оголошена повітряна тривога!\n"
+    "Просимо всіх терміново прослідувати в укриття цивільного захисту!\n"
+    "Мапа укриттів - ‼ ATTENTION! Air raid sirens in Kyiv!\n"
+    "Please proceed to the nearest shelter!",
+    # The place on a line of its own, sometimes two of them, with the event
+    # marker pressed straight up against the newline.
+    "ЧЕРКАСЬКА ОБЛАСТЬ\n❗️❗️ПОВІТРЯНА ТРИВОГА (27.07/11:52)",
+    "ЧЕРКАСЬКА ОБЛАСТЬ\n🟢ВІДБІЙ (27.07/12:07)",
+    "Уманський район \nЗвенигородський район\n🟢ВІДБІЙ (28.07/00:29)",
+    # And the same thing on one line, where the separator was an emoji the text
+    # processor strips, leaving nothing but the space it sat in.
+    "УВАГА!  КІРОВОГРАДСЬКА ОБЛАСТЬ  ВІДБІЙ ПОВІТРЯНОЇ ТРИВОГИ!",
+    "УВАГА! КІРОВОГРАДСЬКА ОБЛАСТЬ ПОВІТРЯНА ТРИВОГА!",
+    "УВАГА! ВІДБІЙ ПОВІТРЯНОЇ ТРИВОГИ в Новоукраїнському районі!\n"
+    "УВАГА! ВІДБІЙ ПОВІТРЯНОЇ ТРИВОГИ в Голованівському районі!",
+    # The air force channel tracks every drone, and only one of its phrasings
+    # was "курсом на". A heading is a heading whichever way it is written.
+    "Група реактивних БпЛА прямує на Ромни",
+    "БпЛА на Запоріжжя з півдня",
+    "Реактивний БпЛА у напрямку Барвінкового на Харківщині з південного заходу",
+    "Реактивні БпЛА вздовж межі між Чернігівською та Полтавською областями "
+    "південно-західним курсом",
+    "Реактивні БпЛА на заході від Дніпра, на північно-східний напрямок.",
+    # The minute of silence, introduced by a word rather than by the clock.
+    "🕯️ О 9:00 — загальнонаціональна хвилина мовчання. Це щоденний ритуал "
+    "подяки, пошани та пам’яті.\n\nУ цей момент країна завмирає, щоб вшанувати "
+    "військових і цивільних, які загинули внаслідок збройної агресії.",
+    "Щодня о 9:00 – загальнонаціональна хвилина мовчання…\n\n🕯Памʼятаємо кожного "
+    "та кожну, чиє життя обірвали російські окупанти.",
 ]
 
 # News. Every one of these is about the same subjects — the minute of silence,
@@ -152,6 +190,26 @@ NEWS = [
     "Курсом на Європу: Україна отримала статус кандидата у члени ЄС",
     "Кількість повітряних тривог у липні зросла втричі порівняно з червнем, "
     "свідчать дані «Тривога.Онлайн».",
+    # From the same 262 live posts as the block at the end of ROUTINE. These are
+    # what the patterns broadened for that block have to keep their hands off:
+    # the reporting the same channels publish between the alerts.
+    "Упродовж минулого тижня ворожих ударів зазнали 77 населених пунктів "
+    "Харківської області, зокрема м. Харків. Внаслідок обстрілів постраждали "
+    "115 людей, серед них — 7 дітей.",
+    "Сили ППО знешкодили 107 з 131 ворожих дронів. Зафіксовано влучання 16 "
+    "ударних БпЛА на 9 локаціях, а також падіння збитих (уламки) на 6 локаціях. "
+    "Атака триває.",
+    "Володимир Зеленський уже прибув до США з одноденним візитом. Головний "
+    "пріоритет поїздки, як заявив президент, — посилення протиповітряної "
+    "оборони, зокрема антибалістики, і стратегічна співпраця.",
+    "У Києві з 28 липня до 2 серпня триватимуть сезонні ярмарки. Локації – на "
+    "сайті kyivcity.gov.ua. Закликаємо відвідувачів пам'ятати про власну "
+    "безпеку та під час повітряної тривоги перейти в укриття.",
+    "ЗБИТО/ПОДАВЛЕНО 107 ЦІЛЕЙ\nУ ніч на 28 липня (з 18:00 27 липня) противник "
+    "атакував 131 ударним БпЛА типу Shahed (в т.ч. реактивними), Гербера, "
+    "Італмас та дронами-імітаторами типу «Пародія».",
+    "Протягом цього тижня на території області сигнал «Повітряна тривога» не "
+    "оголошувався. Разом із начальником Захисту відпрацювали план на серпень.",
 ]
 
 
@@ -210,6 +268,36 @@ def test_explain_answers_with_the_line_as_written(detector: RubricDetector) -> N
 
     assert matched is not None
     assert "%not_a_strike%" in matched
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "- " * 2048,
+        "—" * 4096,
+        "УВАГА " + "- " * 2000,
+        "\n" * 4096 + "відбій",
+        "УВАГА! " + ("Район " * 10 + "\n") * 60 + "ВІДБІЙ",
+        ("а" * 79 + " - ") * 50,
+    ],
+    ids=range(6),
+)
+def test_a_pathological_post_does_not_hang_the_detector(
+    detector: RubricDetector, text: str
+) -> None:
+    """The place prefix is optional, bounded and next to other optional parts.
+
+    Written the obvious way — `(?:[^.!?,]{0,50}(?:[—–:-]|\\n)\\s*)*`, a bounded
+    class inside an unbounded repeat — it took over five seconds on a post of
+    four thousand dashes, which is inside Telegram's 4096-character limit and so
+    is a post a channel can actually publish. The bounds on the `\\W` runs are
+    what keeps this linear; they are not decoration.
+    """
+    start = time.perf_counter()
+    detector(text)
+    elapsed = time.perf_counter() - start
+
+    assert elapsed < 1.0, f"took {elapsed:.2f}s on {len(text)} characters"
 
 
 def test_an_unknown_macro_is_an_error() -> None:

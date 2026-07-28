@@ -33,14 +33,25 @@ class RubricDetector:
     come to disagree with the eighth — which is exactly what happened: only the
     siren pattern spelled out the `<place> — <event>` prefix a regional channel
     writes, so the all-clear and the ballistic-threat warning kept reaching the
-    feed. Three conditions: a post naming casualties or damage is a report of
+    feed. Four conditions: a post naming casualties or damage is a report of
     the strike and not of the siren (`not_a_strike`), the event may be preceded
-    by the place (`where`), and an alert may end by saying what triggered it
-    (`why`). An unknown macro raises rather than compiling to a literal
-    `%name%` that would silently never match.
+    by the place (`where`) and by the verb that announces it (`announced`), and
+    an alert may end by saying what triggered it (`why`). An unknown macro
+    raises rather than compiling to a literal `%name%` that would silently
+    never match.
 
-    `where` is deliberately narrow — a dash, at most fifty characters, and no
-    comma — because a place name has no comma and a news lede usually does.
+    `where` is what 262 live posts turned out to need, and no more. A channel
+    puts the place ahead of the event in three ways: after a dash, on a line of
+    its own, or behind the word УВАГА — and the marker that follows the newline
+    is usually an emoji, so a run of non-word characters has to be allowed after
+    the separator. Commas stay excluded, because a place name has none and a
+    news lede usually does; that exclusion alone is what keeps "Мерія
+    розповіла, чому в Києві оголосили тривогу" out of it.
+
+    The `\\W` runs are bounded rather than starred. Written the obvious way,
+    with a bounded class inside an unbounded repeat, the prefix took over five
+    seconds on a post of four thousand dashes — a post short enough for Telegram
+    to accept.
     """
 
     def __init__(self, config: dict[str, Any]) -> None:
