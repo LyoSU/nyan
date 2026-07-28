@@ -24,7 +24,12 @@ def _issue(name: str, min_channels: int = 2) -> dict[str, Any]:
     }
 
 
-def _cluster(channel_ids: list[str], issue: str, group: str = "purple") -> Cluster:
+def _cluster(
+    channel_ids: list[str],
+    issue: str,
+    group: str = "purple",
+    master: str | None = None,
+) -> Cluster:
     cluster = Cluster()
     now = get_current_ts()
     for i, channel_id in enumerate(channel_ids):
@@ -39,6 +44,7 @@ def _cluster(channel_ids: list[str], issue: str, group: str = "purple") -> Clust
                 text="Текст",
                 patched_text="Текст",
                 groups={"main": group, issue: group},
+                master=master,
                 issue=issue,
                 language="uk",
                 # Choosing the title compares documents by embedding, so a
@@ -102,6 +108,26 @@ def test_a_clone_network_cannot_carry_a_story_on_its_own(tmp_path: Any) -> None:
     config_path = _write_config(tmp_path, [_issue("main", min_channels=4)])
     clones = [f"truexa{i}" for i in range(10)]
     cluster = _cluster(clones, issue="local", group="grey")
+
+    ranked = Ranker(config_path)([cluster])
+
+    assert not ranked["main"]
+
+
+def test_a_clone_network_counts_as_one_source(tmp_path: Any) -> None:
+    """`master` collapses the network, so the discount is not what carries this.
+
+    Blue and national on purpose: without the collapse these twenty would weigh
+    twenty and publish outright, which is the failure the weights alone cannot
+    catch — a network does not have to be anonymous or local to be one owner.
+    """
+    config_path = _write_config(tmp_path, [_issue("main", min_channels=4)])
+    cluster = _cluster(
+        [f"satellite{i}" for i in range(20)],
+        issue="main",
+        group="blue",
+        master="flagship",
+    )
 
     ranked = Ranker(config_path)([cluster])
 

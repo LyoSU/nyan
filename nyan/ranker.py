@@ -61,13 +61,14 @@ def source_weight(doc: Document) -> float:
 def independent_sources(cluster: Cluster) -> float:
     """`min_channels` measured in newsrooms rather than in channels.
 
-    Deduplicated by channel first: a channel that posted a story twice is one
-    source, which is what the plain `len(unique_channels)` already got right.
+    Deduplicated by owner rather than by channel. A channel that posted a story
+    twice was already one source, which the plain `len(unique_channels)` got
+    right; a network of clones under one `master` was ten, which it did not.
     """
-    by_channel: dict[str, Document] = {}
+    by_owner: dict[str, Document] = {}
     for doc in cluster.docs:
-        by_channel.setdefault(doc.channel_id, doc)
-    return sum(source_weight(doc) for doc in by_channel.values())
+        by_owner.setdefault(doc.master or doc.channel_id, doc)
+    return sum(source_weight(doc) for doc in by_owner.values())
 
 
 class Ranker:

@@ -172,6 +172,61 @@ def test_an_anonymous_channel_claims_no_kind() -> None:
     assert not disagreeing
 
 
+def test_a_badge_source_on_the_channel_wins_over_the_register(tmp_path: Any) -> None:
+    """Two investigations cannot share one URL.
+
+    NGL.media named the Труха network and Zheleznyak the five anonymous
+    millionaires; a single per-badge URL attributed whichever claim it did not
+    cover to an article that never made it.
+    """
+    config = dict(
+        MINIMAL,
+        channels=[
+            {
+                "name": "uanews",
+                "groups": {"main": "grey"},
+                "issue": "main",
+                "badges": ["investigated"],
+                "badge_sources": {"investigated": "https://example.org/who-owns-uanews"},
+            }
+        ],
+        badge_urls={"investigated": "https://example.org/register"},
+    )
+
+    channels = Channels(write_channels(tmp_path, config))
+
+    assert channels.badge_url("investigated", "uanews") == "https://example.org/who-owns-uanews"
+    # Without a channel, and for a channel that records no source of its own,
+    # the register-wide URL is still the answer.
+    assert channels.badge_url("investigated") == "https://example.org/register"
+    assert channels.badge_url("sanctions", "uanews") == ""
+
+
+def test_every_badge_source_names_a_badge_the_channel_carries() -> None:
+    """A source for a badge that is not on the channel documents nothing."""
+    channels = Channels("channels.json")
+
+    for name, channel in channels:
+        for badge, url in channel.badge_sources.items():
+            assert badge in channel.badges, f"{name}: source for a badge it lacks"
+            assert url.startswith("https://"), f"{name}: {badge}"
+
+
+def test_a_satellite_names_a_master_that_is_itself_a_source() -> None:
+    """`master` collapses a clone network to one source when ranking.
+
+    A master that is missing from the registry, or that is itself somebody's
+    satellite, would make that collapse either crash or silently partial.
+    """
+    channels = Channels("channels.json")
+
+    for name, channel in channels:
+        if channel.master is None:
+            continue
+        assert channel.master in channels, f"{name}: master {channel.master} is not a channel"
+        assert channels[channel.master].master is None, f"{name}: master is itself a satellite"
+
+
 def test_only_registers_we_can_link_to_are_badges() -> None:
     """A badge exists to attribute a claim to somebody else, which it cannot do
     without a public URL for the register behind it."""

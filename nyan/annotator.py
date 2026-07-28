@@ -178,6 +178,7 @@ class Annotator:
         doc.groups = channel_info.groups
         doc.badges = list(channel_info.badges)
         doc.monitor_only = channel_info.monitor_only
+        doc.master = channel_info.master
         doc.issue = channel_info.issue
 
         channel_alias = channel_info.alias

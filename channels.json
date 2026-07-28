@@ -1478,7 +1478,10 @@
       "issue": "main",
       "badges": [
         "investigated"
-      ]
+      ],
+      "badge_sources": {
+        "investigated": "https://babel.ua/texts/98174-telegram-holding-truha-zaroblyaye-sotni-tisyach-dolariv-na-reklami-y-dzhinsi-i-pov-yazaniy-z-obvinuvachenim-u-spravi-ryukzakiv-avakova-perekaz-rozsliduvannya-ngl-media-i-gruntu"
+      }
     },
     {
       "name": "insiderUKR",
@@ -1489,7 +1492,10 @@
       "issue": "main",
       "badges": [
         "investigated"
-      ]
+      ],
+      "badge_sources": {
+        "investigated": "https://detector.media/infospace/article/247174/2026-01-22-insayder-times-of-ukraine-ta-inshi-zheleznyak-nazvav-vlasnykiv-pyaty-anonimnykh-telegram-kanaliv/"
+      }
     },
     {
       "name": "UaOnlii",
@@ -1500,7 +1506,10 @@
       "issue": "main",
       "badges": [
         "investigated"
-      ]
+      ],
+      "badge_sources": {
+        "investigated": "https://detector.media/infospace/article/247174/2026-01-22-insayder-times-of-ukraine-ta-inshi-zheleznyak-nazvav-vlasnykiv-pyaty-anonimnykh-telegram-kanaliv/"
+      }
     },
     {
       "name": "voynareal",
@@ -1512,7 +1521,10 @@
       "issue": "main",
       "badges": [
         "investigated"
-      ]
+      ],
+      "badge_sources": {
+        "investigated": "https://detector.media/infospace/article/247174/2026-01-22-insayder-times-of-ukraine-ta-inshi-zheleznyak-nazvav-vlasnykiv-pyaty-anonimnykh-telegram-kanaliv/"
+      }
     },
     {
       "name": "u_now",
@@ -1523,7 +1535,10 @@
       "issue": "main",
       "badges": [
         "investigated"
-      ]
+      ],
+      "badge_sources": {
+        "investigated": "https://detector.media/infospace/article/247174/2026-01-22-insayder-times-of-ukraine-ta-inshi-zheleznyak-nazvav-vlasnykiv-pyaty-anonimnykh-telegram-kanaliv/"
+      }
     },
     {
       "name": "oko_ua",
@@ -1585,7 +1600,10 @@
       "badges": [
         "sanctions"
       ],
-      "monitor_only": true
+      "monitor_only": true,
+      "badge_sources": {
+        "sanctions": "https://imi.org.ua/monitorings/anonimnist-ta-rosijski-groshi-hto-finansuye-ukrayinski-telegram-kanaly-i51944"
+      }
     },
     {
       "name": "rezident_ua",
@@ -1597,7 +1615,10 @@
       "badges": [
         "sanctions"
       ],
-      "monitor_only": true
+      "monitor_only": true,
+      "badge_sources": {
+        "sanctions": "https://imi.org.ua/monitorings/anonimnist-ta-rosijski-groshi-hto-finansuye-ukrayinski-telegram-kanaly-i51944"
+      }
     },
     {
       "name": "ASupersharij",
@@ -1610,7 +1631,10 @@
       "badges": [
         "sanctions"
       ],
-      "monitor_only": true
+      "monitor_only": true,
+      "badge_sources": {
+        "sanctions": "https://www.radiosvoboda.org/a/news-huzhva-shariy-pushylin-sanktsiyi/33088208.html"
+      }
     },
     {
       "name": "DeepStateUA",
@@ -1828,7 +1852,10 @@
       "issue": "main",
       "badges": [
         "investigated"
-      ]
+      ],
+      "badge_sources": {
+        "investigated": "https://detector.media/infospace/article/247174/2026-01-22-insayder-times-of-ukraine-ta-inshi-zheleznyak-nazvav-vlasnykiv-pyaty-anonimnykh-telegram-kanaliv/"
+      }
     },
     {
       "name": "N_NO_F",
@@ -2145,7 +2172,11 @@
       "issue": "local",
       "badges": [
         "investigated"
-      ]
+      ],
+      "master": "truexanewsua",
+      "badge_sources": {
+        "investigated": "https://babel.ua/texts/98174-telegram-holding-truha-zaroblyaye-sotni-tisyach-dolariv-na-reklami-y-dzhinsi-i-pov-yazaniy-z-obvinuvachenim-u-spravi-ryukzakiv-avakova-perekaz-rozsliduvannya-ngl-media-i-gruntu"
+      }
     },
     {
       "name": "truexakharkiv",
@@ -2157,7 +2188,11 @@
       "issue": "local",
       "badges": [
         "investigated"
-      ]
+      ],
+      "master": "truexanewsua",
+      "badge_sources": {
+        "investigated": "https://babel.ua/texts/98174-telegram-holding-truha-zaroblyaye-sotni-tisyach-dolariv-na-reklami-y-dzhinsi-i-pov-yazaniy-z-obvinuvachenim-u-spravi-ryukzakiv-avakova-perekaz-rozsliduvannya-ngl-media-i-gruntu"
+      }
     },
     {
       "name": "truexadnepr",
@@ -2169,7 +2204,11 @@
       "issue": "local",
       "badges": [
         "investigated"
-      ]
+      ],
+      "master": "truexanewsua",
+      "badge_sources": {
+        "investigated": "https://babel.ua/texts/98174-telegram-holding-truha-zaroblyaye-sotni-tisyach-dolariv-na-reklami-y-dzhinsi-i-pov-yazaniy-z-obvinuvachenim-u-spravi-ryukzakiv-avakova-perekaz-rozsliduvannya-ngl-media-i-gruntu"
+      }
     },
     {
       "name": "lvivtruexa",
@@ -2181,7 +2220,11 @@
       "issue": "local",
       "badges": [
         "investigated"
-      ]
+      ],
+      "master": "truexanewsua",
+      "badge_sources": {
+        "investigated": "https://babel.ua/texts/98174-telegram-holding-truha-zaroblyaye-sotni-tisyach-dolariv-na-reklami-y-dzhinsi-i-pov-yazaniy-z-obvinuvachenim-u-spravi-ryukzakiv-avakova-perekaz-rozsliduvannya-ngl-media-i-gruntu"
+      }
     },
     {
       "name": "odesatruexa",
@@ -2193,7 +2236,11 @@
       "issue": "local",
       "badges": [
         "investigated"
-      ]
+      ],
+      "master": "truexanewsua",
+      "badge_sources": {
+        "investigated": "https://babel.ua/texts/98174-telegram-holding-truha-zaroblyaye-sotni-tisyach-dolariv-na-reklami-y-dzhinsi-i-pov-yazaniy-z-obvinuvachenim-u-spravi-ryukzakiv-avakova-perekaz-rozsliduvannya-ngl-media-i-gruntu"
+      }
     },
     {
       "name": "truexazaporozie",
@@ -2205,7 +2252,11 @@
       "issue": "local",
       "badges": [
         "investigated"
-      ]
+      ],
+      "master": "truexanewsua",
+      "badge_sources": {
+        "investigated": "https://babel.ua/texts/98174-telegram-holding-truha-zaroblyaye-sotni-tisyach-dolariv-na-reklami-y-dzhinsi-i-pov-yazaniy-z-obvinuvachenim-u-spravi-ryukzakiv-avakova-perekaz-rozsliduvannya-ngl-media-i-gruntu"
+      }
     },
     {
       "name": "truexapoltava",
@@ -2217,7 +2268,11 @@
       "issue": "local",
       "badges": [
         "investigated"
-      ]
+      ],
+      "master": "truexanewsua",
+      "badge_sources": {
+        "investigated": "https://babel.ua/texts/98174-telegram-holding-truha-zaroblyaye-sotni-tisyach-dolariv-na-reklami-y-dzhinsi-i-pov-yazaniy-z-obvinuvachenim-u-spravi-ryukzakiv-avakova-perekaz-rozsliduvannya-ngl-media-i-gruntu"
+      }
     },
     {
       "name": "kievinfo_kyiv",
@@ -2271,7 +2326,8 @@
         "local": "grey"
       },
       "alias": "Київ | Times",
-      "issue": "local"
+      "issue": "local",
+      "master": "times_ukraina"
     },
     {
       "name": "kharkivlife",
@@ -2397,7 +2453,8 @@
         "local": "grey"
       },
       "alias": "Львів | Times",
-      "issue": "local"
+      "issue": "local",
+      "master": "times_ukraina"
     },
     {
       "name": "zahid_golovne_ua",
@@ -2442,7 +2499,8 @@
         "local": "grey"
       },
       "alias": "СВОЇ | Кривий Ріг",
-      "issue": "local"
+      "issue": "local",
+      "master": "svoiua"
     },
     {
       "name": "svoiua",
@@ -2468,7 +2526,8 @@
         "local": "grey"
       },
       "alias": "Полтава | Times",
-      "issue": "local"
+      "issue": "local",
+      "master": "times_ukraina"
     },
     {
       "name": "times_sumy",
@@ -2477,7 +2536,8 @@
         "local": "grey"
       },
       "alias": "Суми | Times",
-      "issue": "local"
+      "issue": "local",
+      "master": "times_ukraina"
     },
     {
       "name": "times_chernihiv",
@@ -2486,7 +2546,8 @@
         "local": "grey"
       },
       "alias": "Чернігів | Times",
-      "issue": "local"
+      "issue": "local",
+      "master": "times_ukraina"
     },
     {
       "name": "times_zhytomyr",
@@ -2495,7 +2556,8 @@
         "local": "grey"
       },
       "alias": "Житомир | Times",
-      "issue": "local"
+      "issue": "local",
+      "master": "times_ukraina"
     },
     {
       "name": "times_vinnytsia",
@@ -2504,7 +2566,8 @@
         "local": "grey"
       },
       "alias": "Вінниця | Times",
-      "issue": "local"
+      "issue": "local",
+      "master": "times_ukraina"
     },
     {
       "name": "khmelnytskyi_times",
@@ -2513,7 +2576,8 @@
         "local": "grey"
       },
       "alias": "Хмельницький | Times",
-      "issue": "local"
+      "issue": "local",
+      "master": "times_ukraina"
     },
     {
       "name": "zaporizhzhia_times",
@@ -2522,7 +2586,8 @@
         "local": "grey"
       },
       "alias": "Запоріжжя | Times",
-      "issue": "local"
+      "issue": "local",
+      "master": "times_ukraina"
     },
     {
       "name": "ivano_frankivsk_times",
@@ -2531,7 +2596,8 @@
         "local": "grey"
       },
       "alias": "Івано-Франківськ | Times",
-      "issue": "local"
+      "issue": "local",
+      "master": "times_ukraina"
     },
     {
       "name": "diia_gov",
@@ -3260,7 +3326,10 @@
       "badges": [
         "sanctions"
       ],
-      "monitor_only": true
+      "monitor_only": true,
+      "badge_sources": {
+        "sanctions": "https://kyivvlada.com.ua/news/zelenskyj-uviv-u-diyu-sankcziyi-rnbo-u-spysku-dmytruk-ryashyn-ta-onyshhenko/"
+      }
     },
     {
       "name": "advokatmillerua",
@@ -3331,7 +3400,11 @@
       "issue": "local",
       "badges": [
         "investigated"
-      ]
+      ],
+      "master": "truexanewsua",
+      "badge_sources": {
+        "investigated": "https://babel.ua/texts/98174-telegram-holding-truha-zaroblyaye-sotni-tisyach-dolariv-na-reklami-y-dzhinsi-i-pov-yazaniy-z-obvinuvachenim-u-spravi-ryukzakiv-avakova-perekaz-rozsliduvannya-ngl-media-i-gruntu"
+      }
     },
     {
       "name": "truexakrivojrog",
@@ -3343,7 +3416,11 @@
       "issue": "local",
       "badges": [
         "investigated"
-      ]
+      ],
+      "master": "truexanewsua",
+      "badge_sources": {
+        "investigated": "https://babel.ua/texts/98174-telegram-holding-truha-zaroblyaye-sotni-tisyach-dolariv-na-reklami-y-dzhinsi-i-pov-yazaniy-z-obvinuvachenim-u-spravi-ryukzakiv-avakova-perekaz-rozsliduvannya-ngl-media-i-gruntu"
+      }
     },
     {
       "name": "kyivsvitlo_dtek",

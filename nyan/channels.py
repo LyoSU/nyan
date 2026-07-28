@@ -102,6 +102,13 @@ class Channel(Serializable):
     issue: str | None = None
     kind: str | None = None
     badges: list[str] = field(default_factory=list)
+    #: Where *this* channel's badge came from, overriding the register-wide URL.
+    #: A badge exists to attribute a claim to whoever made it, and one URL per
+    #: badge type cannot do that once two investigations cover two channels: the
+    #: Труха network was named by NGL.media, the five anonymous millionaires by
+    #: Zheleznyak, and linking either to the other's article attributes the claim
+    #: to a text that never made it.
+    badge_sources: dict[str, str] = field(default_factory=dict)
     #: Crawled and counted, never quoted. A sanctioned channel is worth
     #: measuring — whether it carried a story is itself the finding — but
     #: printing its words in a digest would be republishing them.
@@ -184,7 +191,17 @@ class Channels:
     def badge_emoji(self, badge: str) -> str:
         return self.badge_emojis.get(badge, "")
 
-    def badge_url(self, badge: str) -> str:
+    def badge_url(self, badge: str, chid: str | None = None) -> str:
+        """The source a reader can open for this badge on this channel.
+
+        Falls back to the register-wide URL, which is the right answer for a
+        register that lists channels itself (the IMI white list) and the only
+        answer available for a channel with no source of its own recorded.
+        """
+        if chid is not None:
+            channel = self.channels.get(normalize_channel_id(chid))
+            if channel is not None and badge in channel.badge_sources:
+                return channel.badge_sources[badge]
         return self.badge_urls.get(badge, "")
 
     def marks(self, chid: str) -> str:

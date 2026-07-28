@@ -65,6 +65,10 @@ class Document(Serializable):
     #: about the channel, but the decision is made where only documents are in
     #: hand — picking a post's text, counting a story's reach — so it rides along.
     monitor_only: bool = False
+    #: The channel this one is a satellite of, mirroring `Channel.master`. Ten
+    #: Труха channels post the same text within minutes, so ranking has to be
+    #: able to count them once — and ranking sees documents, not the registry.
+    master: str | None = None
     issue: str | None = None
     language: str | None = None
     category: str | None = None
