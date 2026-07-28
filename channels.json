@@ -3240,6 +3240,112 @@
       "alias": "Адвокат Мілер",
       "issue": "other",
       "kind": "person"
+    },
+    {
+      "name": "ppo_novunu_ukraine",
+      "groups": {
+        "main": "grey"
+      },
+      "alias": "ППО - News",
+      "issue": "main"
+    },
+    {
+      "name": "war_monitor",
+      "groups": {
+        "main": "grey",
+        "war": "grey"
+      },
+      "alias": "monitor",
+      "issue": "war"
+    },
+    {
+      "name": "proof24_ua",
+      "groups": {
+        "main": "grey"
+      },
+      "alias": "Пруф",
+      "issue": "main"
+    },
+    {
+      "name": "publicreservestugna",
+      "groups": {
+        "main": "grey"
+      },
+      "alias": "Стугна",
+      "issue": "main"
+    },
+    {
+      "name": "UA_1NEWS",
+      "groups": {
+        "main": "grey"
+      },
+      "alias": "1NEWS",
+      "issue": "main"
+    },
+    {
+      "name": "Info_1UA",
+      "groups": {
+        "main": "grey"
+      },
+      "alias": "Важливі події України та світу",
+      "issue": "main"
+    },
+    {
+      "name": "vinnicatruexa",
+      "groups": {
+        "main": "grey",
+        "local": "grey"
+      },
+      "alias": "Труха⚡️Вінниця",
+      "issue": "local"
+    },
+    {
+      "name": "truexakrivojrog",
+      "groups": {
+        "main": "grey",
+        "local": "grey"
+      },
+      "alias": "Труха⚡️Кривий Ріг",
+      "issue": "local"
+    },
+    {
+      "name": "kyivsvitlo_dtek",
+      "groups": {
+        "main": "grey",
+        "local": "grey"
+      },
+      "alias": "Світло Київ та Київщина",
+      "issue": "local"
+    },
+    {
+      "name": "sudua",
+      "groups": {
+        "main": "blue",
+        "politics": "blue"
+      },
+      "alias": "Судово-юридична газета",
+      "issue": "politics",
+      "kind": "media"
+    },
+    {
+      "name": "lvivoblenergo",
+      "groups": {
+        "main": "red",
+        "local": "red"
+      },
+      "alias": "Львівобленерго",
+      "issue": "local",
+      "kind": "organization"
+    },
+    {
+      "name": "pat_cherkasyoblenergo",
+      "groups": {
+        "main": "red",
+        "local": "red"
+      },
+      "alias": "Черкасиобленерго",
+      "issue": "local",
+      "kind": "organization"
     }
   ],
   "group_names": {
