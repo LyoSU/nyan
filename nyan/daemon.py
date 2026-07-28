@@ -9,7 +9,7 @@ from collections import Counter as CounterT
 from sklearn.metrics.pairwise import cosine_similarity  # type: ignore
 
 from nyan.annotator import Annotator
-from nyan.client import TelegramClient
+from nyan.client import MessageId, TelegramClient
 from nyan.clusters import Clusters, Cluster
 from nyan.clusterer import Clusterer
 from nyan.channels import Channels
@@ -221,7 +221,6 @@ class Daemon:
         posted_clusters_path: str | None,
         mongo_config_path: str | None,
     ) -> None:
-        sleep_time = self.config["sleep_time"]
         max_time_updated = self.config["max_time_updated"]
 
         posted_cluster = posted_clusters.find_similar(
@@ -235,7 +234,6 @@ class Daemon:
                 posted_cluster,
                 posted_clusters,
                 issue_name,
-                sleep_time,
                 max_time_updated,
             )
             return
@@ -260,7 +258,8 @@ class Daemon:
             return
         logging.info("New cluster in %s: %s", issue_name, cluster.cropped_title)
 
-        self.client.update_discussion_mapping(issue_name)
+        if self.sends_docs_to_discussion:
+            self.client.update_discussion_mapping(issue_name)
 
         message = self.client.send_post(post, issue_name, reply_to=reply_to)
         if message is None:
@@ -276,9 +275,33 @@ class Daemon:
         if mongo_config_path:
             posted_clusters.save_to_mongo(mongo_config_path)
 
-        self.client.update_discussion_mapping(issue_name)
+        self.send_docs_to_discussion(cluster.docs, message, refresh_mapping=True)
+
+    @property
+    def sends_docs_to_discussion(self) -> bool:
+        """Whether every source post is mirrored into the comments.
+
+        Off: it repeated the whole channel a second time under each post. Kept
+        behind `send_docs_to_discussion` in the daemon config in case we want it
+        back.
+        """
+        return bool(self.config.get("send_docs_to_discussion", False))
+
+    def send_docs_to_discussion(
+        self,
+        docs: list[Document],
+        message: MessageId,
+        refresh_mapping: bool = False,
+    ) -> None:
+        if not docs or not self.sends_docs_to_discussion:
+            return
+        sleep_time = self.config["sleep_time"]
+        # A freshly published post has no mirror in the discussion group yet,
+        # so its mapping has to be re-read; an older one is already in there.
+        if refresh_mapping:
+            self.client.update_discussion_mapping(message.issue)
         discussion_message = self.client.get_discussion(message)
-        for doc in cluster.docs:
+        for doc in docs:
             discussion_text = self.renderer.render_discussion_message(doc)
             self.client.send_discussion_message(discussion_text, discussion_message)
             sleep(sleep_time)
@@ -289,20 +312,16 @@ class Daemon:
         posted_cluster: Cluster,
         posted_clusters: Clusters,
         issue_name: str,
-        sleep_time: float,
         max_time_updated: int,
     ) -> None:
-        """Mirror new documents into the discussion, then refresh the post."""
+        """Take in the new documents, then refresh the post."""
         message = posted_cluster.get_issue_message(issue_name)
         assert message
-        discussion_message = self.client.get_discussion(message)
 
         new_docs = [doc for doc in cluster.docs if not posted_cluster.has(doc)]
         for doc in new_docs:
             posted_cluster.add(doc)
-            discussion_text = self.renderer.render_discussion_message(doc)
-            self.client.send_discussion_message(discussion_text, discussion_message)
-            sleep(sleep_time)
+        self.send_docs_to_discussion(new_docs, message)
         if new_docs:
             logging.info(
                 "%d new docs in cluster %d", len(new_docs), message.message_id

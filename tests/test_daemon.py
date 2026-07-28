@@ -107,22 +107,32 @@ class _FakeClient:
     def __init__(self, issues: Sequence[str] = ("main",)) -> None:
         self.reply_to: int | None = None
         self.issues = set(issues)
+        self.mapping_updates = 0
+        self.discussion_messages: list[str] = []
+        self.updated: list[int] = []
 
     def has_issue(self, issue_name: str) -> bool:
         return issue_name in self.issues
 
     def update_discussion_mapping(self, issue_name: str) -> None:
-        pass
+        self.mapping_updates += 1
 
     def send_post(self, post: Any, issue_name: str, reply_to: int | None = None) -> MessageId:
         self.reply_to = reply_to
         return MessageId(message_id=99, issue=issue_name)
 
-    def get_discussion(self, message: MessageId) -> None:
-        return None
+    def get_discussion(self, message: MessageId) -> MessageId:
+        return MessageId(
+            message_id=message.message_id + 1000,
+            issue=message.issue,
+            from_discussion=True,
+        )
 
     def send_discussion_message(self, text: str, message: Any) -> None:
-        pass
+        self.discussion_messages.append(text)
+
+    def update_post(self, message: MessageId, post: Any) -> None:
+        self.updated.append(message.message_id)
 
 
 def test_the_post_is_written_knowing_what_it_stands_under() -> None:
@@ -159,6 +169,58 @@ def test_a_post_with_no_neighbour_stands_under_nothing() -> None:
     assert renderer.rendered_under == [""]
     client: Any = daemon.client
     assert client.reply_to is None
+
+
+def test_the_sources_are_not_repeated_in_the_comments() -> None:
+    """Mirroring every source post posted the whole channel a second time.
+
+    Off unless `send_docs_to_discussion` says otherwise — and with it off, the
+    discussion mapping is not worth a getUpdates either.
+    """
+    daemon = _daemon()
+    daemon.renderer = _FakeRenderer()  # type: ignore[assignment]
+    daemon.client = _FakeClient()  # type: ignore[assignment]
+
+    daemon.send_cluster(_cluster([1.0, 0.0]), "main", Clusters(), None, None)
+
+    client: Any = daemon.client
+    assert client.discussion_messages == []
+    assert client.mapping_updates == 0
+
+
+def test_the_toggle_brings_the_comments_back() -> None:
+    daemon = _daemon(send_docs_to_discussion=True)
+    daemon.renderer = _FakeRenderer()  # type: ignore[assignment]
+    daemon.client = _FakeClient()  # type: ignore[assignment]
+
+    daemon.send_cluster(_cluster([1.0, 0.0]), "main", Clusters(), None, None)
+
+    client: Any = daemon.client
+    assert client.discussion_messages == ["discussion"]
+    assert client.mapping_updates == 2
+
+
+def test_new_docs_still_join_a_posted_cluster_with_the_comments_off() -> None:
+    """Taking a document in is not the same thing as commenting with it.
+
+    Both used to happen in one loop, so silencing the comments must not stop the
+    cluster from growing — the post itself is rewritten from those documents.
+    """
+    daemon = _daemon()
+    daemon.renderer = _FakeRenderer()  # type: ignore[assignment]
+    daemon.client = _FakeClient()  # type: ignore[assignment]
+    posted_cluster = _cluster([1.0, 0.0], message_id=11)
+    incoming = _cluster([1.0, 0.0], message_id=12)
+    incoming.messages.clear()
+
+    daemon.update_posted_cluster(
+        incoming, posted_cluster, _posted(posted_cluster), "main", 3600
+    )
+
+    assert posted_cluster.has(incoming.docs[0])
+    client: Any = daemon.client
+    assert client.discussion_messages == []
+    assert client.updated == [11]
 
 
 def test_an_issue_with_no_channel_is_dropped_before_rendering(caplog: Any) -> None:
