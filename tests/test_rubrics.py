@@ -1,4 +1,5 @@
 import json
+import logging
 
 import pytest
 
@@ -173,6 +174,21 @@ def test_a_detector_with_no_patterns_catches_nothing() -> None:
     detector = RubricDetector({})
 
     assert not detector("Щоранку о 9:00 – хвилина мовчання")
+
+
+def test_a_detector_with_no_patterns_says_so(caplog: pytest.LogCaptureFixture) -> None:
+    """The one failure mode that leaves no trace anywhere else.
+
+    `configs` is a mounted volume, so a deploy that ships new code over an
+    unchanged config file gets a config with no `rubric_detector` section at
+    all, and the detector is then built with nothing to match. Every ritual
+    post stays in the feed and nothing is logged: the siren, the all-clear and
+    the minute of silence went on being published for a day this way.
+    """
+    with caplog.at_level(logging.WARNING):
+        RubricDetector({})
+
+    assert "no patterns" in caplog.text
 
 
 def test_empty_text_is_not_a_rubric(detector: RubricDetector) -> None:

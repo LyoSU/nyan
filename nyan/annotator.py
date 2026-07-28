@@ -54,9 +54,10 @@ class Annotator:
         if "cat_detector" in config:
             self.cat_detector = ClassifierHead(config["cat_detector"])
 
-        self.rubric_detector = None
-        if "rubric_detector" in config:
-            self.rubric_detector = RubricDetector(config["rubric_detector"])
+        # Built even when the section is absent, unlike the detectors above: a
+        # missing model file cannot be worked around, but a missing rubric
+        # section can be reported, and it is the case that needs reporting.
+        self.rubric_detector = RubricDetector(config.get("rubric_detector", {}))
 
         boilerplate_config: dict[str, Any] = config.get("boilerplate", {})
         self.boilerplate_min_docs = boilerplate_config.get(
@@ -253,7 +254,7 @@ class Annotator:
         return doc
 
     def detect_rubrics(self, doc: Document) -> Document:
-        if not self.rubric_detector or not doc.patched_text:
+        if not doc.patched_text:
             return doc
         if self.rubric_detector(doc.patched_text):
             doc.category = "not_news"

@@ -1,3 +1,4 @@
+import logging
 import re
 from typing import Any
 
@@ -50,6 +51,19 @@ class RubricDetector:
             (pattern, re.compile(self.expand(pattern, macros), re.IGNORECASE))
             for pattern in config.get("patterns", [])
         ]
+        # Said out loud because the alternative is silence. `configs` is a
+        # mounted volume, so new code can run against a config file that predates
+        # it and has no `rubric_detector` section; the detector then matches
+        # nothing, every ritual post is published, and the only evidence is in
+        # the feed. That is how it went unnoticed for a day.
+        if not self.patterns:
+            logging.warning(
+                "RubricDetector built with no patterns: rubric posts will not be "
+                "recognised. Check that annotator_config.json is the version this "
+                "code expects."
+            )
+        else:
+            logging.info("RubricDetector compiled %d patterns", len(self.patterns))
 
     @staticmethod
     def expand(pattern: str, macros: dict[str, str]) -> str:
