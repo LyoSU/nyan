@@ -337,6 +337,16 @@
       ]
     },
     {
+      "name": "EurointegrationComUA",
+      "groups": {
+        "main": "blue",
+        "politics": "blue"
+      },
+      "alias": "Європейська правда",
+      "issue": "politics",
+      "kind": "media"
+    },
+    {
       "name": "babel",
       "groups": {
         "main": "blue",
@@ -1580,6 +1590,19 @@
       },
       "alias": "Резидент",
       "issue": "main",
+      "badges": [
+        "sanctions"
+      ],
+      "monitor_only": true
+    },
+    {
+      "name": "ASupersharij",
+      "groups": {
+        "main": "blue"
+      },
+      "alias": "Анатолій Шарій",
+      "issue": "main",
+      "kind": "person",
       "badges": [
         "sanctions"
       ],
