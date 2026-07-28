@@ -24,7 +24,7 @@ def _issue(name: str, min_channels: int = 2) -> dict[str, Any]:
     }
 
 
-def _cluster(channel_ids: list[str], issue: str) -> Cluster:
+def _cluster(channel_ids: list[str], issue: str, group: str = "purple") -> Cluster:
     cluster = Cluster()
     now = get_current_ts()
     for i, channel_id in enumerate(channel_ids):
@@ -38,7 +38,7 @@ def _cluster(channel_ids: list[str], issue: str) -> Cluster:
                 fetch_time=now,
                 text="Текст",
                 patched_text="Текст",
-                groups={"main": "purple", issue: "purple"},
+                groups={"main": group, issue: group},
                 issue=issue,
                 language="uk",
                 # Choosing the title compares documents by embedding, so a
@@ -57,7 +57,10 @@ def test_a_cluster_whose_issue_is_not_configured_lands_in_main(tmp_path: Any) ->
     of channels — local, economy, culture — published nothing at all.
     """
     config_path = _write_config(tmp_path, [_issue("main")])
-    cluster = _cluster(["kyiv1", "kyiv2"], issue="local")
+    # Six of them because a local channel counts as a third of a newsroom, and
+    # this test is about where the cluster is routed rather than whether it
+    # clears the bar.
+    cluster = _cluster([f"kyiv{i}" for i in range(6)], issue="local")
 
     ranked = Ranker(config_path)([cluster])
 
@@ -73,6 +76,73 @@ def test_a_configured_issue_is_not_replaced_by_the_fallback(tmp_path: Any) -> No
 
     assert ranked["tech"] == [cluster]
     assert not ranked["main"]
+
+
+def test_a_story_only_local_channels_carry_does_not_publish(tmp_path: Any) -> None:
+    """Five Vinnytsia publics agreeing is not the country agreeing.
+
+    `min_channels` counted every channel as one, and the roster now holds some
+    seventy local sources, so a story no outlet outside one oblast had touched
+    cleared the same bar as one the national press had.
+    """
+    config_path = _write_config(tmp_path, [_issue("main", min_channels=4)])
+    cluster = _cluster(["vn1", "vn2", "vn3", "vn4", "vn5"], issue="local", group="grey")
+
+    ranked = Ranker(config_path)([cluster])
+
+    assert not ranked["main"]
+
+
+def test_a_clone_network_cannot_carry_a_story_on_its_own(tmp_path: Any) -> None:
+    """Ten Труха channels are one owner, not ten witnesses.
+
+    The regional clones post the same text within minutes, so unweighted
+    counting read a single newsroom as a national consensus.
+    """
+    config_path = _write_config(tmp_path, [_issue("main", min_channels=4)])
+    clones = [f"truexa{i}" for i in range(10)]
+    cluster = _cluster(clones, issue="local", group="grey")
+
+    ranked = Ranker(config_path)([cluster])
+
+    assert not ranked["main"]
+
+
+def test_four_newsrooms_still_publish(tmp_path: Any) -> None:
+    """The discount applies to anonymity and locality, not to everyone."""
+    config_path = _write_config(tmp_path, [_issue("main", min_channels=4)])
+    cluster = _cluster(["up", "suspilne", "babel", "liga"], issue="main", group="blue")
+
+    ranked = Ranker(config_path)([cluster])
+
+    assert ranked["main"] == [cluster]
+
+
+def test_enough_anonymous_channels_still_publish(tmp_path: Any) -> None:
+    """Discounted is not silenced: when the whole anonymous segment carries a
+    story, that is itself a finding worth publishing."""
+    config_path = _write_config(tmp_path, [_issue("main", min_channels=4)])
+    cluster = _cluster([f"anon{i}" for i in range(12)], issue="main", group="grey")
+
+    ranked = Ranker(config_path)([cluster])
+
+    assert ranked["main"] == [cluster]
+
+
+def test_the_national_press_lifts_a_local_story(tmp_path: Any) -> None:
+    """A local story the national press picked up is no longer only local.
+
+    The discount holds local channels back; it must not hold back a cluster they
+    happen to be in once outlets outside the oblast carry the same story.
+    """
+    config_path = _write_config(tmp_path, [_issue("main", min_channels=2)])
+    cluster = _cluster(["vn1", "vn2", "vn3"], issue="local", group="grey")
+    for doc in _cluster(["suspilne", "up"], issue="main", group="blue").docs:
+        cluster.add(doc)
+
+    ranked = Ranker(config_path)([cluster])
+
+    assert ranked["main"] == [cluster]
 
 
 def test_the_production_config_configures_every_issue_it_ranks() -> None:

@@ -3,12 +3,32 @@ import logging
 import os
 from collections import defaultdict
 
+from nyan.channels import normalize_group
 from nyan.clusters import Cluster
+from nyan.document import Document
 
 
 # Below this many candidates an issue publishes everything it has: percentile
 # filtering on a handful of clusters would cut the feed on noise.
 MIN_CLUSTERS_TO_FILTER = 3
+
+# How much one channel counts toward an issue's `min_channels`.
+#
+# Counting every channel as one made "four channels carried it" the test for
+# publishing, and that stopped meaning "four independent newsrooms". The roster
+# holds ten Труха channels under a single owner, which post the same text within
+# minutes, and some seventy local publics — so a story nobody outside one oblast
+# had touched cleared the same bar as one the national press agreed on.
+#
+# Read each number as "how many such channels equal one newsroom". The two
+# discounts multiply because they are separate reasons to doubt that a source is
+# independent evidence: an anonymous local public is both.
+CHANNELS_PER_NEWSROOM = {"anonymous": 3.0, "local": 3.0}
+
+# The tier and the issue the discounts key off. Both are on the document itself,
+# so ranking needs no access to the registry.
+ANONYMOUS_GROUP = "grey"
+LOCAL_ISSUE = "local"
 
 # Clusters kept per issue, taken from the most recent end.
 MAX_CLUSTERS_PER_ISSUE = 10
@@ -26,6 +46,28 @@ BALANCED_GROUPS = ("blue", "red")
 # in the main feed (channels.json gives it as a default group), so this is the
 # one issue that can always render.
 FALLBACK_ISSUE = "main"
+
+
+def source_weight(doc: Document) -> float:
+    """What one channel is worth as independent evidence that a story happened."""
+    weight = 1.0
+    if normalize_group(doc.groups.get("main", "")) == ANONYMOUS_GROUP:
+        weight /= CHANNELS_PER_NEWSROOM["anonymous"]
+    if doc.issue == LOCAL_ISSUE:
+        weight /= CHANNELS_PER_NEWSROOM["local"]
+    return weight
+
+
+def independent_sources(cluster: Cluster) -> float:
+    """`min_channels` measured in newsrooms rather than in channels.
+
+    Deduplicated by channel first: a channel that posted a story twice is one
+    source, which is what the plain `len(unique_channels)` already got right.
+    """
+    by_channel: dict[str, Document] = {}
+    for doc in cluster.docs:
+        by_channel.setdefault(doc.channel_id, doc)
+    return sum(source_weight(doc) for doc in by_channel.values())
 
 
 class Ranker:
@@ -68,8 +110,7 @@ class Ranker:
             clusters = issues[issue_name]
             filtered_clusters = []
             for cluster in clusters:
-                unique_channels = {d.channel_id for d in cluster.docs}
-                is_big_cluster = len(unique_channels) >= min_channels
+                is_big_cluster = independent_sources(cluster) >= min_channels
                 has_lang_doc = required_language is None or any(
                     doc.language == required_language for doc in cluster.docs
                 )
