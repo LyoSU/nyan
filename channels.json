@@ -1475,7 +1475,10 @@
         "main": "grey"
       },
       "alias": "Труха⚡️Україна",
-      "issue": "main"
+      "issue": "main",
+      "badges": [
+        "investigated"
+      ]
     },
     {
       "name": "insiderUKR",
@@ -1822,7 +1825,10 @@
         "main": "grey"
       },
       "alias": "Times of Ukraine",
-      "issue": "main"
+      "issue": "main",
+      "badges": [
+        "investigated"
+      ]
     },
     {
       "name": "N_NO_F",
@@ -2136,7 +2142,10 @@
         "local": "grey"
       },
       "alias": "Труха⚡️Київ",
-      "issue": "local"
+      "issue": "local",
+      "badges": [
+        "investigated"
+      ]
     },
     {
       "name": "truexakharkiv",
@@ -2145,7 +2154,10 @@
         "local": "grey"
       },
       "alias": "Труха⚡️Харків",
-      "issue": "local"
+      "issue": "local",
+      "badges": [
+        "investigated"
+      ]
     },
     {
       "name": "truexadnepr",
@@ -2154,7 +2166,10 @@
         "local": "grey"
       },
       "alias": "Труха⚡️Дніпро",
-      "issue": "local"
+      "issue": "local",
+      "badges": [
+        "investigated"
+      ]
     },
     {
       "name": "lvivtruexa",
@@ -2163,7 +2178,10 @@
         "local": "grey"
       },
       "alias": "Труха⚡️Львів",
-      "issue": "local"
+      "issue": "local",
+      "badges": [
+        "investigated"
+      ]
     },
     {
       "name": "odesatruexa",
@@ -2172,7 +2190,10 @@
         "local": "grey"
       },
       "alias": "Труха⚡️Одеса",
-      "issue": "local"
+      "issue": "local",
+      "badges": [
+        "investigated"
+      ]
     },
     {
       "name": "truexazaporozie",
@@ -2181,7 +2202,10 @@
         "local": "grey"
       },
       "alias": "Труха⚡️Запоріжжя",
-      "issue": "local"
+      "issue": "local",
+      "badges": [
+        "investigated"
+      ]
     },
     {
       "name": "truexapoltava",
@@ -2190,7 +2214,10 @@
         "local": "grey"
       },
       "alias": "Труха⚡️Полтава",
-      "issue": "local"
+      "issue": "local",
+      "badges": [
+        "investigated"
+      ]
     },
     {
       "name": "kievinfo_kyiv",
@@ -3229,7 +3256,11 @@
       },
       "alias": "Артем Дмитрук",
       "issue": "politics",
-      "kind": "person"
+      "kind": "person",
+      "badges": [
+        "sanctions"
+      ],
+      "monitor_only": true
     },
     {
       "name": "advokatmillerua",
@@ -3297,7 +3328,10 @@
         "local": "grey"
       },
       "alias": "Труха⚡️Вінниця",
-      "issue": "local"
+      "issue": "local",
+      "badges": [
+        "investigated"
+      ]
     },
     {
       "name": "truexakrivojrog",
@@ -3306,7 +3340,10 @@
         "local": "grey"
       },
       "alias": "Труха⚡️Кривий Ріг",
-      "issue": "local"
+      "issue": "local",
+      "badges": [
+        "investigated"
+      ]
     },
     {
       "name": "kyivsvitlo_dtek",
