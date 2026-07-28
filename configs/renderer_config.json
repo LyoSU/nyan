@@ -3,5 +3,6 @@
     "post_format": "rich",
     "sources_open": false,
     "headline_size": 3,
-    "tz_name": "Europe/Kyiv"
+    "tz_name": "Europe/Kyiv",
+    "site_url": "https://news.yuri.ly"
 }

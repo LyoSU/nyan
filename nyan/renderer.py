@@ -184,6 +184,11 @@ class Renderer:
         # handled instead of being an hour wrong for half the year.
         self.tz_name = config.get("tz_name", DEFAULT_TIMEZONE)
 
+        # Where the story is on the web, if it is anywhere. Absent from the
+        # config means no site link in the footer at all, which is what a
+        # deployment without a site should get.
+        self.site_url = (config.get("site_url") or "").rstrip("/")
+
         # "rich" builds a block tree for sendRichMessage; "legacy" keeps the
         # old HTML caption path, so a bad release can be rolled back by
         # editing the config instead of redeploying.
@@ -570,13 +575,45 @@ class Renderer:
         return blocks
 
     def render_footer(self, cluster: Cluster) -> Block:
-        """Reach only.
+        """Reach, in two facts, the second of them clickable.
 
         The quoted channel used to be named here as well, but it is now the
         credit under the text, and one post naming the same channel twice reads
         as a rendering bug.
+
+        The site link is phrased as the second half of a sentence about reach
+        rather than as a call to action, and that is the whole design of it. The
+        post already carries the story, the sources and who was first, so
+        "read more" would promise text the reader has just read and burn itself
+        out within a fortnight. What the site has and the post does not is when
+        each tier of channels picked the story up, how the wave compares with
+        the week, and who stayed quiet — so the label names that, and the reader
+        who does not care about it sees a dim clause in the smallest type on the
+        post and reads past it.
         """
-        return rich.footer(f"👁 {self.views_to_str(cluster.views)}")
+        reach: list[RichText] = [f"👁 {self.views_to_str(cluster.views)}"]
+        story_url = self.story_url(cluster)
+        if story_url:
+            reach.append(rich.link("Як поширювалося", story_url))
+        return rich.footer(rich.join(reach))
+
+    def story_url(self, cluster: Cluster) -> str | None:
+        """The story on the web, addressed by id rather than by headline.
+
+        The site's own canonical URL carries a slug transliterated from the
+        headline, and headlines are rewritten while a cluster is still taking
+        sources — so that URL is not stable enough to put in a post that stays
+        in the archive forever. The numeric form never changes and the site
+        redirects it to whatever the canonical is when the link is followed.
+
+        Duplicating the site's transliteration here would buy nothing: the
+        headline nyan posts and the headline the site renders are derived
+        separately, so the slugs could differ, and a wrong slug lands on the
+        same redirect as no slug at all.
+        """
+        if not self.site_url or cluster.clid is None:
+            return None
+        return f"{self.site_url}/n/{cluster.clid}"
 
     # ---------------------------------------------------------------- legacy
 

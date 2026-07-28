@@ -776,6 +776,45 @@ def test_footer_carries_the_reach_alone(renderer: Renderer) -> None:
     assert VERIFIED.upper() not in footer
 
 
+def test_footer_links_the_story_by_id_not_by_headline(renderer: Renderer) -> None:
+    """The link has to outlive the headline it was posted with.
+
+    A channel post stays in the archive forever, while the site's canonical URL
+    carries a slug transliterated from a headline that gets rewritten while the
+    cluster is still taking sources. So the post addresses the story by id and
+    lets the site redirect.
+    """
+    cluster = make_cluster(
+        [make_doc(VERIFIED, "https://t.me/rbc_news/1")],
+        headline="Заголовок, який ще перепишуть",
+    )
+    cluster.clid = 41337
+    post = renderer.render_cluster(cluster, "main")
+
+    assert post is not None
+    assert post.blocks is not None
+    links = _collect(find(post.blocks, "footer"), lambda b: b.get("type") == "url")
+    assert len(links) == 1
+    assert links[0]["url"] == "https://news.yuri.ly/n/41337"
+    # Not "читати далі": the post already carries the story and the sources, so
+    # the label names what only the site has.
+    assert links[0]["text"] == "Як поширювалося"
+
+
+def test_footer_keeps_the_reach_when_there_is_no_story_url(renderer: Renderer) -> None:
+    """A cluster is rendered before it is filed, and a deployment may have no
+    site at all. Either way the footer degrades to the view count."""
+    cluster = make_cluster([make_doc(VERIFIED, "https://t.me/rbc_news/1", views=800)])
+    assert cluster.clid is None
+    post = renderer.render_cluster(cluster, "main")
+
+    assert post is not None
+    assert post.blocks is not None
+    footer = find(post.blocks, "footer")
+    assert "800" in flatten_text(footer)
+    assert _collect(footer, lambda b: b.get("type") == "url") == []
+
+
 def test_the_text_is_credited_to_the_channel_it_came_from(renderer: Renderer) -> None:
     """A reader has to know whose words these are before weighing them."""
     cluster = make_cluster(
