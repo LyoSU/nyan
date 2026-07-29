@@ -165,7 +165,25 @@ def keep_history(record: dict[str, Any]) -> list[dict[str, Any]]:
 
     return [
         {"$set": archive},
-        {"$set": {key: value for key, value in record.items() if key != "url"}},
+        # Every value wrapped in `$literal`, and this is not defensive style — it
+        # is required. In an aggregation update a string beginning with `$` is a
+        # field path, not a value, so a post opening «$1,7 млрд на експорті» was
+        # read as a path to a field named «1,7 млрд на експорті», which ends in a
+        # full stop, which is not a legal path: the write failed with
+        # "FieldPath must not end with a '.'" and those posts could never be
+        # stored at all. Arrays are parsed the same way, so `links` and `mentions`
+        # would have broken on any url containing a leading `$` too.
+        #
+        # This is the one thing `ReplaceOne` gave for free — there, a value is
+        # only ever a value — and the cost of the pipeline that keeps the
+        # revision log.
+        {
+            "$set": {
+                key: {"$literal": value}
+                for key, value in record.items()
+                if key != "url"
+            }
+        },
     ]
 
 

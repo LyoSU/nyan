@@ -521,9 +521,30 @@ def test_the_stored_text_is_archived_before_it_is_overwritten() -> None:
     assert archive["$set"]["revisions"]["$cond"][0]["$and"][1] == {
         "$ne": ["$text_hash", record["text_hash"]]
     }
-    assert overwrite["$set"]["text"] == "Загинули четверо."
+    assert overwrite["$set"]["text"] == {"$literal": "Загинули четверо."}
     # An aggregation `$set` may not rewrite the field the query matched on.
     assert "url" not in overwrite["$set"]
+
+
+def test_values_are_written_as_values_and_not_as_field_paths() -> None:
+    """A post opening «$1,7 млрд» could not be stored at all without this.
+
+    In an aggregation update a string beginning with `$` is a field path, so that
+    text was read as a path to a field named «1,7 млрд на експорті…» — which ends
+    in a full stop, which is not legal — and the whole batch failed with
+    "FieldPath must not end with a '.'". Arrays are parsed the same way, so a url
+    containing a leading `$` would have done it too.
+    """
+    record = as_record({**post(1, text="$1,7 млрд на експорті."), "links": ["$odd"]})
+    _, overwrite = keep_history(record)
+
+    assert overwrite["$set"]["text"] == {"$literal": "$1,7 млрд на експорті."}
+    assert overwrite["$set"]["links"] == {"$literal": ["$odd"]}
+    # Every value, not only the ones that happen to start with a dollar today.
+    assert all(
+        isinstance(value, dict) and "$literal" in value
+        for value in overwrite["$set"].values()
+    )
 
 
 def test_an_edit_is_not_timestamped_when_the_crawl_time_is_unknown() -> None:
