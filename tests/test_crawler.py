@@ -11,9 +11,11 @@ from datetime import datetime, UTC
 from typing import Any
 
 import pytest
+from parsel import Selector
 from pymongo.errors import OperationFailure
 from scrapy.exceptions import DropItem
 from scrapy.http import HtmlResponse, Request
+from twisted.python.failure import Failure
 
 from crawler.pipelines import (
     ChannelStatsPipeline,
@@ -27,7 +29,9 @@ from crawler.pipelines import (
 from crawler.spiders.telegram import (
     CHANNEL_STATS_KIND,
     DEFAULT_RECRAWL_TIME,
+    MAX_PAGES_PER_CHANNEL,
     TelegramSpider,
+    extract_images,
     extract_mentions,
     get_current_ts,
     parse_post_url,
@@ -392,6 +396,274 @@ def test_a_productive_crawl_logs_its_count(
 def test_closing_without_a_crawler_does_not_fail(spider: TelegramSpider) -> None:
     # Constructed directly, as the tests above do: there is no crawler to ask.
     spider.closed("finished")
+
+
+# The shapes t.me serves that the two hardcoded text paths could not reach. Each
+# of these was found on the live site, not invented: a pass over all 342 channels
+# lost 185 of 5329 posts to the first one alone.
+NESTED_HTML = f"""
+<body><main><div>
+<section class="tgme_channel_history"><div>
+  <div class="tgme_widget_message" data-post="uanews/200">
+    <div class="tgme_widget_message_bubble">
+      <div class="media_supported_cont">
+        <div class="tgme_widget_message_one_media">
+          <div class="media_supported_cont">
+            <a class="tgme_widget_message_photo_wrap"
+               style='background-image:url("https://cdn.telesco.pe/one.jpg")'></a>
+            <div class="tgme_widget_message_text js-message_text">
+              Підпис під альбомом, який раніше зникав.
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="tgme_widget_message_reactions js-message_reactions">
+        <span class="tgme_reaction"><i class="emoji"><b>👍</b></i>1.58K</span>
+        <span class="tgme_reaction"
+              style="background-image:url('//telegram.org/img/emoji/40/F09F9881.png')">
+          <i class="emoji"
+             style="background-image:url('//telegram.org/img/emoji/40/F09F9881.png')"><b></b></i>42</span>
+      </div>
+      <span class="tgme_widget_message_views">5K</span>
+      <time class="time" datetime="{as_datetime_attr(POST_TIMES[0])}"></time>
+    </div>
+  </div>
+  <div class="tgme_widget_message" data-post="uanews/201">
+    <div class="tgme_widget_message_bubble">
+      <a class="tgme_widget_message_reply" href="https://t.me/uanews/199">
+        <div class="tgme_widget_message_text js-message_reply_text">Текст цитати</div>
+      </a>
+      <div class="tgme_widget_message_text js-message_text">Власний текст поста.</div>
+      <span class="tgme_widget_message_views">7</span>
+      <time class="time" datetime="{as_datetime_attr(POST_TIMES[1])}"></time>
+    </div>
+  </div>
+</div></section></div></main></body>
+"""
+
+
+def test_text_is_found_however_deep_telegram_nests_it(spider: TelegramSpider) -> None:
+    """A post with one media item sits two wrappers deeper than the old selector.
+
+    The two structural paths that used to be hardcoded stopped at a direct child
+    of the bubble, so `bubble > media_supported_cont > one_media >
+    media_supported_cont > text` returned nothing and the post was dropped as if
+    it were a photo without a caption — the one path in the spider that logs
+    nothing at all.
+    """
+    items = posts_from(list(spider.parse_channel(channel_response(NESTED_HTML))))
+
+    assert [item["post_id"] for item in items] == [200, 201]
+    assert items[0]["text"] == "Підпис під альбомом, який раніше зникав."
+    assert items[0]["images"] == ["https://cdn.telesco.pe/one.jpg"]
+
+
+def test_a_quoted_message_is_not_mistaken_for_the_post(spider: TelegramSpider) -> None:
+    """The reply block comes first in the DOM, so document order alone is wrong."""
+    items = posts_from(list(spider.parse_channel(channel_response(NESTED_HTML))))
+
+    assert items[1]["text"] == "Власний текст поста."
+
+
+def test_reactions_are_collected(spider: TelegramSpider) -> None:
+    """Already on the page, and a stronger signal than a view: a view is passive."""
+    items = posts_from(list(spider.parse_channel(channel_response(NESTED_HTML))))
+
+    assert items[0]["reactions"] == [
+        {"emoji": "👍", "count": 1580},
+        # No <b> to read, so the emoji comes from the image name: the same UTF-8
+        # bytes in hex, which is how Telegram names every emoji sprite.
+        {"emoji": "😁", "count": 42},
+    ]
+    assert items[0]["reactions_count"] == 1622
+    # A post without a reaction block gets an empty list, not a missing field.
+    assert items[1]["reactions"] == []
+    assert items[1]["reactions_count"] == 0
+
+
+def test_image_urls_survive_every_quoting_style() -> None:
+    assert extract_images(_selector('<a style="background-image:url(x.jpg)"></a>')) == [
+        "x.jpg"
+    ]
+    assert extract_images(
+        _selector("<a style='background-image:url(\"y.jpg\");width:5px'></a>")
+    ) == ["y.jpg"]
+    assert extract_images(
+        _selector("<a style=\"background-image:url('z.jpg')\"></a>")
+    ) == ["z.jpg"]
+
+
+def _selector(html: str) -> Any:
+    """One post-sized fragment, with the class the image extractor looks for."""
+    body = html.replace("<a ", '<a class="tgme_widget_message_photo_wrap" ')
+    return Selector(text=f'<div class="tgme_widget_message">{body}</div>')
+
+
+def test_timestamps_accept_the_forms_telegram_may_serve() -> None:
+    """One hardcoded strptime format meant a changed suffix dropped every post."""
+    expected = int(datetime(2026, 7, 25, 9, 0, tzinfo=UTC).timestamp())
+    assert to_timestamp("2026-07-25T09:00:00+00:00") == expected
+    assert to_timestamp("2026-07-25T09:00:00Z") == expected
+    assert to_timestamp("2026-07-25T12:00:00+03:00") == expected
+
+
+def test_a_fetch_time_from_the_future_is_ignored(tmp_path: Any, caplog: Any) -> None:
+    """A clock skew used to silence a channel forever, at DEBUG level.
+
+    `current_ts - last_fetch_time` is negative for a future timestamp, so it is
+    always below any recrawl interval: the channel is skipped on every pass, and
+    the only trace is a DEBUG line the production log level does not print.
+    """
+    channels = tmp_path / "channels.json"
+    channels.write_text(json.dumps({"channels": [{"name": "uanews"}]}))
+    fetch_times = tmp_path / "fetch_times.json"
+    fetch_times.write_text(json.dumps({"uanews": get_current_ts() + 86400}))
+
+    with caplog.at_level(logging.WARNING):
+        spider = TelegramSpider(
+            channels_file=str(channels), fetch_times=str(fetch_times), hours="24"
+        )
+
+    assert "future" in caplog.text.lower()
+    assert [r.url for r in spider.channel_requests()] == ["https://t.me/s/uanews"]
+
+
+def test_unknown_channels_are_dropped_from_fetch_times(tmp_path: Any) -> None:
+    """Otherwise every channel ever removed stays in the file for good."""
+    channels = tmp_path / "channels.json"
+    channels.write_text(json.dumps({"channels": [{"name": "uanews"}]}))
+    fetch_times = tmp_path / "fetch_times.json"
+    fetch_times.write_text(json.dumps({"uanews": 1, "gone": 2}))
+
+    spider = TelegramSpider(
+        channels_file=str(channels), fetch_times=str(fetch_times), hours="24"
+    )
+    spider.closed("finished")
+
+    with open(fetch_times) as r:
+        assert json.load(r).keys() == {"uanews"}
+
+
+def test_fetch_times_are_saved_during_the_pass(spider: TelegramSpider) -> None:
+    """A pass that is killed halfway must not lose what it already read.
+
+    Written only in `closed()`, a restart meant the next pass re-read every
+    channel — twice the requests to Telegram, on a crawler that is being
+    throttled precisely when it restarts.
+    """
+    spider.fetch_times_save_interval = 0
+    list(spider.parse_channel(channel_response()))
+
+    with open(spider.fetch_times_path) as r:
+        assert "uanews" in json.load(r)
+
+
+def test_a_pinned_notice_is_not_stored_as_a_post(spider: TelegramSpider) -> None:
+    """It carries the pinned post's own text, which we already store from the post.
+
+    Counted apart from a post we simply failed to measure: both used to leave by
+    the same door, because a service message has no view counter either.
+    """
+    service = f"""
+    <body><main><div><section class="tgme_channel_history"><div>
+      <div class="tgme_widget_message service_message" data-post="uanews/400">
+        <div class="tgme_widget_message_bubble">
+          <div class="tgme_widget_message_text">BBC pinned «Головне за день»</div>
+          <time class="time" datetime="{as_datetime_attr(POST_TIMES[0])}"></time>
+        </div>
+      </div>
+    </div></section></div></main></body>
+    """
+
+    assert posts_from(list(spider.parse_channel(channel_response(service)))) == []
+    assert spider.report("uanews").service == 1
+    assert spider.report("uanews").no_views == 0
+
+
+def test_a_channel_with_no_posts_is_named_in_the_log(
+    spider: TelegramSpider, caplog: Any
+) -> None:
+    """A silent channel is the failure the old summary could not see.
+
+    `check_scraped_anything` only fires when the whole pass scraped nothing, so
+    one channel whose markup no longer parses is invisible among 341 that do.
+    """
+    empty = """
+    <body><main><div><section class="tgme_channel_history"><div>
+      <div class="tgme_widget_message" data-post="uanews/300">
+        <div class="tgme_widget_message_bubble">
+          <span class="tgme_widget_message_views">5</span>
+          <time class="time" datetime="2026-07-29T09:00:00+00:00"></time>
+        </div>
+      </div>
+    </div></section></div></main></body>
+    """
+    list(spider.parse_channel(channel_response(empty)))
+    attach_stats(spider, item_scraped_count=0)
+
+    with caplog.at_level(logging.WARNING):
+        spider.closed("finished")
+
+    assert "uanews" in caplog.text
+    assert "no posts" in caplog.text
+
+
+def test_a_page_without_messages_is_reported(
+    spider: TelegramSpider, caplog: Any
+) -> None:
+    """Which is what a private, renamed or deleted channel serves: a 200 and nothing."""
+    blank = (
+        '<body><main><div><section class="tgme_channel_history"><div>'
+        "</div></section></div></main></body>"
+    )
+    list(spider.parse_channel(channel_response(blank)))
+    attach_stats(spider, item_scraped_count=0)
+
+    with caplog.at_level(logging.WARNING):
+        spider.closed("finished")
+
+    assert "uanews" in caplog.text
+    assert "no messages" in caplog.text
+
+
+def test_a_failed_request_is_reported_with_its_channel(
+    spider: TelegramSpider, caplog: Any
+) -> None:
+    """HttpError used to be swallowed by the middleware without a channel name."""
+    request = Request("https://t.me/s/uanews", meta={"channel": "uanews"})
+    failure = Failure(ValueError("boom"))
+    failure.request = request  # type: ignore[attr-defined]
+
+    with caplog.at_level(logging.ERROR):
+        spider.channel_failed(failure)
+        attach_stats(spider, item_scraped_count=0)
+        spider.closed("finished")
+
+    assert "uanews" in caplog.text
+    assert "ValueError" in caplog.text
+
+
+def test_paging_is_bounded(spider: TelegramSpider, caplog: Any) -> None:
+    """A window that never closes must not walk a channel's whole history."""
+    response = channel_response()
+    response.request.meta["page"] = MAX_PAGES_PER_CHANNEL
+    response.request.meta["channel"] = "uanews"
+
+    with caplog.at_level(logging.WARNING):
+        results = list(spider.parse_channel(response))
+
+    assert [r for r in results if isinstance(r, Request)] == []
+    assert "page limit" in caplog.text
+
+
+def test_paging_stops_when_before_does_not_move(spider: TelegramSpider) -> None:
+    """A page whose lowest id is the one we asked before would loop forever."""
+    response = channel_response()
+    response.request.meta.update({"channel": "uanews", "page": 1, "before": 100})
+
+    results = list(spider.parse_channel(response))
+
+    assert [r for r in results if isinstance(r, Request)] == []
 
 
 def test_incomplete_posts_are_dropped() -> None:
