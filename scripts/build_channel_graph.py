@@ -35,9 +35,12 @@ times_ukraina publishes the same event 96% of the time, typically 12 seconds
 apart» is a sentence a reader can argue with, which is the property that matters
 for a number the site is going to subtract sources on the strength of.
 
-Coordinates for the media map are a separate concern and *are* a projection —
-MDS over cosine distance between co-occurrence vectors. They position dots on a
-picture, and nothing is subtracted on their authority.
+An earlier version also projected the channels to two dimensions with MDS, for a
+scatter plot on /pulse. Both are gone. The plot could not be read — two hundred
+channels with near-identical co-occurrence profiles collapse into one blob — and
+it could not be checked either, because no axis of a projection has a name. The
+same finding as a list of pairs with their numbers is legible and disputable,
+which is what this data is for.
 
 ## What none of this establishes
 
@@ -92,9 +95,7 @@ from collections import defaultdict
 from statistics import median
 from typing import Any
 
-import numpy as np
 from pymongo import UpdateOne
-from sklearn.manifold import MDS
 
 from nyan.mongo import get_channel_graph_collection, get_clusters_collection
 from nyan.util import get_current_ts
@@ -139,7 +140,7 @@ INVISIBLE = ("not_news", "unknown")
 
 def read_appearances(
     mongo_config_path: str, window_days: int
-) -> list[dict[str, int]]:
+) -> tuple[list[dict[str, int]], dict[str, str]]:
     """Every story as {channel_id: when that channel first carried it}.
 
     One entry per story rather than per post: a channel that posts four follow-ups
@@ -151,6 +152,14 @@ def read_appearances(
     first — measures overlap against only the stories a channel shared, so a
     channel publishing a hundred things, ten of them alongside `a` and ninety on
     its own, scored 10/10 = «always travels with a». The honest figure is 10/100.
+
+    Titles come back alongside, most recent seen per channel, because the graph
+    covers a longer window than the registry does: of 218 channels here, several —
+    uaonlii, insiderukr, novynarnia — are in the archive and not in channels.json,
+    having been dropped from the roster since. The site resolves a name from the
+    registry and had nothing to fall back on for those, so it printed the bare
+    handle beside curated Ukrainian names for everything else. Carrying the title
+    in the data is what lets it name every channel it shows.
     """
     collection = get_clusters_collection(mongo_config_path)
     cutoff = get_current_ts() - window_days * 24 * 3600
@@ -163,8 +172,19 @@ def read_appearances(
         },
         # Project hard. `annotation_doc` carries a 768-float embedding and one per
         # attached image, and this reads tens of thousands of clusters.
-        {"_id": 0, "docs.channel_id": 1, "docs.pub_time": 1},
-    )
+        {
+            "_id": 0,
+            "create_time": 1,
+            "docs.channel_id": 1,
+            "docs.pub_time": 1,
+            "docs.channel_title": 1,
+        },
+    ).sort("create_time", 1)
+
+    # Overwritten as the scan moves forward in time, so the last write wins and
+    # each channel ends up labelled with the name it goes by now rather than the
+    # one it had six months ago.
+    titles: dict[str, str] = {}
     for cluster in cursor:
         first_seen: dict[str, int] = {}
         for doc in cluster.get("docs", []):
@@ -172,11 +192,14 @@ def read_appearances(
             pub_time = doc.get("pub_time")
             if not channel_id or not pub_time:
                 continue
+            title = str(doc.get("channel_title") or "").strip()
+            if title:
+                titles[channel_id] = title
             if channel_id not in first_seen or pub_time < first_seen[channel_id]:
                 first_seen[channel_id] = int(pub_time)
         if first_seen:
             stories.append(first_seen)
-    return stories
+    return stories, titles
 
 
 def count_cooccurrence(
@@ -229,67 +252,13 @@ def build_pairs(
     return pairs
 
 
-def project(totals: dict[str, int], together: dict[tuple[str, str], int]) -> dict[str, tuple[float, float]]:
-    """Channels as points, close where they cover the same events.
-
-    Cosine over co-occurrence vectors, then MDS down to two dimensions. Unlike
-    the overlap figure this *is* a projection with no checkable meaning per pair,
-    which is why nothing is subtracted on its authority — it places dots on a
-    map and that is all.
-
-    `random_state` and `n_init` are both fixed, and the second matters as much as
-    the first: MDS runs the layout several times from different starts and keeps
-    the best, so a change to how many times it tries moves every point even with
-    the seed held. scikit-learn is about to change that default from 4 to 1,
-    which would have silently reshuffled the whole map on an upgrade — and a
-    reader who learned where a channel sits should find it there tomorrow.
-
-    `init` is left alone deliberately: its default changes in scikit-learn 1.10,
-    and requirements.txt caps the library below that for unrelated reasons. Naming
-    it here would break the 1.4 floor, which does not accept it.
-    """
-    channels = sorted(totals)
-    index = {channel_id: i for i, channel_id in enumerate(channels)}
-    size = len(channels)
-    if size < 3:
-        return {}
-
-    matrix = np.zeros((size, size), dtype=np.float64)
-    for (left, right), count in together.items():
-        matrix[index[left], index[right]] = count
-        matrix[index[right], index[left]] = count
-    for channel_id, total in totals.items():
-        matrix[index[channel_id], index[channel_id]] = total
-
-    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
-    # A channel with no co-occurrences at all would divide by zero and poison
-    # every distance in the matrix, not only its own row.
-    norms[norms == 0] = 1.0
-    normalized = matrix / norms
-    distance = np.clip(1.0 - normalized @ normalized.T, 0.0, None)
-    np.fill_diagonal(distance, 0.0)
-
-    model = MDS(
-        n_components=2,
-        dissimilarity="precomputed",
-        random_state=20260729,
-        n_init=4,
-        normalized_stress="auto",
-    )
-    coordinates = model.fit_transform(distance)
-    return {
-        channel_id: (float(coordinates[i, 0]), float(coordinates[i, 1]))
-        for channel_id, i in index.items()
-    }
-
-
 def build_records(
     totals: dict[str, int],
     pairs: list[dict[str, Any]],
-    coordinates: dict[str, tuple[float, float]],
     window_days: int,
+    titles: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
-    """One document per channel: where it sits, and who it travels with."""
+    """One document per channel: how much it published, and who it travels with."""
     neighbours: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for pair in pairs:
         for channel_id, other in ((pair["a"], pair["b"]), (pair["b"], pair["a"])):
@@ -316,15 +285,17 @@ def build_records(
             key=lambda row: (row["overlap"], row["together"]),
             reverse=True,
         )
-        x, y = coordinates.get(channel_id, (0.0, 0.0))
         records.append(
             {
                 "channel_id": channel_id,
+                # The name the channel goes by, for the several channels in this
+                # graph that the registry no longer lists. Consumers still prefer
+                # a curated alias where one exists — this is the fallback, not the
+                # label.
+                "title": (titles or {}).get(channel_id, ""),
                 "generated_at": generated_at,
                 "window_days": window_days,
                 "stories": total,
-                "x": x,
-                "y": y,
                 "neighbours": ranked[:MAX_NEIGHBOURS],
                 # The flat list the story page needs. Not truncated with the
                 # neighbours: a clone network of ten is exactly the case where
@@ -352,7 +323,7 @@ def write_records(mongo_config_path: str, records: list[dict[str, Any]]) -> None
 def main(mongo_config_path: str, window_days: int) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 
-    stories = read_appearances(mongo_config_path, window_days)
+    stories, titles = read_appearances(mongo_config_path, window_days)
     logging.info("Read %d stories", len(stories))
     if not stories:
         logging.warning("Nothing to build a graph from; leaving it as it was")
@@ -374,8 +345,7 @@ def main(mongo_config_path: str, window_days: int) -> None:
             pair["median_lag"],
         )
 
-    coordinates = project(totals, together)
-    records = build_records(totals, pairs, coordinates, window_days)
+    records = build_records(totals, pairs, window_days, titles)
     write_records(mongo_config_path, records)
     logging.info("Wrote %d channel records", len(records))
 

@@ -13,7 +13,6 @@ from scripts.build_channel_graph import (
     build_pairs,
     build_records,
     count_cooccurrence,
-    project,
 )
 
 
@@ -98,7 +97,7 @@ def test_travelling_together_slowly_is_not_one_voice() -> None:
 
     records = {
         r["channel_id"]: r
-        for r in build_records(totals, build_pairs(totals, together, lags), {}, 60)
+        for r in build_records(totals, build_pairs(totals, together, lags), 60)
     }
 
     assert records["fast"]["same_voice"] == ["clone"]
@@ -125,7 +124,7 @@ def test_a_clone_network_is_never_truncated() -> None:
             pairs[(left, right)] = 30
             lags[(left, right)] = [1] * 30
 
-    records = build_records(totals, build_pairs(totals, pairs, lags), {}, 60)
+    records = build_records(totals, build_pairs(totals, pairs, lags), 60)
 
     assert all(len(r["same_voice"]) == size - 1 for r in records)
     assert all(len(r["neighbours"]) < size - 1 for r in records)
@@ -139,27 +138,8 @@ def test_overlap_exactly_on_the_bar_counts() -> None:
 
     records = {
         r["channel_id"]: r
-        for r in build_records(totals, build_pairs(totals, together, lags), {}, 60)
+        for r in build_records(totals, build_pairs(totals, together, lags), 60)
     }
 
     assert records["a"]["same_voice"] == ["b"]
     assert records["b"]["same_voice"] == ["a"]
-
-
-def test_a_channel_with_no_shared_stories_does_not_break_the_projection() -> None:
-    """Its row is all zeros, and normalizing it would divide every distance by 0."""
-    totals = {"a": 5, "b": 5, "c": 5, "lonely": 5}
-    together = {("a", "b"): 5, ("b", "c"): 5}
-
-    coordinates = project(totals, together)
-
-    assert set(coordinates) == set(totals)
-    assert all(
-        isinstance(value, float) and value == value  # not NaN
-        for point in coordinates.values()
-        for value in point
-    )
-
-
-def test_a_graph_too_small_to_lay_out_yields_no_coordinates() -> None:
-    assert project({"a": 1, "b": 1}, {("a", "b"): 1}) == {}
