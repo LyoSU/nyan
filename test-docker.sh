@@ -21,7 +21,10 @@ else
 fi
 
 echo "📋 Перевірка файлів..."
-for required in channels.json configs/client_config.json; do
+# configs/client_config.json тут немає навмисно: його створює
+# docker-entrypoint.sh із CLIENT_CONFIG_JSON, тому у свіжому клоні його й не
+# мусить бути. Наявність самої змінної перевіряється нижче, разом з .env.
+for required in channels.json; do
     if [ ! -f "$required" ]; then
         echo "❌ Файл $required не знайдено!"
         exit 1
@@ -34,6 +37,15 @@ if [ ! -f ".env" ]; then
 else
     echo "✅ .env знайдено, змінні:"
     grep -E "^(MONGO|LLM)_" .env | sed 's/=.*/=***/' || echo "   Немає MONGO_/LLM_ змінних"
+
+    # Без неї entrypoint зупинить кожен контейнер: publishing-конфіг більше не
+    # лежить файлом на хості, а народжується з цієї змінної.
+    if grep -qE "^CLIENT_CONFIG_JSON=.+" .env; then
+        echo "✅ CLIENT_CONFIG_JSON задано"
+    else
+        echo "❌ CLIENT_CONFIG_JSON не задано — контейнери не стартують"
+        exit 1
+    fi
 fi
 
 echo "🔨 Збірка Docker образу..."

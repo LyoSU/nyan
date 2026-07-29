@@ -10,5 +10,11 @@ pre-commit >= 4.0
 pytest >= 8.0
 pytest-check >= 2.4
 
+# tests/test_deployment.py читає docker-compose.yml. PyYAML і так приходить
+# транзитивно з transformers, але тест, який залежить від чужої залежності,
+# ламається від чужого релізу.
+PyYAML >= 6.0
+
 types-requests >= 2.32
 types-tqdm >= 4.66
+types-PyYAML >= 6.0

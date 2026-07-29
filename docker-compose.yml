@@ -1,3 +1,12 @@
+# Монтуються лише data і models — те, що справді є станом і мусить пережити
+# перезапуск. `configs/` тут НЕ монтується, і це не недогляд: Coolify перетворює
+# кожен відносний bind-mount на постійний каталог хоста, який засівається один
+# раз і більше ніколи не оновлюється деплоями. Поки `./configs` був у цьому
+# списку, прод майже рік читав annotator_config.json від 23.08.2025 — без секції
+# rubric_detector, тобто з мертвим фільтром рубрик, — тоді як образ приносив
+# свіжий код, що той конфіг читає. Конфіги їдуть в образі разом із кодом; два
+# файли з секретами створює docker-entrypoint.sh зі змінних середовища.
+# Тест tests/test_deployment.py стежить, щоб цей монт не повернувся.
 services:
   # Основний контейнер НЯН
   nyan-app:
@@ -6,9 +15,9 @@ services:
     volumes:
       - ./data:/app/data
       - ./models:/app/models
-      - ./configs:/app/configs
     environment:
       - PYTHONPATH=/app
+      - CLIENT_CONFIG_JSON=${CLIENT_CONFIG_JSON:-}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - NYAN_TIMEZONE=${NYAN_TIMEZONE:-Europe/Kyiv}
       - LLM_API_KEY=${LLM_API_KEY:-}
@@ -42,9 +51,9 @@ services:
     volumes:
       - ./data:/app/data
       - ./models:/app/models
-      - ./configs:/app/configs
     environment:
       - PYTHONPATH=/app
+      - CLIENT_CONFIG_JSON=${CLIENT_CONFIG_JSON:-}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - NYAN_TIMEZONE=${NYAN_TIMEZONE:-Europe/Kyiv}
       # Як часто перечитувати канал і як довго спати між проходами.
@@ -69,9 +78,9 @@ services:
     volumes:
       - ./data:/app/data
       - ./models:/app/models
-      - ./configs:/app/configs
     environment:
       - PYTHONPATH=/app
+      - CLIENT_CONFIG_JSON=${CLIENT_CONFIG_JSON:-}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - NYAN_TIMEZONE=${NYAN_TIMEZONE:-Europe/Kyiv}
       - LLM_API_KEY=${LLM_API_KEY:-}
@@ -103,9 +112,9 @@ services:
     volumes:
       - ./data:/app/data
       - ./models:/app/models
-      - ./configs:/app/configs
     environment:
       - PYTHONPATH=/app
+      - CLIENT_CONFIG_JSON=${CLIENT_CONFIG_JSON:-}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - NYAN_TIMEZONE=${NYAN_TIMEZONE:-Europe/Kyiv}
       - LLM_API_KEY=${LLM_API_KEY:-}
