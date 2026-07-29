@@ -131,12 +131,38 @@ def test_every_service_runs_a_script_that_exists(compose: dict) -> None:
     """
     for name, service in compose["services"].items():
         command = service.get("command") or []
-        # Only the ./script.sh form is checked; nyan-app deliberately runs
-        # `tail -f /dev/null` to stay up for manual commands.
+        # Only the ./script.sh form is checked, so a service given a bare command
+        # is skipped rather than failed.
         script = command[0] if command else ""
         if not script.startswith("./"):
             continue
         assert (ROOT / script[2:]).exists(), f"{name} запускає {script}, якого немає"
+
+
+def test_the_number_of_built_services_has_not_grown(compose: dict) -> None:
+    """Adding a fifth one broke the deploy before anything was built.
+
+    Coolify does not hand the Dockerfile to the builder as a file. It generates
+    one — rewriting every `RUN` with a `--mount=type=secret` per environment
+    variable, and prefixing each stage with an `ARG` per variable — base64s it into
+    a shell command, and repeats that once per service. With four services and
+    about thirty variables that command already sat near the kernel's limit; the
+    fifth pushed it over, and the deploy died on `posix_spawn(): Argument list too
+    long` with no image and no hint that a service count was the cause.
+
+    So the count is pinned. If this test fails, that is the tradeoff being
+    requested, not a mistake: either fold the new work into an existing service —
+    which is what the channel graph does, riding along in nyan-app — or first buy
+    headroom by merging `RUN` layers in the Dockerfile and dropping environment
+    variables that have serviceable defaults.
+    """
+    built = [name for name, service in compose["services"].items() if service.get("build")]
+
+    assert len(built) <= 4, (
+        f"{len(built)} сервісів зі `build:`: {sorted(built)}. Coolify вшиває копію "
+        "згенерованого Dockerfile у команду на кожен сервіс, і пʼята копія вже "
+        "перевищила ARG_MAX. Читайте докстрінг цього тесту перед тим, як підіймати межу."
+    )
 
 
 def test_every_service_is_given_the_publishing_secret(compose: dict) -> None:

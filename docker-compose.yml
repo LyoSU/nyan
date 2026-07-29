@@ -41,8 +41,19 @@ services:
       - MONGO_SSL=${MONGO_SSL:-false}
       - MONGO_DIRECT_CONNECTION=${MONGO_DIRECT_CONNECTION:-true}
     restart: unless-stopped
-    # Тримає контейнер запущеним для ручних команд і дебагу.
-    command: ["tail", "-f", "/dev/null"]
+    # Раніше тут стояв `tail -f /dev/null` — контейнер жив лише щоб можна було
+    # зайти в нього руками. Тепер він між тим перераховує граф каналів: о 4:00 за
+    # Києвом і один раз на старті. Для `docker compose exec nyan-app bash` нічого
+    # не змінилося, бо graph.sh майже весь час спить.
+    #
+    # Це навмисно не окремий сервіс. Пʼятий сервіс завалив деплой: Coolify вшиває
+    # згенерований Dockerfile у команду через base64, по копії на сервіс, і в
+    # кожній копії — `ARG` та `--mount=type=secret` на кожну змінну середовища.
+    # Пʼята копія перевела командний рядок за ARG_MAX, і збірка впала на
+    # `posix_spawn(): Argument list too long` ще до того, як щось почало
+    # будуватися. Тобто ціна нового сервісу тут — не контейнер, а кілобайти в
+    # команді, і граф їх не варті: він і так робить одну справу раз на добу.
+    command: ["./graph.sh"]
 
   # Crawler сервіс
   nyan-crawler:
@@ -142,36 +153,3 @@ services:
       - MONGO_DIRECT_CONNECTION=${MONGO_DIRECT_CONNECTION:-true}
     restart: unless-stopped
     command: ["./digest.sh"]
-
-  # Нічний перерахунок графу каналів. Окремий сервіс, а не крон у контейнері
-  # застосунку: без розписання колекція channel_graph тихо старіє, а сайт від
-  # цього не падає — він просто перестає віднімати неодноровні джерела й ніхто
-  # не бачить, що число завищене.
-  nyan-graph:
-    build: .
-    container_name: nyan-graph
-    volumes:
-      - ./data:/app/data
-      - ./models:/app/models
-    environment:
-      - PYTHONPATH=/app
-      # Не використовується самим завданням, але docker-entrypoint.sh падає без
-      # нього на старті — і тест test_deployment.py стежить, щоб кожен сервіс
-      # його отримував.
-      - CLIENT_CONFIG_JSON=${CLIENT_CONFIG_JSON:-}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - NYAN_TIMEZONE=${NYAN_TIMEZONE:-Europe/Kyiv}
-      # Година за київським часом і глибина вікна в днях.
-      - GRAPH_HOUR=${GRAPH_HOUR:-4}
-      - GRAPH_WINDOW_DAYS=${GRAPH_WINDOW_DAYS:-60}
-      - MONGO_HOST=${MONGO_HOST:-}
-      - MONGO_PORT=${MONGO_PORT:-27017}
-      - MONGO_DATABASE=${MONGO_DATABASE:-main}
-      - MONGO_USERNAME=${MONGO_USERNAME:-}
-      - MONGO_PASSWORD=${MONGO_PASSWORD:-}
-      - MONGO_AUTH_SOURCE=${MONGO_AUTH_SOURCE:-admin}
-      - MONGO_READ_PREFERENCE=${MONGO_READ_PREFERENCE:-primary}
-      - MONGO_SSL=${MONGO_SSL:-false}
-      - MONGO_DIRECT_CONNECTION=${MONGO_DIRECT_CONNECTION:-true}
-    restart: unless-stopped
-    command: ["./graph.sh"]

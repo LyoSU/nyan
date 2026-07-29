@@ -15,6 +15,14 @@ set -uo pipefail
 
 # Kyiv time. 4am: after the night's crawling has settled and long before the
 # morning digest reads anything.
+#
+# Deliberately not listed in docker-compose.yml's environment, unlike every other
+# knob in this project. Coolify turns each variable there into an `ARG` plus a
+# `--mount=type=secret` on every `RUN` of a Dockerfile it inlines into a shell
+# command once per service — so a variable costs bytes in a command line that has
+# already overflowed ARG_MAX once. These two have working defaults and nobody has
+# ever needed to change them, which is not worth spending that budget on. To
+# override, add them to the nyan-app service.
 GRAPH_HOUR=${GRAPH_HOUR:-4}
 GRAPH_WINDOW_DAYS=${GRAPH_WINDOW_DAYS:-60}
 export TZ=${NYAN_TIMEZONE:-Europe/Kyiv}
