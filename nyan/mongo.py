@@ -60,6 +60,23 @@ def get_topics_collection(mongo_config_path: str) -> Collection[dict[str, Any]]:
     return get_collection(mongo_config_path, "topics_collection_name", "topics")
 
 
+def get_channel_graph_collection(mongo_config_path: str) -> Collection[dict[str, Any]]:
+    """Which channels behave as one voice, one document per channel.
+
+    Built by `scripts/build_channel_graph.py` over months of clusters, because
+    the question it answers is invisible in any single one: two channels that
+    always carry the same event within seconds of each other are one source
+    whether or not a given post proves it. A story page reading «56 джерел» needs
+    that to avoid presenting a clone network as fifty-six confirmations.
+
+    Derived data, and rebuildable from `clusters` at any time — so it is written
+    with plain upserts and nothing depends on it surviving.
+    """
+    return get_collection(
+        mongo_config_path, "channel_graph_collection_name", "channel_graph"
+    )
+
+
 def get_post_history_collection(mongo_config_path: str) -> Collection[dict[str, Any]]:
     """View counts over time, one document per post per hour.
 
