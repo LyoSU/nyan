@@ -15,7 +15,7 @@ from nyan.classifier import ClassifierHead
 from nyan.embedder import Embedder
 from nyan.text import TextProcessor
 from nyan.image import ImageProcessor
-from nyan.rubrics import RubricDetector
+from nyan.rubrics import count_own_posts, RubricDetector
 from nyan.tokenizer import Tokenizer
 from nyan.util import normalize_channel_id
 
@@ -258,6 +258,14 @@ class Annotator:
         if not doc.patched_text:
             return doc
         if self.rubric_detector(doc.patched_text):
+            doc.category = "not_news"
+            return doc
+        # The shape rule is asked separately, and asked about the raw text: the
+        # marker that makes a headless digest a list is an emoji, and by
+        # `patched_text` the emoji are gone. What it needs beyond the text is how
+        # many of the links lead back into this same channel.
+        own_posts = count_own_posts(list(doc.links), doc.channel_id)
+        if self.rubric_detector.listing(doc.text or "", own_posts):
             doc.category = "not_news"
         return doc
 
