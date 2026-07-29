@@ -120,6 +120,25 @@ def test_the_entrypoint_writes_both_secret_configs() -> None:
     assert "create_client_config.py" in entrypoint
 
 
+def test_every_service_runs_a_script_that_exists(compose: dict) -> None:
+    """A typo in a `command:` is a service that restarts forever, silently.
+
+    Nothing else catches it: the image builds, the deploy succeeds, and the
+    container enters a restart loop whose only symptom is that whatever that
+    service was supposed to do stops happening. The digest going missing is
+    noticed within hours; the channel graph going missing is noticed by nobody,
+    because the site degrades to a smaller number rather than to an error.
+    """
+    for name, service in compose["services"].items():
+        command = service.get("command") or []
+        # Only the ./script.sh form is checked; nyan-app deliberately runs
+        # `tail -f /dev/null` to stay up for manual commands.
+        script = command[0] if command else ""
+        if not script.startswith("./"):
+            continue
+        assert (ROOT / script[2:]).exists(), f"{name} запускає {script}, якого немає"
+
+
 def test_every_service_is_given_the_publishing_secret(compose: dict) -> None:
     """The entrypoint refuses to start without it, so a service that never
     receives it would fail on deploy rather than at first publication."""
