@@ -19,6 +19,7 @@ from nyan.document import (
     read_documents_file,
     read_documents_mongo,
     Document,
+    prune_annotated_documents_mongo,
     read_annotated_documents_mongo,
     write_annotated_documents_mongo,
 )
@@ -184,6 +185,24 @@ class Daemon:
             all_annotated_docs += annotated_docs
             if mongo_config_path:
                 write_annotated_documents_mongo(mongo_config_path, annotated_docs)
+
+        if mongo_config_path:
+            # After writing, not before: an iteration that adds annotations should
+            # be the one that pays back the space, so the collection cannot grow
+            # across a run where pruning happened to fail.
+            #
+            # Failure here is never fatal. This is housekeeping on a cache, and
+            # the iteration it runs in has already produced the annotations the
+            # digest needs — losing a pass costs disk, while raising would cost
+            # the news.
+            try:
+                pruned = prune_annotated_documents_mongo(
+                    mongo_config_path, get_current_ts()
+                )
+                if pruned:
+                    logging.info("Pruned %d annotations past their window", pruned)
+            except Exception:
+                logging.exception("Could not prune annotations; continuing")
 
         final_docs = self.annotator.postprocess(all_annotated_docs)
         logging.info("%d docs before clustering", len(final_docs))

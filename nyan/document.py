@@ -211,6 +211,11 @@ def write_annotated_documents_mongo(
     indices = collection.index_information()
     if "url_1" not in indices:
         collection.create_index([("url", 1)], name="url_1")
+    # Without it, pruning scans every document in the collection to find the old
+    # ones — which on the half-million entries that accumulated here is the whole
+    # 6.8GB read off disk on an interval, to delete twenty thousand rows.
+    if "pub_time_1" not in indices:
+        collection.create_index([("pub_time", 1)], name="pub_time_1")
 
     operations = []
     for doc in docs:
@@ -225,3 +230,52 @@ def write_annotated_documents_mongo(
     # One round trip per batch instead of one per document.
     for batch in gen_batch(operations, MONGO_BATCH_SIZE):
         collection.bulk_write(batch, ordered=False)
+
+
+# How long an annotation is worth keeping. The daemon only ever asks for
+# annotations of documents inside `documents_offset`, which is a day — so a week
+# is already several times the longest window that reads this, with room for the
+# offset to be widened without silently throwing away work.
+ANNOTATION_TTL_DAYS = 7
+
+# Ceiling on one pass. The collection had grown to half a million documents
+# before anything pruned it, and deleting that in a single statement would hold
+# the collection while the daemon needs it. Bounded, so the backlog drains over
+# several iterations and each one stays short.
+MAX_PRUNE_PER_PASS = 20000
+
+
+def prune_annotated_documents_mongo(
+    mongo_config_path: str, current_ts: int, ttl_days: int = ANNOTATION_TTL_DAYS
+) -> int:
+    """Drop annotations nothing will ask for again.
+
+    This collection is a cache, and it was the only one in the database with no
+    expiry. Each entry carries an embedding — 768 doubles, about 6KB, plus one
+    vector per attached image — so half a million of them reached 6.8GB, which
+    was 81% of the database and eventually the whole disk. When the disk filled,
+    every write failed, including the crawler's: the cost of keeping vectors
+    nobody reads was the archive stopping.
+
+    Nothing is lost that could be needed. `read_annotated_documents_mongo` is
+    only ever handed documents from the last `documents_offset` — a day — and an
+    entry that falls out of that window is never looked up again. If one is
+    deleted early the annotator recomputes it, which is exactly what a
+    `CURRENT_VERSION` bump already does to the entire collection.
+
+    Returns how many were removed, so the daemon can log a number rather than
+    claim it did something.
+    """
+    collection = get_annotated_documents_collection(mongo_config_path)
+    cutoff = current_ts - ttl_days * 24 * 3600
+
+    # `pub_time`, not `fetch_time`: a document's own age is what decides whether
+    # the daemon can still ask for it, and fetch_time is absent on entries
+    # written before the crawler recorded it.
+    stale = collection.find(
+        {"pub_time": {"$lt": cutoff}}, {"_id": 1}
+    ).limit(MAX_PRUNE_PER_PASS)
+    ids = [row["_id"] for row in stale]
+    if not ids:
+        return 0
+    return int(collection.delete_many({"_id": {"$in": ids}}).deleted_count)

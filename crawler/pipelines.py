@@ -2,10 +2,12 @@ import hashlib
 import json
 import logging
 import os
+from datetime import UTC, datetime
 from typing import Any
 
 from itemadapter import ItemAdapter
 from pymongo import UpdateOne
+from pymongo.errors import PyMongoError
 from scrapy.exceptions import DropItem
 
 from crawler.spiders.telegram import CHANNEL_STATS_KIND
@@ -32,6 +34,13 @@ REQUIRED_FIELDS = ("url", "text", "pub_time", "views")
 # because this array lives in the post document and an unbounded one is how a
 # 16MB document limit gets hit by a single busy channel.
 MAX_REVISIONS = 10
+
+# How long a view sample is worth keeping. Thirty days: the point of these is the
+# slope between two of them while a story is live, and a month on the story is
+# settled and the row is dead weight. The database has already been filled once
+# by a collection with no expiry, so this one gets its expiry on the day it ships
+# rather than after it becomes a problem.
+HISTORY_TTL_SECONDS = 30 * 24 * 3600
 
 
 def text_hash(text: str) -> str:
@@ -240,6 +249,9 @@ class PostHistoryPipeline:
         self.config_path = config_path
         self.operations: list[UpdateOne] = []
         self.written = 0
+        #: Cleared when the collection cannot be prepared, so a database that
+        #: cannot take these samples costs the samples and nothing else.
+        self.enabled = True
 
     @classmethod
     def from_crawler(cls, crawler: Any) -> "PostHistoryPipeline":
@@ -251,15 +263,37 @@ class PostHistoryPipeline:
 
     def open_spider(self, spider: Any = None) -> None:
         self.collection = get_post_history_collection(self.config_path)
-        self.collection.create_index(
-            [("url", 1), ("hour_ts", 1)], unique=True, name="post_hour"
-        )
-        # The site reads this per story — every post of a cluster over a window —
-        # and the ranker reads it by recency. Both are served by the hour.
-        self.collection.create_index([("hour_ts", -1)], name="hour")
+        # Nothing here may abort the crawl. Scrapy runs `open_spider` on every
+        # pipeline before the spider starts and lets an exception propagate, so a
+        # failure creating an index on a *derived* collection takes down the
+        # collection of posts as well — which is what happened the first time this
+        # shipped: the database was out of disk, `create_index` raised
+        # OutOfDiskSpace, and the crawler went into a retry loop writing nothing
+        # at all. A view-count series is worth having and it is not worth an
+        # archive; if this collection cannot be set up, the crawl proceeds without
+        # it.
+        try:
+            self.collection.create_index(
+                [("url", 1), ("hour_ts", 1)], unique=True, name="post_hour"
+            )
+            # The site reads this per story — every post of a cluster over a
+            # window — and the ranker reads it by recency. Both are served by the
+            # hour.
+            self.collection.create_index([("hour_ts", -1)], name="hour")
+            # And it expires. The reason to keep these samples is the slope
+            # between them while a story is live; a month later the story is
+            # settled and the rows are the same dead weight that filled the disk
+            # once already. Mongo needs a date, not an epoch, for a TTL index, so
+            # the field is written alongside the integer rather than instead of it.
+            self.collection.create_index(
+                [("sampled_at", 1)], expireAfterSeconds=HISTORY_TTL_SECONDS, name="ttl"
+            )
+        except PyMongoError:
+            logging.exception("Could not prepare post history; crawling without it")
+            self.enabled = False
 
     def process_item(self, item: Any, spider: Any = None) -> Any:
-        if is_channel_stats(item):
+        if is_channel_stats(item) or not self.enabled:
             return item
 
         adapter = ItemAdapter(item)
@@ -280,7 +314,13 @@ class PostHistoryPipeline:
             UpdateOne(
                 {"url": url, "hour_ts": hour_ts},
                 {
-                    "$set": {"views": int(views), "ts": int(fetch_time)},
+                    "$set": {
+                        "views": int(views),
+                        "ts": int(fetch_time),
+                        # The same instant as `ts`, as a date, because that is the
+                        # only type a TTL index will act on.
+                        "sampled_at": datetime.fromtimestamp(int(fetch_time), UTC),
+                    },
                     # Written once, on the row's first sample. The channel is
                     # what makes this collection groupable without a join back
                     # to `documents`, and pub_time is what turns a view count
@@ -304,8 +344,14 @@ class PostHistoryPipeline:
     def flush(self) -> None:
         if not self.operations:
             return
-        self.collection.bulk_write(self.operations, ordered=False)
-        self.written += len(self.operations)
+        # Same rule as `open_spider`: these are derived numbers and a database
+        # that will not take them must not cost us the posts as well.
+        try:
+            self.collection.bulk_write(self.operations, ordered=False)
+            self.written += len(self.operations)
+        except PyMongoError:
+            logging.exception("Could not write post measurements; dropping the batch")
+            self.enabled = False
         self.operations = []
 
 
@@ -325,6 +371,7 @@ class ChannelStatsPipeline:
         self.config_path = config_path
         self.operations: list[UpdateOne] = []
         self.written = 0
+        self.enabled = True
 
     @classmethod
     def from_crawler(cls, crawler: Any) -> "ChannelStatsPipeline":
@@ -335,13 +382,20 @@ class ChannelStatsPipeline:
     def open_spider(self, spider: Any = None) -> None:
         self.collection = get_channel_stats_collection(self.config_path)
         # Idempotent, and the only place that knows this collection's shape.
-        self.collection.create_index(
-            [("channel_id", 1), ("hour_ts", 1)], unique=True, name="channel_hour"
-        )
-        self.collection.create_index([("hour_ts", -1)], name="hour")
+        # Wrapped for the reason spelled out in `PostHistoryPipeline.open_spider`:
+        # Scrapy lets an exception here abort the spider, and audience
+        # measurements are not worth an archive.
+        try:
+            self.collection.create_index(
+                [("channel_id", 1), ("hour_ts", 1)], unique=True, name="channel_hour"
+            )
+            self.collection.create_index([("hour_ts", -1)], name="hour")
+        except PyMongoError:
+            logging.exception("Could not prepare channel stats; crawling without them")
+            self.enabled = False
 
     def process_item(self, item: Any, spider: Any = None) -> Any:
-        if not is_channel_stats(item):
+        if not is_channel_stats(item) or not self.enabled:
             return item
 
         record = ItemAdapter(item).asdict()
@@ -362,8 +416,12 @@ class ChannelStatsPipeline:
     def flush(self) -> None:
         if not self.operations:
             return
-        self.collection.bulk_write(self.operations, ordered=False)
-        self.written += len(self.operations)
+        try:
+            self.collection.bulk_write(self.operations, ordered=False)
+            self.written += len(self.operations)
+        except PyMongoError:
+            logging.exception("Could not write channel measurements; dropping the batch")
+            self.enabled = False
         self.operations = []
 
 

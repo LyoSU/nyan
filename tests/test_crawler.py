@@ -11,6 +11,7 @@ from datetime import datetime, UTC
 from typing import Any
 
 import pytest
+from pymongo.errors import OperationFailure
 from scrapy.exceptions import DropItem
 from scrapy.http import HtmlResponse, Request
 
@@ -565,6 +566,58 @@ def test_a_sample_with_no_time_is_not_recorded(monkeypatch: Any) -> None:
     pipeline.close_spider()
 
     assert collection.batches == []
+
+
+def test_a_database_that_cannot_hold_the_history_does_not_stop_the_crawl(
+    monkeypatch: Any,
+) -> None:
+    """This exact failure took the crawler down once.
+
+    The database was out of disk, `create_index` raised, Scrapy let it propagate
+    out of `open_spider`, and the spider aborted before reading a single channel —
+    so the cost of a missing view-count series was every post of that crawl.
+    """
+
+    class RefusingCollection(FakeCollection):
+        def create_index(self, keys: Any, **kwargs: Any) -> str:
+            raise OperationFailure("available disk space is less than required")
+
+    collection = RefusingCollection()
+    monkeypatch.setattr(
+        "crawler.pipelines.get_post_history_collection", lambda _: collection
+    )
+
+    pipeline = PostHistoryPipeline.from_crawler(fake_crawler())
+    pipeline.open_spider()
+
+    assert pipeline.enabled is False
+    # And it keeps waving items through rather than collecting them for a write
+    # that cannot happen.
+    item = {**post(1), "fetch_time": 3600}
+    assert pipeline.process_item(item) is item
+    pipeline.close_spider()
+    assert collection.batches == []
+
+
+def test_a_failed_write_of_measurements_is_not_fatal(monkeypatch: Any) -> None:
+    """A disk that fills mid-crawl is the same problem arriving later."""
+
+    class RefusingCollection(FakeCollection):
+        def bulk_write(self, operations: list[Any], ordered: bool = True) -> None:
+            raise OperationFailure("available disk space is less than required")
+
+    collection = RefusingCollection()
+    monkeypatch.setattr(
+        "crawler.pipelines.get_post_history_collection", lambda _: collection
+    )
+
+    pipeline = PostHistoryPipeline.from_crawler(fake_crawler(MONGO_BATCH_SIZE=1))
+    pipeline.open_spider()
+    pipeline.process_item({**post(1), "fetch_time": 3600})
+    pipeline.close_spider()
+
+    assert pipeline.written == 0
+    assert pipeline.enabled is False
 
 
 def test_measurements_pass_through_the_post_history_pipeline(monkeypatch: Any) -> None:
