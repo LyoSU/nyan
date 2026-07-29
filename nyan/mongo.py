@@ -60,6 +60,25 @@ def get_topics_collection(mongo_config_path: str) -> Collection[dict[str, Any]]:
     return get_collection(mongo_config_path, "topics_collection_name", "topics")
 
 
+def get_post_history_collection(mongo_config_path: str) -> Collection[dict[str, Any]]:
+    """View counts over time, one document per post per hour.
+
+    `documents` keeps the newest measurement of a post and nothing else, because
+    a crawl overwrites the fields it re-reads. That is enough to say how far a
+    post travelled and useless for saying how fast: a story carried by fifty
+    channels in ten minutes and one carried by fifty over two days are the same
+    number there. The rate is the more honest figure of the two — views as
+    crawled are a floor, sampled minutes after publication, while their
+    *derivative* survives that bias because both samples are biased the same way.
+
+    Bucketed to the hour, like `channel_stats`, so a post re-read every five
+    minutes leaves one row an hour rather than twelve.
+    """
+    return get_collection(
+        mongo_config_path, "post_history_collection_name", "post_history"
+    )
+
+
 def get_channel_stats_collection(mongo_config_path: str) -> Collection[dict[str, Any]]:
     """Subscriber counts over time, one document per channel per hour.
 

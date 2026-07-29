@@ -18,12 +18,16 @@ from crawler.pipelines import (
     ChannelStatsPipeline,
     JsonlPipeline,
     MongoPipeline,
+    PostHistoryPipeline,
     as_record,
+    keep_history,
+    text_hash,
 )
 from crawler.spiders.telegram import (
     CHANNEL_STATS_KIND,
     DEFAULT_RECRAWL_TIME,
     TelegramSpider,
+    extract_mentions,
     get_current_ts,
     parse_post_url,
     process_counter,
@@ -66,7 +70,8 @@ CHANNEL_HTML = f"""
   <div class="tgme_widget_message" data-post="uanews/100">
     <div class="tgme_widget_message_bubble">
       <div class="tgme_widget_message_text">
-        Новина про подію. <a href="https://example.com/story">джерело</a>
+        Новина про подію, пише @suspilnenews.
+        <a href="https://example.com/story">джерело</a>
       </div>
       <a class="tgme_widget_message_photo_wrap"
          style="width:100px;background-image:url('https://cdn.telesco.pe/a.jpg')"></a>
@@ -82,8 +87,11 @@ CHANNEL_HTML = f"""
         <div class="tgme_widget_message_text">Пост із медіа-обгорткою</div>
       </div>
       <video class="tgme_widget_message_video" src="https://cdn.telesco.pe/v.mp4"></video>
-      <span class="tgme_widget_message_views">900</span>
-      <time class="time" datetime="{as_datetime_attr(POST_TIMES[1])}"></time>
+      <span class="tgme_widget_message_meta">
+        <span class="tgme_widget_message_views">900</span>
+        <span class="tgme_widget_message_meta_edited">edited</span>
+        <time class="time" datetime="{as_datetime_attr(POST_TIMES[1])}"></time>
+      </span>
     </div>
   </div>
   <div class="tgme_widget_message" data-post="uanews/102">
@@ -261,14 +269,19 @@ def test_posts_are_parsed_from_channel_markup(spider: TelegramSpider) -> None:
     assert first["post_id"] == 100
     assert first["views"] == 12500
     assert first["pub_time"] == POST_TIMES[0]
-    assert "Новина про подію." in first["text"]
+    assert "Новина про подію" in first["text"]
     assert first["links"] == ["https://example.com/story"]
     # The same url appears in two style blocks and must be stored once.
     assert first["images"] == ["https://cdn.telesco.pe/a.jpg"]
+    assert first["mentions"] == ["suspilnenews"]
+    assert first["edited"] is False
 
     second = items[1]
     assert second["text"] == "Пост із медіа-обгорткою."
     assert second["videos"] == ["https://cdn.telesco.pe/v.mp4"]
+    # The label sits in the meta line beside the view counter, which is the only
+    # place the preview admits a post was changed.
+    assert second["edited"] is True
 
 
 def test_the_crawl_pages_back_through_history(spider: TelegramSpider) -> None:
@@ -459,6 +472,115 @@ def test_mongo_pipeline_writes_in_batches(monkeypatch: Any) -> None:
     pipeline.close_spider()
     assert [len(b) for b in collection.batches] == [2, 2, 1]
     assert pipeline.written == 5
+
+
+def test_mentions_are_read_from_both_spellings() -> None:
+    """A handle in the text and a t.me link are the same act, so both count."""
+    mentions = extract_mentions(
+        "Пише @truexanewsua, дивіться t.me/s/hueviykharkov",
+        ["https://t.me/suspilnenews/123"],
+    )
+
+    assert mentions == ["hueviykharkov", "suspilnenews", "truexanewsua"]
+
+
+def test_things_shaped_like_handles_and_not_handles_are_rejected() -> None:
+    """Every one of these produced a phantom channel before the rules tightened."""
+    assert extract_mentions("напишіть на mail@gmail.com", []) == []
+    # Below Telegram's five-character minimum for a public handle.
+    assert extract_mentions("@ab", []) == []
+    # Invite links name a channel we cannot resolve to a handle.
+    assert extract_mentions("t.me/+AbCdEf123", []) == []
+    # A private channel is a numeric id under /c/.
+    assert extract_mentions("https://t.me/c/1234567/89", []) == []
+    assert extract_mentions("t.me/addstickers/pack", []) == []
+
+
+def test_reflowing_a_paragraph_is_not_an_edit() -> None:
+    """html2text wraps the same sentence differently between crawls.
+
+    Without normalizing, every one of those became a revision and buried the
+    edits that changed what a post said.
+    """
+    assert text_hash("Загинули  двоє.\n") == text_hash("Загинули двоє.")
+    assert text_hash("Загинули двоє.") != text_hash("Загинули четверо.")
+
+
+def test_the_stored_text_is_archived_before_it_is_overwritten() -> None:
+    """The two stages must stay in this order.
+
+    The first reads `$text`, which is still the *stored* text only because the
+    second stage has not run yet. Swap them and the revision log records the new
+    text as though it were the old one.
+    """
+    record = as_record({**post(1, text="Загинули четверо."), "fetch_time": 3000})
+    archive, overwrite = keep_history(record)
+
+    assert list(archive["$set"]) == ["revisions", "first_edit_time"]
+    assert archive["$set"]["revisions"]["$cond"][0]["$and"][1] == {
+        "$ne": ["$text_hash", record["text_hash"]]
+    }
+    assert overwrite["$set"]["text"] == "Загинули четверо."
+    # An aggregation `$set` may not rewrite the field the query matched on.
+    assert "url" not in overwrite["$set"]
+
+
+def test_an_edit_is_not_timestamped_when_the_crawl_time_is_unknown() -> None:
+    """Better no timestamp than one standing in for a time nobody measured."""
+    archive, _ = keep_history(as_record(post(1)))
+
+    assert list(archive["$set"]) == ["revisions"]
+
+
+def test_view_samples_of_one_hour_collapse_into_one_row(monkeypatch: Any) -> None:
+    """Twelve re-reads an hour must not leave twelve rows to average over."""
+    collection = FakeCollection()
+    monkeypatch.setattr(
+        "crawler.pipelines.get_post_history_collection", lambda _: collection
+    )
+
+    pipeline = PostHistoryPipeline.from_crawler(fake_crawler())
+    pipeline.open_spider()
+    for fetch_time, views in ((3600, 100), (4500, 180), (7200, 400)):
+        pipeline.process_item({**post(1), "views": views, "fetch_time": fetch_time})
+    pipeline.close_spider()
+
+    written = collection.batches[0]
+    assert [op._filter["hour_ts"] for op in written] == [3600, 3600, 7200]
+    # Two of the three share a key, so Mongo upserts two rows out of three
+    # operations — the second overwriting the first with the later sample.
+    assert len({op._filter["hour_ts"] for op in written}) == 2
+
+
+def test_a_sample_with_no_time_is_not_recorded(monkeypatch: Any) -> None:
+    """It would collapse into whichever hour happened to be current."""
+    collection = FakeCollection()
+    monkeypatch.setattr(
+        "crawler.pipelines.get_post_history_collection", lambda _: collection
+    )
+
+    pipeline = PostHistoryPipeline.from_crawler(fake_crawler())
+    pipeline.open_spider()
+    pipeline.process_item(post(1))
+    pipeline.close_spider()
+
+    assert collection.batches == []
+
+
+def test_measurements_pass_through_the_post_history_pipeline(monkeypatch: Any) -> None:
+    """Every pipeline has to wave the kinds it does not handle through."""
+    collection = FakeCollection()
+    monkeypatch.setattr(
+        "crawler.pipelines.get_post_history_collection", lambda _: collection
+    )
+
+    pipeline = PostHistoryPipeline.from_crawler(fake_crawler())
+    pipeline.open_spider()
+    measurement = {"_kind": CHANNEL_STATS_KIND, "channel_id": "uanews", "hour_ts": 3600}
+
+    assert pipeline.process_item(measurement) is measurement
+    pipeline.close_spider()
+    assert collection.batches == []
 
 
 def test_counter_values_are_parsed_from_the_header_forms() -> None:

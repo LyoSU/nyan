@@ -9,8 +9,14 @@ RANDOMIZE_DOWNLOAD_DELAY = True
 TELNETCONSOLE_ENABLED = False
 ITEM_PIPELINES = {
     # Measurements first, so they are stored before the post pipeline waves
-    # them through; both let the other's kind of item pass untouched.
+    # them through; every pipeline lets the kinds it does not handle pass
+    # untouched.
     "crawler.pipelines.ChannelStatsPipeline": 200,
+    # Before MongoPipeline for a reason: it reads `views` off the item, which is
+    # the value about to be written over the previous one. Order does not matter
+    # for correctness — they write to different collections — but keeping the
+    # sample ahead of the overwrite is how the two stay readable together.
+    "crawler.pipelines.PostHistoryPipeline": 250,
     "crawler.pipelines.MongoPipeline": 300,
 }
 # Renamed from DNS_RESOLVER in Scrapy 2.13.

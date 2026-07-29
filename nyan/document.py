@@ -51,6 +51,20 @@ class Document(Serializable):
     videos: Sequence[str] = tuple()
     reply_to: str | None = None
     forward_from: str | None = None
+    #: Other channels this post names, as bare handles. A directed edge, unlike
+    #: co-occurrence in a story — see `extract_mentions` in the spider.
+    mentions: Sequence[str] = tuple()
+    #: Whether Telegram's preview labels the post as edited. Weaker than
+    #: `first_edit_time`, and set for edits made between two of our crawls.
+    edited: bool = False
+    #: Digest of the crawled text, whitespace-normalized. What the crawler
+    #: compares to notice a silent edit.
+    text_hash: str | None = None
+    #: When an edit was first detected. `revisions` in the `documents` collection
+    #: holds the superseded texts themselves; deliberately not mirrored here,
+    #: because every field on this dataclass is copied into annotated documents
+    #: and then into clusters, and old post bodies have no business there.
+    first_edit_time: int | None = None
 
     channel_title: str = ""
     has_obscene: bool = False

@@ -1,14 +1,19 @@
+import hashlib
 import json
 import logging
 import os
 from typing import Any
 
 from itemadapter import ItemAdapter
-from pymongo import ReplaceOne, UpdateOne
+from pymongo import UpdateOne
 from scrapy.exceptions import DropItem
 
 from crawler.spiders.telegram import CHANNEL_STATS_KIND
-from nyan.mongo import get_channel_stats_collection, get_documents_collection
+from nyan.mongo import (
+    get_channel_stats_collection,
+    get_documents_collection,
+    get_post_history_collection,
+)
 from nyan.util import normalize_url
 
 
@@ -20,6 +25,28 @@ DEFAULT_MONGO_CONFIG_PATH = os.getenv("MONGO_CONFIG_PATH") or "configs/mongo_con
 DEFAULT_JSONL_OUTPUT_PATH = "telegram_news.jsonl"
 
 REQUIRED_FIELDS = ("url", "text", "pub_time", "views")
+
+# How many past versions of a post to keep. A channel that edits a post twice is
+# saying something; one that has edited it forty times is running a live blog,
+# and the forty-first entry answers no question the tenth did not. Bounded
+# because this array lives in the post document and an unbounded one is how a
+# 16MB document limit gets hit by a single busy channel.
+MAX_REVISIONS = 10
+
+
+def text_hash(text: str) -> str:
+    """A short digest of a post's text, for spotting silent edits.
+
+    Whitespace-normalized, so a reflowed paragraph is not reported as a change
+    of substance — html2text can wrap the same sentence differently between two
+    crawls, and a revision log full of those would bury the real edits.
+
+    Truncated to 16 hex characters: this is a change detector, not a signature,
+    and 64 bits of it makes a collision between two versions of one short post
+    something that does not happen.
+    """
+    normalized = " ".join(text.split())
+    return hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:16]
 
 
 def is_channel_stats(item: Any) -> bool:
@@ -46,7 +73,91 @@ def as_record(item: Any) -> dict[str, Any]:
 
     record: dict[str, Any] = adapter.asdict()
     record["url"] = normalize_url(str(adapter.get("url")))
+    record["text_hash"] = text_hash(str(adapter.get("text")))
     return record
+
+
+def keep_history(record: dict[str, Any]) -> list[dict[str, Any]]:
+    """An update that files the stored text away before overwriting it.
+
+    ## Why this is not a ReplaceOne
+
+    It used to be. A crawl re-reads every post in a channel's recent history
+    every few minutes, and a `ReplaceOne` on the url meant each re-read
+    discarded whatever was stored and wrote the current state in its place. Two
+    things were lost that way, both silently.
+
+    The first was the view count of an hour ago, so `views` was always the newest
+    sample and never a series — see `get_post_history_collection` for what that
+    costs. The second matters more: if a channel edited a post, the old text was
+    gone, and nothing anywhere recorded that it had ever been different. A
+    channel that publishes a casualty figure and quietly corrects it twenty
+    minutes later is doing the single most interesting thing a news channel can
+    do in front of a monitor, and we were overwriting the evidence on the next
+    crawl.
+
+    ## How
+
+    As an aggregation-pipeline update, in two stages that must stay in this
+    order: the first reads `$text` and `$text_hash` — which are still the *stored*
+    values, because the second stage has not run yet — and appends them to
+    `revisions` if the hash differs from the one being written. Doing it
+    server-side is what makes it atomic and what avoids reading every post's full
+    text back over the wire just to compare it.
+
+    The else branch is a bare `"$revisions"` rather than `{"$ifNull": [...]}` on
+    purpose: an aggregation `$set` of a missing path leaves the field absent, so
+    unedited posts — nearly all of them — never grow a `revisions: []` key.
+    """
+    stored_revision = {
+        "ts": "$fetch_time",
+        "text": "$text",
+        "text_hash": "$text_hash",
+        "views": "$views",
+    }
+    changed = {
+        "$and": [
+            # Absent on posts written before this existed, and on the upsert of a
+            # post we have never seen. Neither is an edit.
+            {"$ne": [{"$type": "$text_hash"}, "missing"]},
+            {"$ne": ["$text_hash", record["text_hash"]]},
+        ]
+    }
+    archive: dict[str, Any] = {
+        "revisions": {
+            "$cond": [
+                changed,
+                {
+                    "$slice": [
+                        {
+                            "$concatArrays": [
+                                {"$ifNull": ["$revisions", []]},
+                                [stored_revision],
+                            ]
+                        },
+                        -MAX_REVISIONS,
+                    ]
+                },
+                "$revisions",
+            ]
+        }
+    }
+
+    # When an edit was first *detected*, which is all we can honestly claim: the
+    # change happened somewhere between the crawl that saw the old text and this
+    # one. The site needs one timestamp to print beside a headline, and
+    # `revisions` is the detail behind it. Set from the incoming value rather than
+    # from `$fetch_time`, which at this stage is still the previous crawl's.
+    detected_at = record.get("fetch_time")
+    if detected_at is not None:
+        archive["first_edit_time"] = {
+            "$cond": [changed, {"$ifNull": ["$first_edit_time", detected_at]}, "$first_edit_time"]
+        }
+
+    return [
+        {"$set": archive},
+        {"$set": {key: value for key, value in record.items() if key != "url"}},
+    ]
 
 
 class MongoPipeline:
@@ -64,7 +175,7 @@ class MongoPipeline:
     ) -> None:
         self.batch_size = batch_size
         self.config_path = config_path
-        self.operations: list[ReplaceOne[dict[str, Any]]] = []
+        self.operations: list[UpdateOne] = []
         self.written = 0
 
     @classmethod
@@ -82,7 +193,9 @@ class MongoPipeline:
         if is_channel_stats(item):
             return item
         record = as_record(item)
-        self.operations.append(ReplaceOne({"url": record["url"]}, record, upsert=True))
+        self.operations.append(
+            UpdateOne({"url": record["url"]}, keep_history(record), upsert=True)
+        )
         if len(self.operations) >= self.batch_size:
             self.flush()
         return item
@@ -90,6 +203,103 @@ class MongoPipeline:
     def close_spider(self, spider: Any = None) -> None:
         self.flush()
         logging.info("Wrote %d posts to Mongo", self.written)
+
+    def flush(self) -> None:
+        if not self.operations:
+            return
+        self.collection.bulk_write(self.operations, ordered=False)
+        self.written += len(self.operations)
+        self.operations = []
+
+
+class PostHistoryPipeline:
+    """Records how many views each post had, hour by hour.
+
+    The companion to `ChannelStatsPipeline`, and for the same reason: a single
+    measurement of a moving quantity is not a measurement of anything. Views as
+    crawled are a floor — whatever the post had when we happened to look, minutes
+    after publication — so the absolute number is not comparable between two
+    channels crawled at different intervals. The *slope* between two samples of
+    the same post is, because the bias is identical at both ends.
+
+    That slope is what makes «поширюється швидко» a fact rather than a feeling,
+    and it is the honest replacement for view counts in ranking.
+
+    Written from the post item rather than from a second crawl, so this costs no
+    extra request: the numbers are already on the page being parsed. Upserts on
+    (url, hour_ts), so the twelve re-reads of a post within one hour leave one
+    row carrying the last of them.
+    """
+
+    def __init__(
+        self,
+        batch_size: int = DEFAULT_BATCH_SIZE,
+        config_path: str = DEFAULT_MONGO_CONFIG_PATH,
+    ) -> None:
+        self.batch_size = batch_size
+        self.config_path = config_path
+        self.operations: list[UpdateOne] = []
+        self.written = 0
+
+    @classmethod
+    def from_crawler(cls, crawler: Any) -> "PostHistoryPipeline":
+        settings = crawler.settings
+        return cls(
+            batch_size=settings.getint("MONGO_BATCH_SIZE", DEFAULT_BATCH_SIZE),
+            config_path=settings.get("MONGO_CONFIG_PATH", DEFAULT_MONGO_CONFIG_PATH),
+        )
+
+    def open_spider(self, spider: Any = None) -> None:
+        self.collection = get_post_history_collection(self.config_path)
+        self.collection.create_index(
+            [("url", 1), ("hour_ts", 1)], unique=True, name="post_hour"
+        )
+        # The site reads this per story — every post of a cluster over a window —
+        # and the ranker reads it by recency. Both are served by the hour.
+        self.collection.create_index([("hour_ts", -1)], name="hour")
+
+    def process_item(self, item: Any, spider: Any = None) -> Any:
+        if is_channel_stats(item):
+            return item
+
+        adapter = ItemAdapter(item)
+        fetch_time = adapter.get("fetch_time")
+        views = adapter.get("views")
+        # No timestamp means nothing to place the sample at, and a sample with no
+        # time is worse than no sample: it would collapse into whichever hour
+        # bucket happened to be current. Views of zero are dropped for the same
+        # reason `as_record` requires them — the preview omits the counter on
+        # service messages, and a zero there is "not measured", not "nobody saw
+        # it".
+        if not fetch_time or not views:
+            return item
+
+        url = normalize_url(str(adapter.get("url")))
+        hour_ts = int(fetch_time) - int(fetch_time) % 3600
+        self.operations.append(
+            UpdateOne(
+                {"url": url, "hour_ts": hour_ts},
+                {
+                    "$set": {"views": int(views), "ts": int(fetch_time)},
+                    # Written once, on the row's first sample. The channel is
+                    # what makes this collection groupable without a join back
+                    # to `documents`, and pub_time is what turns a view count
+                    # into an age.
+                    "$setOnInsert": {
+                        "channel_id": adapter.get("channel_id"),
+                        "pub_time": adapter.get("pub_time"),
+                    },
+                },
+                upsert=True,
+            )
+        )
+        if len(self.operations) >= self.batch_size:
+            self.flush()
+        return item
+
+    def close_spider(self, spider: Any = None) -> None:
+        self.flush()
+        logging.info("Wrote %d post measurements to Mongo", self.written)
 
     def flush(self) -> None:
         if not self.operations:

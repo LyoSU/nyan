@@ -1,8 +1,9 @@
 import json
 import logging
 import os
+import re
 import shutil
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Iterator, Sequence
 from datetime import datetime, UTC
 from typing import Any
 
@@ -57,6 +58,63 @@ def process_counter(value: str | None) -> int:
     if not value:
         return 0
     return process_views(value.replace(" ", "").replace(" ", "").replace(",", ""))
+
+
+# Telegram's own rule for a public handle: 5 to 32 characters of [A-Za-z0-9_].
+# The lookbehind is what keeps "someone@gmail.com" and a trailing "…/@x" out —
+# without it every email address in a post became a mentioned channel.
+MENTION_RE = re.compile(r"(?<![\w@/.])@([A-Za-z0-9_]{5,32})\b")
+
+# A link to a channel, with or without a post id, and with or without the /s/
+# preview prefix. Unanchored on purpose: it has to run over post text as well as
+# over extracted hrefs, because a channel can write out t.me/name in the body and
+# Telegram autolinks it — matching only whole hrefs missed exactly those.
+#
+# The trailing lookahead is what rejects a deeper path, which is how every
+# non-channel t.me url is shaped: `t.me/joinchat/AAA` matches "joinchat" and is
+# then thrown out because a slash follows. `+invite` links never match at all,
+# since `+` is not in the handle class.
+TME_RE = re.compile(
+    r"(?:https?://)?t\.me/(?:s/)?([A-Za-z0-9_]{5,32})(?:/\d+)?(?![\w/])"
+)
+
+# Paths that look like handles and are not. The lookahead above already rejects
+# these when they carry a path of their own; this catches the bare forms, and
+# `c` — which prefixes private-channel links whose numeric id names no handle.
+RESERVED_HANDLES = frozenset(
+    {
+        "joinchat",
+        "addstickers",
+        "addlist",
+        "setlanguage",
+        "share",
+        "proxy",
+        "socks",
+        "boost",
+    }
+)
+
+
+def extract_mentions(text: str, links: Sequence[str]) -> list[str]:
+    """Which other channels a post names, as bare lowercase handles.
+
+    A second kind of edge between channels, and the more informative of the two:
+    co-occurrence in a story says two channels cover the same events, which is
+    symmetric and says nothing about who follows whom. A mention has a direction.
+    A channel that is named by forty others and names none is a source; one that
+    names forty and is named by none is an aggregator, and the two are
+    indistinguishable by co-occurrence alone.
+
+    Both spellings count — «@handle» in the text and a t.me link — because they
+    are the same act, and which one a channel uses is a habit of its editor.
+    `forward_from` is deliberately not folded in here: a repost is a stronger
+    relation than a mention and it already has its own field.
+    """
+    handles = {match.group(1).lower() for match in MENTION_RE.finditer(text)}
+    for source in (text, *links):
+        for match in TME_RE.finditer(source):
+            handles.add(match.group(1).lower())
+    return sorted(handles - RESERVED_HANDLES)
 
 
 def parse_post_url(url: str) -> Item:
@@ -313,6 +371,7 @@ class TelegramSpider(scrapy.Spider):
             " > div.tgme_widget_message_text"
         )
         views_path = "span.tgme_widget_message_views::text"
+        meta_path = "span.tgme_widget_message_meta"
         time_path = "time.time::attr(datetime)"
         images_path = "a.tgme_widget_message_photo_wrap::attr(style)"
         videos_path = "video.tgme_widget_message_video::attr(src)"
@@ -331,7 +390,18 @@ class TelegramSpider(scrapy.Spider):
 
         item["text"] = self._parse_html(text_element.extract_first())
         item["links"] = text_element.css("a::attr(href)").getall()
+        item["mentions"] = extract_mentions(item["text"], item["links"])
         item["fetch_time"] = get_current_ts()
+
+        # The preview writes "edited" into the same meta line as the view count
+        # and the time. It is the only place Telegram admits a post was changed,
+        # and it is a weaker signal than our own revision log — it says a post
+        # was edited at some point, not what changed or when, and it is lost the
+        # moment the post falls out of the crawl window. Recorded anyway, because
+        # it catches the edits that happened between two of our crawls and that
+        # the revision log therefore never sees as a change.
+        meta_text = " ".join(post_element.css(f"{meta_path} ::text").getall())
+        item["edited"] = "edited" in meta_text.lower()
 
         views_element = post_element.css(views_path)
         if not views_element:
