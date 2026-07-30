@@ -1,3 +1,9 @@
+from collections.abc import Callable
+from io import BytesIO
+
+import pytest
+import requests
+from PIL import Image
 from sklearn.metrics.pairwise import cosine_similarity
 
 from nyan.vision import VisionEmbedder
@@ -28,3 +34,62 @@ def test_image_processor(image_data, annotator):
     embedded_images = annotator.image_processor(images)
     for embedded_image, embedding in zip(embedded_images, image_embeddings, strict=True):
         assert embedded_image["embedding"] == embedding.tolist()
+
+
+class FakeResponse:
+    def __init__(self, content: bytes) -> None:
+        self.status_code = 200
+        self.content = content
+        self.raw = BytesIO(content)
+
+
+def png_bytes() -> bytes:
+    buffer = BytesIO()
+    Image.new("RGB", (4, 4), (1, 2, 3)).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def fetcher(
+    bodies: dict[str, bytes]
+) -> tuple[VisionEmbedder, Callable[..., FakeResponse]]:
+    """A `VisionEmbedder` with no encoder, serving canned bodies.
+
+    Built without `__init__` on purpose: what a 200 with a broken body does is
+    decided before any model is touched, and loading SigLIP to find out would
+    make this test take a minute and need the weights on disk.
+    """
+    embedder: VisionEmbedder = object.__new__(VisionEmbedder)
+    return embedder, lambda url, **kwargs: FakeResponse(bodies[url])
+
+
+@pytest.mark.parametrize(
+    "body", [b"<html>file not found</html>", b"", png_bytes()[:20]],
+    ids=["error page", "empty", "cut off"],
+)
+def test_a_200_that_is_not_an_image_is_skipped(
+    monkeypatch: pytest.MonkeyPatch, body: bytes
+) -> None:
+    """Telegram serves all three for a still whose link has gone stale.
+
+    Unhandled, any of them ends the daemon mid-annotation, which restarts onto
+    the very same still — the post is never annotated, so it is never done with.
+    """
+    url = "https://cdn.telegram/stale.jpg"
+    embedder, get = fetcher({url: body})
+    monkeypatch.setattr(requests, "get", get)
+
+    assert embedder.fetch_images([url]) == []
+
+
+def test_the_readable_stills_around_a_broken_one_survive(
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One unreadable still costs its own video's vector and nothing else."""
+    good, bad = "https://cdn.telegram/a.png", "https://cdn.telegram/b.jpg"
+    embedder, get = fetcher({good: png_bytes(), bad: b"<html>gone</html>"})
+    monkeypatch.setattr(requests, "get", get)
+
+    fetched = embedder.fetch_images([bad, good])
+
+    assert [image["url"] for image in fetched] == [good]
+    assert fetched[0]["content"].size == (4, 4)

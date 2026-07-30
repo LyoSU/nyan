@@ -1,3 +1,5 @@
+import logging
+from io import BytesIO
 from typing import TypeVar, Any, cast
 from collections.abc import Callable
 
@@ -66,7 +68,19 @@ class VisionEmbedder:
                 continue
             if response.status_code != 200:
                 continue
-            images.append({"url": url, "content": Image.open(response.raw)})  # type: ignore[arg-type]
+            # A 200 is no promise of a picture: an expired thumb link comes back
+            # as an error page, and a cut-off transfer as half a file. Both are
+            # decoded here, eagerly, because a lazy `Image.open` defers the
+            # failure to the batch step, which has no url in hand to skip — and
+            # nothing above this catches it, so one unreadable still ends the
+            # daemon, which then restarts onto the same still forever.
+            try:
+                image = Image.open(BytesIO(response.content))
+                image.load()
+            except Exception:
+                logging.warning("Not a readable image, skipped: %s", url)
+                continue
+            images.append({"url": url, "content": image})
         return images
 
     def embed_images(self, images: list[Image.Image]) -> NDArray[np.float32]:
