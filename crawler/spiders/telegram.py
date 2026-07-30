@@ -47,6 +47,26 @@ FETCH_TIMES_SAVE_INTERVAL = 30
 # recrawl interval, which silences the channel on every pass from then on.
 FUTURE_FETCH_TIME_TOLERANCE = 60
 
+# The longest a channel may be left alone, and the ceiling on the backoff below.
+#
+# 900s is not a taste: `post_history` and `channel_stats` bucket their samples by
+# the hour, so two reads an hour is what guarantees every hour a sample. A cap of
+# 1800 buys seven more points of saving on the roster and allows an hour with no
+# measurement at all, which is the one thing those series exist to prevent.
+MAX_RECRAWL_TIME = 900
+
+# How much of a channel's own silence we are willing to fall behind it. A quarter:
+# a channel silent for an hour is read within fifteen minutes, one silent for a
+# week within fifteen minutes as well (the cap), and one posting more often than
+# every twenty minutes is read on the floor — that is, exactly as before.
+#
+# The roster this runs on is why: 63 of 342 channels post less than twice a day
+# and account for 0.3% of all posts, while receiving the same 288 reads a day as
+# `kpszsu` with its 198 posts a day. Simulated on the measured rate of every
+# channel, this rule removes 35% of the reads — 80% of them from the quiet tail,
+# 1% from the channels the feed actually depends on.
+QUIET_BACKOFF_DIVISOR = 4
+
 
 def get_current_ts() -> int:
     # now(utc), not now().replace(tzinfo=utc): the latter relabels local
@@ -289,6 +309,7 @@ class ChannelReport:
     no_text: int = 0
     no_views: int = 0
     service: int = 0
+    outside_window: int = 0
     error: str = ""
 
 
@@ -314,24 +335,35 @@ class TelegramSpider(scrapy.Spider):
             self.channels = {ch["name"].lower(): ch for ch in self.channels}
         assert "fetch_times" in kwargs
         self.fetch_times_path = kwargs.pop("fetch_times")
-        self.fetch_times = self.read_fetch_times(self.fetch_times_path)
+        self.fetch_times, self.newest_post_times = self.read_fetch_times(
+            self.fetch_times_path
+        )
 
         assert "hours" in kwargs
         hours = int(kwargs.pop("hours"))
         self.until_ts = get_current_ts() - hours * 3600
 
-        # How long to leave a channel alone after reading it. Re-reading the
-        # whole window is deliberate — it refreshes view counts, which ranking
-        # depends on — but doing that every minute costs a full crawl of every
-        # channel for posts that have not changed. Per-channel `recrawl_time` in
-        # channels.json still wins.
+        # The floor on how long to leave a channel alone after reading it, and the
+        # interval for a channel we know nothing about yet. Re-reading the whole
+        # window is deliberate — it refreshes view counts, which ranking depends
+        # on — but doing that every minute costs a full crawl of every channel for
+        # posts that have not changed. Per-channel `recrawl_time` in channels.json
+        # overrides both this and the backoff.
         self.default_recrawl_time = int(
             kwargs.pop("recrawl_time", DEFAULT_RECRAWL_TIME)
         )
+        # Never below the floor, whatever the floor has been set to: a run with
+        # `-a recrawl_time=1800` is asking for 1800, not for a cap of 900.
+        self.max_recrawl_time = max(
+            int(kwargs.pop("max_recrawl_time", MAX_RECRAWL_TIME)),
+            self.default_recrawl_time,
+        )
         logging.info(
-            "Considering last %d hours, recrawling channels every %ds",
+            "Considering last %d hours, reading channels every %d-%ds by how "
+            "recently each one posted",
             hours,
             self.default_recrawl_time,
+            self.max_recrawl_time,
         )
 
         self.html2text = html2text_setup()
@@ -364,12 +396,13 @@ class TelegramSpider(scrapy.Spider):
         urls = {self.channel_url_template.format(ch["name"]) for ch in channels}
         current_ts = get_current_ts()
         requested = 0
+        backed_off = 0
         for url in sorted(urls):
             channel_name = url.split("/")[-1].lower()
             last_fetch_time = self.fetch_times.get(channel_name, 0)
-            recrawl_time = self.channels[channel_name].get(
-                "recrawl_time", self.default_recrawl_time
-            )
+            recrawl_time = self.recrawl_interval(channel_name, current_ts)
+            if recrawl_time > self.default_recrawl_time:
+                backed_off += 1
             if current_ts - last_fetch_time < recrawl_time:
                 logging.debug(
                     "Skip %s, fetched %ds ago, recrawl interval %ds",
@@ -390,14 +423,47 @@ class TelegramSpider(scrapy.Spider):
                 meta={"channel": channel_name, "page": 1},
             )
         self.requested_channels = requested
-        logging.info("Requesting %d of %d channels", requested, len(urls))
+        logging.info(
+            "Requesting %d of %d channels, %d of them backed off past the %ds floor",
+            requested,
+            len(urls),
+            backed_off,
+            self.default_recrawl_time,
+        )
+
+    def recrawl_interval(self, channel_name: str, current_ts: int) -> int:
+        """How long to leave this channel alone, from how recently it posted.
+
+        A quarter of its own silence, between the floor and the cap. The roster is
+        why: 63 of 342 channels post less than twice a day and produce 0.3% of all
+        posts, while being read as often as the channel that posts two hundred
+        times a day. A channel posting more often than every `floor * divisor`
+        seconds is read on the floor, which is to say unchanged.
+
+        An explicit `recrawl_time` in channels.json wins outright — it is someone
+        stating a rate they want, not an estimate. A channel we have never read
+        gets the floor, so a first pass behaves exactly as before.
+        """
+        configured = self.channels[channel_name].get("recrawl_time")
+        if configured is not None:
+            return int(configured)
+        newest_post = self.newest_post_times.get(channel_name, 0)
+        if not newest_post:
+            return self.default_recrawl_time
+        silence = max(0, current_ts - newest_post)
+        interval = silence // QUIET_BACKOFF_DIVISOR
+        return min(max(interval, self.default_recrawl_time), self.max_recrawl_time)
 
     @staticmethod
-    def read_fetch_times(path: str) -> dict[str, int]:
-        """When each channel was last read, or empty on a first ever run.
+    def read_fetch_times(path: str) -> tuple[dict[str, int], dict[str, int]]:
+        """When each channel was last read, and when it last posted.
 
         A missing file is normal rather than an error: this is state, so it
-        lives under data/ and a fresh deployment does not have it yet.
+        lives under data/ and a fresh deployment does not have it yet. So is the
+        older shape of the file — a bare `{channel: fetched_ts}` — which is read
+        as "we know when it was read, and nothing about when it posts". That means
+        the first pass after a deploy paces every channel on the floor and the
+        backoff starts applying from the second, which is the right way round.
 
         A timestamp from the future is dropped. It cannot be honest — nothing has
         been read after now — and its effect is the worst kind of failure this
@@ -407,38 +473,59 @@ class TelegramSpider(scrapy.Spider):
         """
         if not os.path.exists(path):
             logging.info("No %s yet, treating every channel as unread", path)
-            return {}
+            return {}, {}
         with open(path) as r:
-            stored: dict[str, int] = json.load(r)
+            stored: dict[str, Any] = json.load(r)
+
+        if "fetched" in stored or "newest_posts" in stored:
+            fetched: dict[str, int] = dict(stored.get("fetched") or {})
+            newest_posts: dict[str, int] = dict(stored.get("newest_posts") or {})
+        else:
+            # The shape this file had before the backoff existed.
+            fetched = {name: int(ts) for name, ts in stored.items()}
+            newest_posts = {}
 
         horizon = get_current_ts() + FUTURE_FETCH_TIME_TOLERANCE
-        times = {name: ts for name, ts in stored.items() if ts <= horizon}
-        if len(times) != len(stored):
+        times = {name: ts for name, ts in fetched.items() if ts <= horizon}
+        if len(times) != len(fetched):
             logging.warning(
                 "Ignoring fetch times in the future for %s: a channel with one "
                 "is never read again",
-                ", ".join(sorted(set(stored) - set(times))),
+                ", ".join(sorted(set(fetched) - set(times))),
             )
-        return times
+        return times, newest_posts
 
-    def note_fetch_time(self, channel_name: str) -> None:
+    def note_fetch_time(self, channel_name: str, newest_post_ts: int = 0) -> None:
         self.fetch_times[channel_name] = get_current_ts()
+        if newest_post_ts:
+            # Never backwards: the `?before=` pages of the same channel carry older
+            # posts, and a deleted latest post must not make us think the channel
+            # went quiet. Staying too fast is the harmless direction of this error.
+            known = self.newest_post_times.get(channel_name, 0)
+            self.newest_post_times[channel_name] = max(known, newest_post_ts)
         if get_current_ts() - self.fetch_times_saved_at >= self.fetch_times_save_interval:
             self.save_fetch_times()
 
     def save_fetch_times(self) -> None:
-        """The fetch times, atomically, with channels we no longer crawl removed.
+        """The crawl's pacing state, atomically, without channels we dropped.
 
         Written mid-pass as well as at close: a pass killed halfway used to leave
         no record of what it had already read.
         """
-        times = {
-            name: ts for name, ts in self.fetch_times.items() if name in self.channels
+        state = {
+            "fetched": {
+                name: ts for name, ts in self.fetch_times.items() if name in self.channels
+            },
+            "newest_posts": {
+                name: ts
+                for name, ts in self.newest_post_times.items()
+                if name in self.channels
+            },
         }
         os.makedirs(os.path.dirname(self.fetch_times_path) or ".", exist_ok=True)
         temp_path = self.fetch_times_path + ".new"
         with open(temp_path, "w") as w:
-            json.dump(times, w)
+            json.dump(state, w)
         shutil.move(temp_path, self.fetch_times_path)
         self.fetch_times_saved_at = get_current_ts()
 
@@ -481,8 +568,15 @@ class TelegramSpider(scrapy.Spider):
 
         crawled = [name for name, r in self.reports.items() if not r.error]
         blank = sorted(n for n in crawled if self.reports[n].pages and not self.reports[n].messages)
+        # Messages inside the window, not messages on the page: a quiet channel's
+        # first page is mostly older than the window, and every one of those is
+        # skipped on purpose. Counting them here would accuse the parser of being
+        # broken on exactly the channels this crawler is right about.
         textless = sorted(
-            n for n in crawled if self.reports[n].messages and not self.reports[n].posts
+            n
+            for n in crawled
+            if self.reports[n].messages - self.reports[n].outside_window > 0
+            and not self.reports[n].posts
         )
         never_answered = sorted(n for n in crawled if not self.reports[n].pages)
         no_text = sum(r.no_text for r in self.reports.values())
@@ -490,13 +584,15 @@ class TelegramSpider(scrapy.Spider):
 
         logging.info(
             "Pass over %d channels: %d posts from %d messages, dropped %d without "
-            "text and %d without a view count, skipped %d service messages",
+            "text and %d without a view count, skipped %d service messages and %d "
+            "posts older than the window",
             len(self.reports),
             sum(r.posts for r in self.reports.values()),
             sum(r.messages for r in self.reports.values()),
             no_text,
             no_views,
             sum(r.service for r in self.reports.values()),
+            sum(r.outside_window for r in self.reports.values()),
         )
         if blank:
             logging.warning(
@@ -525,6 +621,10 @@ class TelegramSpider(scrapy.Spider):
             stats.set_value("nyan/messages_without_views", no_views)
             stats.set_value(
                 "nyan/service_messages", sum(r.service for r in self.reports.values())
+            )
+            stats.set_value(
+                "nyan/messages_outside_window",
+                sum(r.outside_window for r in self.reports.values()),
             )
 
     def check_scraped_anything(self, reason: str) -> None:
@@ -576,6 +676,7 @@ class TelegramSpider(scrapy.Spider):
         posts = response.xpath(history_path + "/div")
 
         min_post_id, min_post_ts = None, None
+        max_post_ts = 0
         for post in posts:
             # Rebound to plain strings, hence the separate names: a selector
             # list and its extracted text are not the same kind of thing.
@@ -601,8 +702,36 @@ class TelegramSpider(scrapy.Spider):
             post_id = int(post_path.split("/")[-1])
             post_ts = to_timestamp(post_time)
 
+            # Both minima are taken over every post on the page, including the
+            # ones skipped below: they drive paging, which has to know how far
+            # back this page reached even when nothing on it was worth storing.
             min_post_id = min(post_id, min_post_id) if min_post_id is not None else post_id
             min_post_ts = min(post_ts, min_post_ts) if min_post_ts is not None else post_ts
+            # How recently the channel posted, which is what paces the next read.
+            # Taken before the window filter below — a channel whose newest post is
+            # three weeks old still has one, and that is exactly the fact the
+            # backoff needs. Pinned notices are excluded by the branch above, on
+            # purpose: pinning is not posting, and a channel that pins something
+            # once a week is still a channel that is silent.
+            max_post_ts = max(max_post_ts, post_ts)
+
+            # Older than the window this crawl declares. Paging already stops at
+            # `until_ts`, but nothing stopped us *writing* posts past it, so a
+            # quiet channel — whose first page reaches back weeks — had its whole
+            # page rewritten every pass. Nobody reads those: the daemon selects
+            # `pub_time >= now - documents_offset`, which is the same 24 hours.
+            #
+            # Measured across the roster: 35% of the posts on the first pages are
+            # outside the window, and for the 63 channels that post less than
+            # twice a day it is 93-98% of them.
+            #
+            # This couples `-a hours=` to the daemon's `documents_offset`. They
+            # are already equal, and they have to stay that way: a window here
+            # narrower than the daemon's would leave it reading posts that no
+            # longer get updated.
+            if post_ts and post_ts < self.until_ts:
+                report.outside_window += 1
+                continue
 
             post_url = self.post_url_template.format(post_path)
             try:
@@ -615,7 +744,7 @@ class TelegramSpider(scrapy.Spider):
                 logging.exception("Unexpected error at %s", post_url)
                 continue
 
-        self.note_fetch_time(channel_name)
+        self.note_fetch_time(channel_name, max_post_ts)
         if not min_post_ts or min_post_ts < self.until_ts:
             return
 

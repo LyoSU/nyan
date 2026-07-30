@@ -30,6 +30,7 @@ from crawler.spiders.telegram import (
     CHANNEL_STATS_KIND,
     DEFAULT_RECRAWL_TIME,
     MAX_PAGES_PER_CHANNEL,
+    MAX_RECRAWL_TIME,
     TelegramSpider,
     extract_images,
     extract_mentions,
@@ -315,6 +316,132 @@ def test_paging_stops_once_the_window_is_covered(tmp_path: Any) -> None:
     assert requests == []
 
 
+def spider_with_state(tmp_path: Any, state: Any, **kwargs: Any) -> TelegramSpider:
+    channels = tmp_path / "channels.json"
+    channels.write_text(
+        json.dumps({"channels": kwargs.pop("channels", [{"name": "uanews"}])})
+    )
+    fetch_times = tmp_path / "fetch_times.json"
+    fetch_times.write_text(json.dumps(state))
+    return TelegramSpider(
+        channels_file=str(channels),
+        fetch_times=str(fetch_times),
+        hours="24",
+        **kwargs,
+    )
+
+
+def test_a_channel_is_left_alone_for_a_quarter_of_its_own_silence(
+    tmp_path: Any,
+) -> None:
+    """The pacing rule: we never fall more than 25% behind a channel's silence.
+
+    63 of the 342 channels post less than twice a day and produce 0.3% of all
+    posts, while being read as often as the one that posts two hundred times a
+    day. Simulated on every channel's measured rate, this removes 35% of the
+    reads — 80% of that from the quiet tail, 1% from the busy channels.
+    """
+    now = get_current_ts()
+    spider = spider_with_state(
+        tmp_path,
+        {"fetched": {"uanews": now - 10}, "newest_posts": {"uanews": now - 2400}},
+    )
+
+    # Silent for 40 minutes: read again in 10.
+    assert spider.recrawl_interval("uanews", now) == 600
+
+
+def test_a_busy_channel_keeps_the_floor(tmp_path: Any) -> None:
+    """Anything posting more often than every 20 minutes is unaffected."""
+    now = get_current_ts()
+    spider = spider_with_state(
+        tmp_path,
+        {"fetched": {"uanews": now - 10}, "newest_posts": {"uanews": now - 120}},
+    )
+
+    assert spider.recrawl_interval("uanews", now) == DEFAULT_RECRAWL_TIME
+
+
+def test_a_dead_channel_stops_at_the_cap(tmp_path: Any) -> None:
+    """The cap is the hourly bucket, not a taste.
+
+    `post_history` and `channel_stats` key their samples by the hour, so two
+    reads an hour is what keeps every hour measured. `dmytro_dubilet` has been
+    silent for 233 days; a quarter of that is not an interval anyone wants.
+    """
+    now = get_current_ts()
+    spider = spider_with_state(
+        tmp_path,
+        {"fetched": {"uanews": now - 10}, "newest_posts": {"uanews": now - 233 * 86400}},
+    )
+
+    assert spider.recrawl_interval("uanews", now) == MAX_RECRAWL_TIME
+
+
+def test_a_channel_that_states_its_own_rate_is_obeyed(tmp_path: Any) -> None:
+    """An explicit interval is someone stating a rate, not an estimate."""
+    now = get_current_ts()
+    spider = spider_with_state(
+        tmp_path,
+        {"fetched": {"uanews": now - 10}, "newest_posts": {"uanews": now - 30 * 86400}},
+        channels=[{"name": "uanews", "recrawl_time": 60}],
+    )
+
+    assert spider.recrawl_interval("uanews", now) == 60
+
+
+def test_a_floor_above_the_cap_wins(tmp_path: Any) -> None:
+    """`-a recrawl_time=1800` asks for 1800, not for a cap of 900."""
+    now = get_current_ts()
+    spider = spider_with_state(
+        tmp_path,
+        {"fetched": {"uanews": now - 10}, "newest_posts": {"uanews": now - 120}},
+        recrawl_time="1800",
+    )
+
+    assert spider.max_recrawl_time == 1800
+    assert spider.recrawl_interval("uanews", now) == 1800
+
+
+def test_the_older_state_file_is_read_as_before(tmp_path: Any) -> None:
+    """A deploy meets `{channel: fetched_ts}` and must pace on the floor.
+
+    Knowing when a channel was read says nothing about when it posts, so the
+    first pass after a deploy behaves exactly as it did before the backoff and
+    the backoff starts applying from the second — which is the right way round.
+    """
+    now = get_current_ts()
+    spider = spider_with_state(tmp_path, {"uanews": now - 1000})
+
+    assert spider.fetch_times == {"uanews": now - 1000}
+    assert spider.newest_post_times == {}
+    assert spider.recrawl_interval("uanews", now) == DEFAULT_RECRAWL_TIME
+
+
+def test_the_newest_post_time_is_recorded_and_never_moves_back(
+    spider: TelegramSpider,
+) -> None:
+    """The `?before=` pages carry older posts, and deletions must not slow us."""
+    list(spider.parse_channel(channel_response()))
+    assert spider.newest_post_times["uanews"] == POST_TIMES[0]
+
+    older = channel_response(OLD_POST_HTML)
+    older.request.meta.update({"channel": "uanews", "page": 2, "before": 99})
+    list(spider.parse_channel(older))
+
+    assert spider.newest_post_times["uanews"] == POST_TIMES[0]
+
+
+def test_pacing_state_round_trips(spider: TelegramSpider) -> None:
+    list(spider.parse_channel(channel_response()))
+    spider.closed("finished")
+
+    with open(spider.fetch_times_path) as r:
+        saved = json.load(r)
+    assert saved["newest_posts"] == {"uanews": POST_TIMES[0]}
+    assert "uanews" in saved["fetched"]
+
+
 def test_a_missing_fetch_times_file_is_not_an_error(tmp_path: Any) -> None:
     """State lives under data/, so a fresh deployment starts without the file."""
     channels = tmp_path / "channels.json"
@@ -337,7 +464,7 @@ def test_fetch_times_are_saved_when_the_spider_closes(spider: TelegramSpider) ->
 
     with open(spider.fetch_times_path) as r:
         saved = json.load(r)
-    assert "uanews" in saved
+    assert "uanews" in saved["fetched"]
 
 
 class FakeStats:
@@ -541,7 +668,9 @@ def test_unknown_channels_are_dropped_from_fetch_times(tmp_path: Any) -> None:
     spider.closed("finished")
 
     with open(fetch_times) as r:
-        assert json.load(r).keys() == {"uanews"}
+        saved = json.load(r)
+    assert saved["fetched"].keys() == {"uanews"}
+    assert saved["newest_posts"] == {}
 
 
 def test_fetch_times_are_saved_during_the_pass(spider: TelegramSpider) -> None:
@@ -555,7 +684,56 @@ def test_fetch_times_are_saved_during_the_pass(spider: TelegramSpider) -> None:
     list(spider.parse_channel(channel_response()))
 
     with open(spider.fetch_times_path) as r:
-        assert "uanews" in json.load(r)
+        assert "uanews" in json.load(r)["fetched"]
+
+
+OLD_POST_HTML = f"""
+<body><main><div>
+<section class="tgme_channel_history"><div>
+  <div class="tgme_widget_message" data-post="uanews/500">
+    <div class="tgme_widget_message_bubble">
+      <div class="tgme_widget_message_text">Свіжий пост.</div>
+      <span class="tgme_widget_message_views">10</span>
+      <time class="time" datetime="{as_datetime_attr(POST_TIMES[0])}"></time>
+    </div>
+  </div>
+  <div class="tgme_widget_message" data-post="uanews/499">
+    <div class="tgme_widget_message_bubble">
+      <div class="tgme_widget_message_text">Пост тритижневої давнини.</div>
+      <span class="tgme_widget_message_views">10</span>
+      <time class="time" datetime="{as_datetime_attr(get_current_ts() - 21 * 86400)}"></time>
+    </div>
+  </div>
+</div></section></div></main></body>
+"""
+
+
+def test_posts_older_than_the_window_are_not_rewritten(spider: TelegramSpider) -> None:
+    """A quiet channel's first page reaches back weeks, and nobody reads it.
+
+    The daemon selects `pub_time >= now - documents_offset` — the same 24 hours
+    the crawl declares — so rewriting older posts every pass buys nothing.
+    Measured across the roster: 35% of the posts on first pages, and 93-98% of
+    them on the channels that post less than twice a day.
+    """
+    items = posts_from(list(spider.parse_channel(channel_response(OLD_POST_HTML))))
+
+    assert [item["post_id"] for item in items] == [500]
+    assert spider.report("uanews").outside_window == 1
+
+
+def test_a_page_of_only_old_posts_is_not_called_broken(
+    spider: TelegramSpider, caplog: Any
+) -> None:
+    """Otherwise the quietest channels look like a stale selector every pass."""
+    spider.until_ts = get_current_ts()  # nothing on the page is inside the window
+    list(spider.parse_channel(channel_response(OLD_POST_HTML)))
+    attach_stats(spider, item_scraped_count=0)
+
+    with caplog.at_level(logging.WARNING):
+        spider.closed("finished")
+
+    assert "no posts" not in caplog.text
 
 
 def test_a_pinned_notice_is_not_stored_as_a_post(spider: TelegramSpider) -> None:
@@ -588,12 +766,15 @@ def test_a_channel_with_no_posts_is_named_in_the_log(
     `check_scraped_anything` only fires when the whole pass scraped nothing, so
     one channel whose markup no longer parses is invisible among 341 that do.
     """
-    empty = """
+    # Inside the window on purpose. With a literal date this fixture aged out of
+    # it and the message stopped counting — which is correct behaviour and a
+    # useless test.
+    empty = f"""
     <body><main><div><section class="tgme_channel_history"><div>
       <div class="tgme_widget_message" data-post="uanews/300">
         <div class="tgme_widget_message_bubble">
           <span class="tgme_widget_message_views">5</span>
-          <time class="time" datetime="2026-07-29T09:00:00+00:00"></time>
+          <time class="time" datetime="{as_datetime_attr(POST_TIMES[0])}"></time>
         </div>
       </div>
     </div></section></div></main></body>
@@ -682,15 +863,21 @@ def test_incomplete_posts_are_dropped() -> None:
 
 
 class FakeCollection:
-    def __init__(self) -> None:
+    def __init__(self, existing_indexes: tuple[str, ...] = ()) -> None:
         self.batches: list[list[Any]] = []
         self.indexes: list[Any] = []
+        self.names: list[str] = []
+        self.existing_indexes = existing_indexes
 
     def bulk_write(self, operations: list[Any], ordered: bool = True) -> None:
         self.batches.append(list(operations))
 
+    def index_information(self) -> dict[str, Any]:
+        return {name: {} for name in self.existing_indexes}
+
     def create_index(self, keys: Any, **kwargs: Any) -> str:
         self.indexes.append(keys)
+        self.names.append(str(kwargs.get("name", "")))
         return str(kwargs.get("name", ""))
 
 
@@ -745,6 +932,55 @@ def test_mongo_pipeline_writes_in_batches(monkeypatch: Any) -> None:
     pipeline.close_spider()
     assert [len(b) for b in collection.batches] == [2, 2, 1]
     assert pipeline.written == 5
+
+
+def test_posts_are_indexed_by_url_and_pub_time(monkeypatch: Any) -> None:
+    """Both sides of this collection look it up by these two fields.
+
+    The crawl upserts every post by url and the daemon reads the feed by
+    pub_time. `documents` had neither index — while the collections derived from
+    it, which carry far less traffic, all create their own.
+    """
+    collection = FakeCollection()
+    monkeypatch.setattr(
+        "crawler.pipelines.get_documents_collection", lambda _: collection
+    )
+
+    MongoPipeline.from_crawler(fake_crawler()).open_spider()
+
+    assert collection.names == ["url_1", "pub_time_1"]
+
+
+def test_existing_document_indexes_are_left_alone(monkeypatch: Any) -> None:
+    """A rebuild on a collection this size is not something to do every start."""
+    collection = FakeCollection(existing_indexes=("url_1", "pub_time_1"))
+    monkeypatch.setattr(
+        "crawler.pipelines.get_documents_collection", lambda _: collection
+    )
+
+    MongoPipeline.from_crawler(fake_crawler()).open_spider()
+
+    assert collection.names == []
+
+
+def test_indexes_that_cannot_be_built_do_not_stop_the_crawl(monkeypatch: Any) -> None:
+    """Same rule as the derived collections: an index is not worth the archive."""
+    collection = FakeCollection()
+
+    def refuse(*args: Any, **kwargs: Any) -> None:
+        raise OperationFailure("no disk")
+
+    monkeypatch.setattr(collection, "create_index", refuse)
+    monkeypatch.setattr(
+        "crawler.pipelines.get_documents_collection", lambda _: collection
+    )
+
+    pipeline = MongoPipeline.from_crawler(fake_crawler())
+    pipeline.open_spider()
+    pipeline.process_item(post(1))
+    pipeline.close_spider()
+
+    assert [len(b) for b in collection.batches] == [1]
 
 
 def test_mentions_are_read_from_both_spellings() -> None:

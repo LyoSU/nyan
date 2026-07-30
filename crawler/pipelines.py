@@ -215,6 +215,27 @@ class MongoPipeline:
 
     def open_spider(self, spider: Any = None) -> None:
         self.collection = get_documents_collection(self.config_path)
+        # The two collections derived from this one create their own indexes, and
+        # `write_annotated_documents_mongo` creates these very two on
+        # `annotated_documents` — but nothing created them on `documents`, the
+        # collection with the most rows and by far the most writes. Every crawl
+        # upserts thousands of posts by url and the daemon reads the feed by
+        # pub_time, so without them both sides scan the whole collection.
+        #
+        # Not unique, deliberately: uniqueness on url is already what the upsert
+        # enforces, and a unique build would fail outright if a duplicate ever
+        # got in — turning a performance fix into an outage. Checked before
+        # creating so a normal start costs one cheap call, and wrapped for the
+        # reason spelled out in `PostHistoryPipeline.open_spider`: nothing here
+        # may take the crawl down with it.
+        try:
+            indexes = self.collection.index_information()
+            if "url_1" not in indexes:
+                self.collection.create_index([("url", 1)], name="url_1")
+            if "pub_time_1" not in indexes:
+                self.collection.create_index([("pub_time", 1)], name="pub_time_1")
+        except PyMongoError:
+            logging.exception("Could not prepare document indexes; crawling anyway")
 
     def process_item(self, item: Any, spider: Any = None) -> Any:
         if is_channel_stats(item):
