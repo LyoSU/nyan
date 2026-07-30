@@ -1297,3 +1297,66 @@ def test_jsonl_pipeline_deduplicates_by_url(tmp_path: Any) -> None:
     records = [json.loads(line) for line in output.read_text().splitlines()]
     assert len(records) == 1
     assert records[0]["text"] == "Виправлена версія."
+
+
+VIDEO_PLAYER_HTML = f"""
+<body><main><div>
+<section class="tgme_channel_history"><div>
+  <div class="tgme_widget_message" data-post="uanews/700">
+    <div class="tgme_widget_message_bubble">
+      <div class="tgme_widget_message_text">Два відео і одне без прев'ю.</div>
+      <a class="tgme_widget_message_video_player" href="https://t.me/uanews/700?single">
+        <i class="tgme_widget_message_video_thumb"
+           style="background-image:url('https://cdn.telesco.pe/thumb-a.jpg')"></i>
+        <div class="tgme_widget_message_video_wrap">
+          <video class="tgme_widget_message_video" src="https://cdn.telesco.pe/a.mp4"></video>
+        </div>
+      </a>
+      <a class="tgme_widget_message_video_player" href="https://t.me/uanews/700?single">
+        <i class="tgme_widget_message_video_thumb"
+           style="background-image:url('https://cdn.telesco.pe/thumb-b.jpg')"></i>
+        <div class="tgme_widget_message_video_wrap">
+          <video class="tgme_widget_message_video" src="https://cdn.telesco.pe/b.mp4"></video>
+        </div>
+      </a>
+      <video class="tgme_widget_message_video" src="https://cdn.telesco.pe/loose.mp4"></video>
+      <span class="tgme_widget_message_views">10</span>
+      <time class="time" datetime="{as_datetime_attr(POST_TIMES[0])}"></time>
+    </div>
+  </div>
+</div></section></div></main></body>
+"""
+
+
+def test_a_videos_preview_is_stored_beside_it(spider: TelegramSpider) -> None:
+    """The preview is the only handle on what a video shows.
+
+    Two channels posting the same footage get a different CDN url each, so url
+    comparison cannot see the duplication — the same problem photos have, and
+    photos solve it by embedding the picture. A video has no picture to embed,
+    but Telegram renders a still for it, and that still is comparable.
+    """
+    items = posts_from(list(spider.parse_channel(channel_response(VIDEO_PLAYER_HTML))))
+
+    assert items[0]["videos"] == [
+        "https://cdn.telesco.pe/a.mp4",
+        "https://cdn.telesco.pe/b.mp4",
+        "https://cdn.telesco.pe/loose.mp4",
+    ]
+    # Index-aligned with `videos`, empty where Telegram rendered no still.
+    assert items[0]["video_thumbs"] == [
+        "https://cdn.telesco.pe/thumb-a.jpg",
+        "https://cdn.telesco.pe/thumb-b.jpg",
+        "",
+    ]
+
+
+def test_a_video_outside_a_player_is_still_collected(spider: TelegramSpider) -> None:
+    """The player wrapper is an assumption about markup; the video is the fact.
+
+    Collecting only what sits inside a player would mean the next wrapper change
+    silently loses every video, which is exactly how the text extraction broke.
+    """
+    items = posts_from(list(spider.parse_channel(channel_response(VIDEO_PLAYER_HTML))))
+
+    assert "https://cdn.telesco.pe/loose.mp4" in items[0]["videos"]

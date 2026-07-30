@@ -297,3 +297,77 @@ def test_media_survives_a_trip_through_storage() -> None:
     restored = Cluster.deserialize(cluster.serialize())
 
     assert restored.media == cluster.media
+
+
+def make_video_doc(
+    channel_id: str,
+    videos: tuple[str, ...],
+    embedded_videos: list[dict[str, object]],
+    pub_time: int = 100,
+) -> Document:
+    return Document(
+        url=f"https://t.me/{channel_id}/1",
+        channel_id=channel_id,
+        post_id=1,
+        views=1,
+        pub_time=pub_time,
+        videos=videos,
+        embedded_videos=embedded_videos,
+    )
+
+
+def test_the_same_footage_from_two_channels_is_shown_once() -> None:
+    """Different urls, one clip — and only the preview can tell.
+
+    Two channels posting the same video get a different CDN url from each, so the
+    url check let both into the slideshow. What is comparable is the still
+    Telegram renders for a video, embedded like any other picture.
+    """
+    cluster = make_cluster(
+        make_video_doc("a", ("a.mp4",), [{"url": "a.mp4", "embedding": unit(0.0)}]),
+        make_video_doc("b", ("b.mp4",), [{"url": "b.mp4", "embedding": unit(NEAR)}]),
+        make_video_doc("c", ("c.mp4",), [{"url": "c.mp4", "embedding": unit(FAR)}]),
+    )
+
+    assert cluster.videos == ("a.mp4", "c.mp4")
+
+
+def test_a_video_whose_preview_matches_a_photo_wins_the_slot() -> None:
+    """A channel's clip and another's still of the same frame are one thing.
+
+    Both are kept only because nothing could compare them before. The video is
+    the stronger material, and it is offered first, so it takes the slot.
+    """
+    cluster = make_cluster(
+        make_video_doc("a", ("a.mp4",), [{"url": "a.mp4", "embedding": unit(0.0)}]),
+        make_doc("b", [{"url": "b.jpg", "embedding": unit(NEAR)}]),
+    )
+
+    assert cluster.videos == ("a.mp4",)
+    assert cluster.images == ()
+
+
+def test_a_video_without_a_preview_is_still_shown() -> None:
+    """Same rule as a photo with no embedding: a possible repeat beats nothing."""
+    cluster = make_cluster(
+        make_video_doc("a", ("a.mp4",), []),
+        make_video_doc("b", ("b.mp4",), []),
+    )
+
+    assert cluster.videos == ("a.mp4", "b.mp4")
+
+
+def test_a_videos_preview_vector_survives_storage() -> None:
+    """Same lesson as the photos: the stored form has to keep what picks media.
+
+    Otherwise a published post's clips are compared by url again from the next
+    iteration on, and the duplicate footage comes back.
+    """
+    cluster = make_cluster(
+        make_video_doc("a", ("a.mp4",), [{"url": "a.mp4", "embedding": unit(0.0)}]),
+        make_video_doc("b", ("b.mp4",), [{"url": "b.mp4", "embedding": unit(NEAR)}]),
+    )
+
+    restored = Cluster.deserialize(cluster.serialize())
+
+    assert restored.videos == ("a.mp4",)

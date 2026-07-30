@@ -234,6 +234,43 @@ def find_message_text(post_element: Any) -> Any | None:
 BACKGROUND_IMAGE_RE = re.compile(r"background-image\s*:\s*url\((['\"]?)(.*?)\1\)")
 
 
+def extract_videos(post_element: Any) -> tuple[list[str], list[str]]:
+    """Video urls and the still Telegram renders for each, index-aligned.
+
+    The still is the only comparable thing a video has. Two channels posting the
+    same footage get a different CDN url each — the problem photos have, which
+    photos solve by embedding the picture — and there is nothing to embed for an
+    mp4 we never download. Telegram renders a poster for it, and that poster
+    embeds like any other image, which is what lets the same clip from six
+    channels be recognized as one.
+
+    Players are read first, because a player is what pairs a video with its
+    still. Then any video outside one is picked up with no still: the wrapper is
+    an assumption about markup that the next redesign can break, and losing every
+    video to it — silently — is how the text extraction broke before.
+    """
+    videos: list[str] = []
+    thumbs: list[str] = []
+
+    def add(url: str, thumb: str) -> None:
+        if url and url not in videos:
+            videos.append(url)
+            thumbs.append(thumb)
+
+    for player in post_element.css("a.tgme_widget_message_video_player"):
+        style = player.css("i.tgme_widget_message_video_thumb::attr(style)").get() or ""
+        match = BACKGROUND_IMAGE_RE.search(style)
+        add(
+            (player.css("video::attr(src)").get() or "").strip(),
+            match.group(2).strip() if match else "",
+        )
+
+    for url in post_element.css("video.tgme_widget_message_video::attr(src)").getall():
+        add(url.strip(), "")
+
+    return videos, thumbs
+
+
 def extract_images(post_element: Any) -> list[str]:
     """Photo urls, in album order, without repeats.
 
@@ -832,7 +869,6 @@ class TelegramSpider(scrapy.Spider):
         views_path = "span.tgme_widget_message_views::text"
         meta_path = "span.tgme_widget_message_meta"
         time_path = "time.time::attr(datetime)"
-        videos_path = "video.tgme_widget_message_video::attr(src)"
         reply_path = "a.tgme_widget_message_reply::attr(href)"
         forward_path = "a.tgme_widget_message_forwarded_from_name::attr(href)"
 
@@ -879,12 +915,7 @@ class TelegramSpider(scrapy.Spider):
 
         item["images"] = extract_images(post_element)
 
-        videos = []
-        for video in post_element.css(videos_path):
-            video_url = video.get()
-            if video_url and video_url not in videos:
-                videos.append(video_url)
-        item["videos"] = videos
+        item["videos"], item["video_thumbs"] = extract_videos(post_element)
 
         reply_element = post_element.css(reply_path)
         if reply_element:

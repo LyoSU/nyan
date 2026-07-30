@@ -273,4 +273,34 @@ class Annotator:
         if not self.image_processor:
             return doc
         doc.embedded_images = self.image_processor(list(doc.images))
+        doc.embedded_videos = self.process_video_thumbs(doc)
         return doc
+
+    def process_video_thumbs(self, doc: Document) -> list[dict[str, Any]]:
+        """Each video's still, embedded and filed under the video's own url.
+
+        The still is what makes two copies of one clip recognizable as one: the
+        mp4 itself is never downloaded, and the CDN url differs per channel. The
+        encoder is the same one the photos go through, so the vectors land in the
+        same space and the duplicate threshold that was calibrated for photos
+        applies unchanged.
+
+        Filed under the video url rather than the still's, because that is what
+        `Cluster.media` has in hand. Stills that failed to fetch simply have no
+        entry, and such a video is then kept on url identity alone.
+        """
+        assert self.image_processor
+        thumbs = list(doc.video_thumbs)
+        by_thumb = {
+            thumb: video
+            for video, thumb in zip(doc.videos, thumbs, strict=False)
+            if thumb
+        }
+        if not by_thumb:
+            return []
+        embedded = self.image_processor(list(by_thumb))
+        return [
+            {"url": by_thumb[item["url"]], "embedding": item["embedding"]}
+            for item in embedded
+            if item["url"] in by_thumb
+        ]

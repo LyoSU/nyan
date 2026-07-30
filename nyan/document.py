@@ -49,6 +49,10 @@ class Document(Serializable):
     images: Sequence[str] = tuple()
     links: Sequence[str] = tuple()
     videos: Sequence[str] = tuple()
+    #: The still Telegram renders for each video, index-aligned with `videos` and
+    #: empty where it rendered none. The only comparable thing a video has: see
+    #: `extract_videos` in the spider.
+    video_thumbs: Sequence[str] = tuple()
     reply_to: str | None = None
     forward_from: str | None = None
     #: Other channels this post names, as bare handles. A directed edge, unlike
@@ -91,6 +95,10 @@ class Document(Serializable):
     embedding: list[float] | None = None
     embedding_key: str = "multilingual_e5_base"
     embedded_images: Sequence[dict[str, Any]] = tuple()
+    #: `{"url": <video url>, "embedding": <vector of its still>}` per video whose
+    #: still could be fetched. Keyed by the video's own url, not the still's, so
+    #: the vector can be found from `videos` alone.
+    embedded_videos: Sequence[dict[str, Any]] = tuple()
 
     version: int = CURRENT_VERSION
 
@@ -110,6 +118,13 @@ class Document(Serializable):
         # channels.json the empty annotation is the correct answer, and asking
         # for it again would recompute an embedding every iteration to no end.
         if is_known_channel and (self.issue is None or not self.groups):
+            return True
+        # A video whose still was never embedded. Cheaper than bumping
+        # CURRENT_VERSION, which would re-embed every text in the window for the
+        # sake of the few documents that carry video — and without it a stored
+        # annotation only gains the vector if the post's text happens to change,
+        # which for video posts is rarely.
+        if new_doc.video_thumbs and not self.embedded_videos:
             return True
         return new_doc.text != self.text
 

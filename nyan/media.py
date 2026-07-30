@@ -30,10 +30,12 @@ MEDIA_TYPES = (MEDIA_PHOTO, MEDIA_VIDEO, MEDIA_ANIMATION)
 class MediaItem:
     """One attachment a cluster can show, with what is known about its content.
 
-    `embedding` is present for photos the annotator managed to fetch and never
-    for videos — nothing embeds those — so two recordings of the same scene can
-    only be told apart by URL, which is per channel. That is a known gap rather
-    than an oversight: see `nyan.clusters._deduplicate_media`.
+    `embedding` is the vector of what the reader will see: the photo itself, or
+    for a video the still Telegram renders for it. Both come out of the same
+    encoder, so they are comparable with each other — a clip and another
+    channel's frame of the same moment are one thing, and only one of them takes
+    a slot. Absent when the annotator could not fetch the image, and on documents
+    stored before any of this; see `nyan.clusters._deduplicate_media`.
     """
 
     type: str

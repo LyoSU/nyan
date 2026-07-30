@@ -86,11 +86,13 @@ MAX_TITLE_WORDS = 14
 MIN_MEDIA_DOCS_RATIO = 0.4
 MIN_MEDIA_DOCS = 3
 
-# Photos are collected across the whole cluster, so the same picture arrives
-# once per channel that posted it — under a different Telegram CDN URL every
-# time, which makes URL comparison useless. CLIP embeddings are already stored
-# per image (see nyan/image.py), so near-duplicates are recognized by content:
-# above this cosine similarity two photos are the same photo to a reader.
+# Media is collected across the whole cluster, so the same picture arrives once
+# per channel that posted it — under a different Telegram CDN URL every time,
+# which makes URL comparison useless. Vectors are stored per image (see
+# nyan/image.py) and, for a video, of the still Telegram renders for it, so
+# near-duplicates are recognized by content: above this cosine similarity two
+# attachments are the same thing to a reader. One threshold for both, because
+# both vectors come out of the same encoder.
 DUPLICATE_IMAGE_SIMILARITY = 0.92
 
 # One attachment per channel, and few enough of them that the post stays a post.
@@ -144,14 +146,31 @@ def _channel_media(doc: Document) -> tuple[MediaItem, ...]:
 
     Video first: a recording from the scene is the stronger material, and the
     reader can tell it apart from a wire photo at a glance. The photo is the
-    fallback for a channel whose video another channel already posted — video
-    URLs are the one thing here that cannot be compared by content, so an exact
-    URL match is all we get, and without a fallback such a channel would
-    contribute nothing at all.
+    fallback for a channel whose clip another channel already posted, so that
+    such a channel still contributes something rather than nothing.
     """
     options: list[MediaItem] = []
     if doc.videos:
-        options.append(MediaItem(type=MEDIA_VIDEO, url=doc.videos[0]))
+        video_url = doc.videos[0]
+        # The vector of the still Telegram renders for it, when the annotator
+        # managed to fetch one. Without it two copies of the same clip are only
+        # comparable by url, which differs per channel — which is how the same
+        # footage from three channels filled the slideshow.
+        video_embedding = next(
+            (
+                v.get("embedding")
+                for v in doc.embedded_videos
+                if v.get("url") == video_url
+            ),
+            None,
+        )
+        options.append(
+            MediaItem(
+                type=MEDIA_VIDEO,
+                url=video_url,
+                embedding=tuple(video_embedding) if video_embedding else None,
+            )
+        )
     for image in doc.embedded_images:
         url = image.get("url")
         if not url:
@@ -178,11 +197,12 @@ def _deduplicate_media(options: Sequence[Sequence[MediaItem]]) -> tuple[MediaIte
     `options` is per channel, in preference order, and the first option that is
     not already in the post wins its slot.
 
-    Comparison is by image embedding, because the same photo redistributed by
-    several channels gets a different URL from each of them. Items with no
-    embedding — every video, older documents, a fetch that failed — are kept on
-    URL identity alone, and a possible duplicate is a smaller price than dropping
-    the only picture of an event. The same goes for one whose embedding is of a
+    Comparison is by embedding, because the same photo redistributed by several
+    channels gets a different URL from each of them, and so does the same clip. A
+    video is compared through the still Telegram renders for it. Items with no
+    embedding — older documents, a video with no still, a fetch that failed — are
+    kept on URL identity alone, and a possible duplicate is a smaller price than
+    dropping the only picture of an event. The same goes for one whose embedding is of a
     width nothing else here shares, which is what an encoder swap leaves behind
     in the annotation cache.
     """
