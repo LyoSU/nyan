@@ -10,7 +10,9 @@ from typing import Any
 import pytest
 
 from nyan.client import FORMAT_LEGACY, FORMAT_RICH, MessageId, TelegramClient
+from nyan.media import MEDIA_PHOTO, MEDIA_VIDEO, MediaItem, SentMedia
 from nyan.rich import RenderedPost, heading, paragraph
+from nyan.rich import photo as rich_photo
 
 
 CLIENT_CONFIG = {
@@ -150,17 +152,6 @@ def test_other_update_failures_are_still_errors(
     assert message.post_format == FORMAT_RICH
 
 
-def test_a_legacy_post_is_updated_as_a_caption(client: TelegramClient) -> None:
-    calls = record_calls(client, [FakeResponse()])
-    message = MessageId(message_id=1, issue="main", post_format=FORMAT_LEGACY)
-
-    client.update_post(message, RenderedPost(text="Новий текст", photos=("a",)))
-
-    url, params = calls[0]
-    assert url.endswith("/editMessageCaption")
-    assert params["caption"] == "Новий текст"
-
-
 def test_the_format_survives_serialization() -> None:
     message = MessageId(message_id=1, issue="main", post_format=FORMAT_RICH)
 
@@ -196,3 +187,192 @@ def test_message_equality_tolerates_other_types() -> None:
     assert message == MessageId(message_id=1, issue="main")
     # The format is metadata, not identity: the same post either way.
     assert message == MessageId(message_id=1, issue="main", post_format=FORMAT_RICH)
+
+
+# ------------------------------------------------------------------- file ids
+
+
+def photo_response(file_id: str = "full", message_id: int = 1) -> FakeResponse:
+    return FakeResponse(
+        200,
+        {
+            "result": {
+                "message_id": message_id,
+                "photo": [
+                    {"file_id": "thumb", "width": 90, "file_size": 1000},
+                    {"file_id": file_id, "width": 1280, "file_size": 200000},
+                ],
+            }
+        },
+    )
+
+
+def legacy_post(*media: MediaItem) -> RenderedPost:
+    return RenderedPost(text="Текст", media=media)
+
+
+def photo(url: str) -> MediaItem:
+    return MediaItem(type=MEDIA_PHOTO, url=url)
+
+
+def video(url: str) -> MediaItem:
+    return MediaItem(type=MEDIA_VIDEO, url=url)
+
+
+def test_a_sent_photo_remembers_its_file_id(client: TelegramClient) -> None:
+    """The CDN URL rots; the file_id does not, and every edit can reuse it."""
+    record_calls(client, [photo_response()])
+
+    message = client.send_post(legacy_post(photo("a.jpg")), "main")
+
+    assert message is not None
+    assert [(m.url, m.file_id) for m in message.media] == [("a.jpg", "full")]
+
+
+def test_a_group_remembers_a_file_id_and_a_message_id_per_attachment(
+    client: TelegramClient,
+) -> None:
+    """A media group is one message per attachment, and editing the second
+    needs the second message's id."""
+    record_calls(
+        client,
+        [
+            FakeResponse(
+                200,
+                {
+                    "result": [
+                        {"message_id": 10, "photo": [{"file_id": "p", "width": 800}]},
+                        {"message_id": 11, "video": {"file_id": "v"}},
+                    ]
+                },
+            )
+        ],
+    )
+
+    message = client.send_post(legacy_post(photo("a.jpg"), video("b.mp4")), "main")
+
+    assert message is not None
+    assert [(m.url, m.file_id, m.message_id) for m in message.media] == [
+        ("a.jpg", "p", 10),
+        ("b.mp4", "v", 11),
+    ]
+
+
+def test_photos_and_videos_go_out_as_one_group(client: TelegramClient) -> None:
+    """One slideshow, in the order chosen — not photos in one format and a
+    video in the other, which is what deciding per format used to produce."""
+    calls = record_calls(client, [FakeResponse()])
+
+    client.send_post(legacy_post(video("b.mp4"), photo("a.jpg")), "main")
+
+    url, params = calls[0]
+    assert url.endswith("/sendMediaGroup")
+    assert [item["type"] for item in json.loads(params["media"])] == ["video", "photo"]
+
+
+def test_a_rich_update_sends_the_file_id_instead_of_the_url(
+    client: TelegramClient,
+) -> None:
+    """The whole point of storing it: the edit references the file Telegram
+    already has rather than asking it to fetch a URL that may be gone."""
+    calls = record_calls(client, [FakeResponse()])
+    message = MessageId(
+        message_id=1,
+        issue="main",
+        post_format=FORMAT_RICH,
+        media=[SentMedia(type=MEDIA_PHOTO, file_id="known", url="a.jpg")],
+    )
+
+    client.update_post(message, RenderedPost(blocks=[rich_photo("a.jpg")]))
+
+    _, params = calls[0]
+    assert json.loads(params["rich_message"])["blocks"][0]["photo"]["media"] == "known"
+
+
+def test_media_an_update_adds_gets_its_file_id_stored(client: TelegramClient) -> None:
+    """A cluster grows, a second photo joins the post, and the next edit has to
+    be able to reference that one too."""
+    record_calls(
+        client,
+        [
+            FakeResponse(
+                200,
+                {
+                    "result": {
+                        "message_id": 1,
+                        "blocks": [
+                            {"photo": [{"file_id": "known", "width": 800}]},
+                            {"photo": [{"file_id": "fresh", "width": 800}]},
+                        ],
+                    }
+                },
+            )
+        ],
+    )
+    message = MessageId(
+        message_id=1,
+        issue="main",
+        post_format=FORMAT_RICH,
+        media=[SentMedia(type=MEDIA_PHOTO, file_id="known", url="a.jpg")],
+    )
+
+    client.update_post(
+        message, RenderedPost(blocks=[rich_photo("a.jpg"), rich_photo("b.jpg")])
+    )
+
+    assert [(m.url, m.file_id) for m in message.media] == [
+        ("a.jpg", "known"),
+        ("b.jpg", "fresh"),
+    ]
+
+
+def test_a_post_sent_without_media_is_still_updated_as_text(
+    client: TelegramClient,
+) -> None:
+    """How the message was sent decides, not what the cluster looks like now.
+
+    A cluster that gained photos after publication used to be edited with
+    editMessageCaption — on a message that has no caption — so Telegram refused
+    and the post stopped updating for good.
+    """
+    calls = record_calls(client, [FakeResponse()])
+    message = MessageId(message_id=1, issue="main", post_format=FORMAT_LEGACY)
+
+    client.update_post(message, legacy_post(photo("a.jpg")))
+
+    url, _ = calls[0]
+    assert url.endswith("/editMessageText")
+
+
+def test_a_post_sent_with_media_is_updated_as_a_caption(
+    client: TelegramClient,
+) -> None:
+    """And the same rule the other way: media was sent, so the text is a caption
+    even on an iteration where the cluster has no media left to show."""
+    calls = record_calls(client, [FakeResponse()])
+    message = MessageId(
+        message_id=1,
+        issue="main",
+        post_format=FORMAT_LEGACY,
+        media=[SentMedia(type=MEDIA_PHOTO, file_id="known", url="a.jpg")],
+    )
+
+    client.update_post(message, RenderedPost(text="Новий текст"))
+
+    url, _ = calls[0]
+    assert url.endswith("/editMessageCaption")
+
+
+def test_file_ids_survive_serialization() -> None:
+    """They are stored with the cluster, so the site can serve media by file_id
+    and an edit after a restart still has them."""
+    message = MessageId(
+        message_id=1,
+        issue="main",
+        media=[SentMedia(type=MEDIA_PHOTO, file_id="known", url="a.jpg", message_id=1)],
+    )
+
+    restored = MessageId.fromdict(message.asdict())
+
+    assert restored.media == message.media
+    assert restored.media[0].file_id == "known"

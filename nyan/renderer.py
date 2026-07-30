@@ -15,6 +15,7 @@ from nyan.channels import GROUP_ORDER, Channels
 from nyan.clusters import Cluster
 from nyan.document import Document
 from nyan.markup import link_emphasis, parse_markup
+from nyan.media import MEDIA_ANIMATION, MEDIA_VIDEO, MediaItem
 from nyan.rich import Block, RenderedPost, RichText
 from nyan.summary import Summary
 from nyan.util import DEFAULT_TIMEZONE, normalize_channel_id, ts_to_dt
@@ -402,14 +403,28 @@ class Renderer:
         return None
 
     def render_media(self, cluster: Cluster) -> list[Block]:
-        if cluster.videos:
-            return [rich.video(cluster.videos[0])]
-        images = list(cluster.images)[: rich.MAX_MEDIA]
-        if len(images) == 1:
-            return [rich.photo(images[0])]
-        if len(images) > 1:
-            return [rich.slideshow(*[rich.photo(url) for url in images])]
+        """The cluster's attachments as blocks, in the order it chose them.
+
+        Photos and videos are not ranked here. They were chosen together, as one
+        list, precisely so that this function and the legacy client cannot
+        disagree about which of them a reader sees — which is what happened when
+        the video block was returned *instead of* the photos.
+        """
+        media = list(cluster.media)[: rich.MAX_MEDIA]
+        blocks = [self.render_media_item(item) for item in media]
+        if len(blocks) == 1:
+            return blocks
+        if len(blocks) > 1:
+            return [rich.slideshow(*blocks)]
         return []
+
+    @staticmethod
+    def render_media_item(item: MediaItem) -> Block:
+        if item.type == MEDIA_VIDEO:
+            return rich.video(item.url)
+        if item.type == MEDIA_ANIMATION:
+            return rich.animation(item.url)
+        return rich.photo(item.url)
 
     def render_credit(self, cluster: Cluster) -> Block:
         """Whose text this is, right under the text — a byline, not a footnote.
@@ -646,9 +661,7 @@ class Renderer:
             external_link=self.find_external_link(cluster),
             tz_name=self.tz_name,
         )
-        return RenderedPost(
-            text=text, photos=cluster.images, videos=cluster.videos
-        )
+        return RenderedPost(text=text, media=cluster.media)
 
     # ----------------------------------------------------------------- misc
 

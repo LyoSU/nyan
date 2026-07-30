@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from typing import Any, Union
 from collections.abc import Sequence
 
+from nyan.media import MediaItem
+
 # A RichText is a plain string, one of the inline objects built below, or a
 # list mixing both. The API accepts all three wherever RichText is expected.
 RichText = Union[str, dict[str, Any], list[Any]]  # noqa: UP007
@@ -184,6 +186,27 @@ def slideshow(
     return block
 
 
+def media_payloads(blocks: Sequence[Block]) -> list[dict[str, Any]]:
+    """Every media payload in a block tree, in the order it will be sent.
+
+    The payloads themselves, not copies: callers rewrite them in place to swap a
+    URL for a file_id. Order is what pairs them with Telegram's answer, which
+    comes back in the order the attachments went out.
+    """
+    found: list[dict[str, Any]] = []
+    for block in blocks:
+        for value in block.values():
+            if isinstance(value, dict) and isinstance(value.get("media"), str):
+                found.append(value)
+            elif isinstance(value, list):
+                found.extend(
+                    media_payloads([item for item in value if isinstance(item, dict)])
+                )
+            elif isinstance(value, dict):
+                found.extend(media_payloads([value]))
+    return found
+
+
 @dataclass
 class RenderedPost:
     """A post ready to send, in whichever format the renderer produced.
@@ -191,13 +214,16 @@ class RenderedPost:
     Carrying both shapes in one object keeps the format choice out of the
     daemon: it renders and sends, and only the client cares which API method
     a post needs.
+
+    `media` is one ordered list rather than a field per type. Photos and videos
+    used to be separate, and every consumer then had to decide which wins — the
+    rich renderer preferred video, the legacy client preferred photos, so one
+    cluster showed different attachments depending on a config value.
     """
 
     blocks: list[Block] | None = None
     text: str | None = None
-    photos: Sequence[str] = field(default_factory=tuple)
-    videos: Sequence[str] = field(default_factory=tuple)
-    animations: Sequence[str] = field(default_factory=tuple)
+    media: Sequence[MediaItem] = field(default_factory=tuple)
 
     @property
     def is_rich(self) -> bool:
@@ -205,7 +231,7 @@ class RenderedPost:
 
     @property
     def has_media(self) -> bool:
-        return bool(self.photos or self.videos or self.animations)
+        return bool(self.media)
 
 
 def count_blocks(blocks: Sequence[Block]) -> int:

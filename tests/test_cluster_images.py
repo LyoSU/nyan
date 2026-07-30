@@ -9,7 +9,7 @@ duplication and CLIP embeddings have to.
 
 import math
 
-from nyan.clusters import MAX_CLUSTER_IMAGES, Cluster
+from nyan.clusters import MAX_CLUSTER_MEDIA, Cluster
 from nyan.document import Document
 
 
@@ -28,6 +28,7 @@ def make_doc(
     channel_id: str,
     images: list[dict[str, object]],
     pub_time: int = 100,
+    videos: tuple[str, ...] = (),
 ) -> Document:
     return Document(
         url=f"https://t.me/{channel_id}/1",
@@ -37,6 +38,7 @@ def make_doc(
         pub_time=pub_time,
         images=tuple(str(image["url"]) for image in images),
         embedded_images=images,
+        videos=videos,
     )
 
 
@@ -97,7 +99,7 @@ def test_the_number_of_photos_is_capped() -> None:
         ]
     )
 
-    assert len(cluster.images) == MAX_CLUSTER_IMAGES
+    assert len(cluster.images) == MAX_CLUSTER_MEDIA
 
 
 def test_the_chosen_channels_photo_comes_first() -> None:
@@ -172,6 +174,41 @@ def test_embeddings_of_different_widths_do_not_break_comparison() -> None:
     assert cluster.images == ("a.jpg", "b.jpg")
 
 
+def test_photos_survive_a_trip_through_storage() -> None:
+    """The daemon re-reads posted clusters from storage on every iteration.
+
+    A stored document was written short, which dropped `embedded_images` and
+    kept `images` — so the ratio gate still passed while the candidate list came
+    back empty, and the next update rewrote a published post without any of its
+    photos. Photos left a live post and came back on their own, depending only
+    on whether the sources happened to be re-crawled that iteration.
+    """
+    cluster = make_cluster(
+        make_doc("a", [{"url": "a.jpg", "embedding": unit(0.0)}]),
+        make_doc("b", [{"url": "b.jpg", "embedding": unit(FAR)}]),
+    )
+
+    restored = Cluster.deserialize(cluster.serialize())
+
+    assert restored.images == cluster.images == ("a.jpg", "b.jpg")
+
+
+def test_stored_photos_are_still_deduplicated_by_content() -> None:
+    """Without the embeddings, dedup falls back to URLs — which are per channel.
+
+    So the same wire photo from four channels filled the whole slideshow with
+    one picture, but only for posts that had been through storage.
+    """
+    cluster = make_cluster(
+        make_doc("a", [{"url": "a.jpg", "embedding": unit(0.0)}]),
+        make_doc("b", [{"url": "b.jpg", "embedding": unit(NEAR)}]),
+    )
+
+    restored = Cluster.deserialize(cluster.serialize())
+
+    assert restored.images == ("a.jpg",)
+
+
 def test_a_zero_embedding_does_not_break_comparison() -> None:
     """It carries no direction, so it cannot be compared — keep the photo."""
     cluster = make_cluster(
@@ -181,3 +218,82 @@ def test_a_zero_embedding_does_not_break_comparison() -> None:
     )
 
     assert cluster.images == ("a.jpg", "b.jpg", "c.jpg")
+
+
+# --------------------------------------------------------------- video and mix
+
+
+def test_a_video_is_taken_from_any_channel_that_posted_one() -> None:
+    """Not only from the channel whose text was chosen.
+
+    Videos used to be read off `annotation_doc` alone, so a story that ten
+    channels filmed had no video whenever the eleventh wrote it best.
+    """
+    cluster = make_cluster(
+        make_doc("a", [{"url": "a.jpg", "embedding": unit(0.0)}]),
+        make_doc("b", [], videos=("b.mp4",)),
+        make_doc("c", [{"url": "c.jpg", "embedding": unit(FAR)}]),
+    )
+
+    assert cluster.videos == ("b.mp4",)
+
+
+def test_a_video_only_one_channel_has_is_not_shown() -> None:
+    """The same corroboration rule photos have: one source is not the story.
+
+    A video used to need no confirmation at all, while a photo needed 40% of the
+    sources — so the weaker evidence had the lower bar.
+    """
+    cluster = make_cluster(
+        make_doc("a", [], videos=("a.mp4",)),
+        make_doc("b", []),
+        make_doc("c", []),
+        make_doc("d", []),
+    )
+
+    assert cluster.videos == ()
+    assert cluster.media == ()
+
+
+def test_photos_and_videos_are_chosen_together() -> None:
+    """One slideshow carries both, so they compete for the same four slots."""
+    cluster = make_cluster(
+        make_doc("a", [{"url": "a.jpg", "embedding": unit(0.0)}]),
+        make_doc("b", [], videos=("b.mp4",)),
+    )
+
+    assert [(item.type, item.url) for item in cluster.media] == [
+        ("photo", "a.jpg"),
+        ("video", "b.mp4"),
+    ]
+
+
+def test_one_media_item_per_channel_across_types() -> None:
+    """A channel that posted both is still one source, so it gets one slot."""
+    cluster = make_cluster(
+        make_doc("a", [{"url": "a.jpg", "embedding": unit(0.0)}], videos=("a.mp4",)),
+        make_doc("b", [{"url": "b.jpg", "embedding": unit(FAR)}]),
+    )
+
+    assert len(cluster.media) == 2
+
+
+def test_the_same_video_url_from_two_channels_is_shown_once() -> None:
+    cluster = make_cluster(
+        make_doc("a", [], videos=("same.mp4",)),
+        make_doc("b", [], videos=("same.mp4",)),
+        make_doc("c", [], videos=("other.mp4",)),
+    )
+
+    assert cluster.videos == ("same.mp4", "other.mp4")
+
+
+def test_media_survives_a_trip_through_storage() -> None:
+    cluster = make_cluster(
+        make_doc("a", [{"url": "a.jpg", "embedding": unit(0.0)}]),
+        make_doc("b", [], videos=("b.mp4",)),
+    )
+
+    restored = Cluster.deserialize(cluster.serialize())
+
+    assert restored.media == cluster.media

@@ -1,4 +1,5 @@
 from nyan import rich
+from nyan.media import MEDIA_PHOTO, MediaItem
 
 
 def test_join_drops_empty_parts_so_separators_never_double() -> None:
@@ -79,4 +80,5 @@ def test_rendered_post_knows_its_format() -> None:
     assert rich.RenderedPost(blocks=[]).is_rich
     assert not rich.RenderedPost(text="plain").is_rich
     assert not rich.RenderedPost(text="plain").has_media
-    assert rich.RenderedPost(text="plain", photos=("u",)).has_media
+    media = (MediaItem(type=MEDIA_PHOTO, url="u"),)
+    assert rich.RenderedPost(text="plain", media=media).has_media

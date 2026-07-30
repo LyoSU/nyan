@@ -18,6 +18,7 @@ from jinja2 import Environment
 from nyan.channels import normalize_group
 from nyan.client import MessageId
 from nyan.document import Document, crop_words
+from nyan.media import MEDIA_PHOTO, MEDIA_VIDEO, MediaItem
 from nyan.mongo import get_clusters_collection
 from nyan.title import choose_title
 from nyan.openai import openai_completion, DEFAULT_REASONING_EFFORT
@@ -78,9 +79,12 @@ def render_prompt(name: str, **context: Any) -> list[dict[str, str]]:
 # Length of the title used in logs, long enough to recognize a story by.
 MAX_TITLE_WORDS = 14
 
-# How much of a cluster has to carry images before they are shown.
-MIN_IMAGE_DOCS_RATIO = 0.4
-MIN_IMAGE_DOCS = 3
+# How much of a cluster has to carry media before any of it is shown. One rule
+# for photos and videos together: a video used to need no corroboration at all
+# while a photo needed 40% of the sources, so the weaker evidence — a single
+# channel's clip, which is as likely to be its own branding — had the lower bar.
+MIN_MEDIA_DOCS_RATIO = 0.4
+MIN_MEDIA_DOCS = 3
 
 # Photos are collected across the whole cluster, so the same picture arrives
 # once per channel that posted it — under a different Telegram CDN URL every
@@ -89,8 +93,8 @@ MIN_IMAGE_DOCS = 3
 # above this cosine similarity two photos are the same photo to a reader.
 DUPLICATE_IMAGE_SIMILARITY = 0.92
 
-# One photo per channel, and few enough of them that the post stays a post.
-MAX_CLUSTER_IMAGES = 4
+# One attachment per channel, and few enough of them that the post stays a post.
+MAX_CLUSTER_MEDIA = 4
 
 # Documents sent to the LLM. Enough for a well-covered story to be summarized
 # from several angles, few enough that a story on fifty channels still fits.
@@ -130,37 +134,78 @@ _ANALYSIS_CACHE_MAX_SIZE = 2048
 GENERATION_GROWTH = 1.5
 
 
-def _deduplicate_images(images: Sequence[dict[str, Any]]) -> tuple[str, ...]:
-    """`images` with near-duplicates and repeats of the same URL removed.
+def _channel_media(doc: Document) -> tuple[MediaItem, ...]:
+    """What this channel could contribute to the post, best first.
+
+    A channel is one source, so it ends up with one slot no matter how much it
+    attached — but which of its attachments takes that slot cannot be settled
+    here, because it depends on what the other channels already filled. So this
+    returns the preferences and `_deduplicate_media` picks.
+
+    Video first: a recording from the scene is the stronger material, and the
+    reader can tell it apart from a wire photo at a glance. The photo is the
+    fallback for a channel whose video another channel already posted — video
+    URLs are the one thing here that cannot be compared by content, so an exact
+    URL match is all we get, and without a fallback such a channel would
+    contribute nothing at all.
+    """
+    options: list[MediaItem] = []
+    if doc.videos:
+        options.append(MediaItem(type=MEDIA_VIDEO, url=doc.videos[0]))
+    for image in doc.embedded_images:
+        url = image.get("url")
+        if not url:
+            continue
+        embedding = image.get("embedding")
+        options.append(
+            MediaItem(
+                type=MEDIA_PHOTO,
+                url=str(url),
+                # A tuple, not the stored list: an item has to stay hashable and
+                # comparable after a trip through JSON, which turns tuples into
+                # lists and would otherwise make a restored cluster's media
+                # unequal to the same cluster's in memory.
+                embedding=tuple(embedding) if embedding else None,
+            )
+        )
+        break
+    return tuple(options)
+
+
+def _deduplicate_media(options: Sequence[Sequence[MediaItem]]) -> tuple[MediaItem, ...]:
+    """One item per channel, with near-duplicates and repeated URLs removed.
+
+    `options` is per channel, in preference order, and the first option that is
+    not already in the post wins its slot.
 
     Comparison is by image embedding, because the same photo redistributed by
-    several channels gets a different URL from each of them. Images stored
-    without an embedding (older documents, or a fetch that failed) are kept on
-    URL identity alone — a possible duplicate is a smaller price than dropping
+    several channels gets a different URL from each of them. Items with no
+    embedding — every video, older documents, a fetch that failed — are kept on
+    URL identity alone, and a possible duplicate is a smaller price than dropping
     the only picture of an event. The same goes for one whose embedding is of a
     width nothing else here shares, which is what an encoder swap leaves behind
     in the annotation cache.
     """
-    kept: list[str] = []
+    kept: list[MediaItem] = []
     kept_embeddings: list[NDArray[np.float32]] = []
     seen_urls: set[str] = set()
-    for image in images:
-        url = image["url"]
-        if url in seen_urls:
-            continue
-        embedding = image.get("embedding")
-        vector = _unit_vector(embedding) if embedding else None
-        if vector is not None:
-            comparable = [v for v in kept_embeddings if v.shape == vector.shape]
-            if comparable:
-                similarity = float(np.max(np.stack(comparable) @ vector))
-                if similarity >= DUPLICATE_IMAGE_SIMILARITY:
-                    continue
-        seen_urls.add(url)
-        kept.append(url)
-        if vector is not None:
-            kept_embeddings.append(vector)
-        if len(kept) >= MAX_CLUSTER_IMAGES:
+    for channel_options in options:
+        for item in channel_options:
+            if item.url in seen_urls:
+                continue
+            vector = _unit_vector(item.embedding) if item.embedding else None
+            if vector is not None:
+                comparable = [v for v in kept_embeddings if v.shape == vector.shape]
+                if comparable:
+                    similarity = float(np.max(np.stack(comparable) @ vector))
+                    if similarity >= DUPLICATE_IMAGE_SIMILARITY:
+                        continue
+            seen_urls.add(item.url)
+            kept.append(item)
+            if vector is not None:
+                kept_embeddings.append(vector)
+            break
+        if len(kept) >= MAX_CLUSTER_MEDIA:
             break
     return tuple(kept)
 
@@ -268,29 +313,37 @@ class Cluster:
         return timestamps[len(timestamps) // 5]
 
     @cached_property
-    def images(self) -> Sequence[str]:
-        """Photos of the event, gathered from every channel that has one.
+    def media(self) -> Sequence[MediaItem]:
+        """What the post shows, gathered from every channel that attached
+        something.
 
-        Taking them from the chosen document alone left plenty of posts with no
-        picture at all, because the channel that writes best is often not the
-        one that was there. Gathering across the cluster fixes that but
-        introduces the opposite problem — the same wire photo, reposted by six
-        channels — so see `_deduplicate_images`.
+        Taking media from the chosen document alone left plenty of posts with
+        nothing at all, because the channel that writes best is often not the one
+        that was there. Gathering across the cluster fixes that but introduces
+        the opposite problem — the same wire photo, reposted by six channels — so
+        see `_deduplicate_media`.
+
+        Photos and videos are chosen together, in one list, because they end up
+        in one slideshow and therefore compete for the same few slots. Deciding
+        between them per format, as the renderer and the client used to, meant
+        the same cluster showed a video in one format and a photo in the other.
         """
         doc_count = len(self.unique_docs)
         if doc_count == 0:
             return tuple()
 
-        # Only show images when enough sources posted one: a picture from a
+        # Only show media when enough sources attached some: a picture from a
         # single channel is usually its own branding rather than the story.
-        image_doc_count = sum(bool(doc.images) for doc in self.unique_docs)
+        media_doc_count = sum(
+            bool(doc.images or doc.videos) for doc in self.unique_docs
+        )
         if (
-            image_doc_count / doc_count < MIN_IMAGE_DOCS_RATIO
-            and image_doc_count < MIN_IMAGE_DOCS
+            media_doc_count / doc_count < MIN_MEDIA_DOCS_RATIO
+            and media_doc_count < MIN_MEDIA_DOCS
         ):
             return tuple()
 
-        candidates: list[dict[str, Any]] = []
+        candidates: list[tuple[MediaItem, ...]] = []
         seen_channels: set[str] = set()
         annotation_channel = self.annotation_doc.channel_id
         docs = sorted(
@@ -300,22 +353,21 @@ class Cluster:
         for doc in docs:
             if doc.channel_id in seen_channels:
                 continue
-            # One picture per channel: a channel posting six photos of the same
-            # scene would otherwise fill the slideshow on its own.
-            for image in doc.embedded_images:
-                if image.get("url"):
-                    candidates.append(image)
-                    seen_channels.add(doc.channel_id)
-                    break
+            options = _channel_media(doc)
+            if not options:
+                continue
+            candidates.append(options)
+            seen_channels.add(doc.channel_id)
 
-        return _deduplicate_images(candidates)
+        return _deduplicate_media(candidates)
+
+    @cached_property
+    def images(self) -> Sequence[str]:
+        return tuple(item.url for item in self.media if item.type == MEDIA_PHOTO)
 
     @cached_property
     def videos(self) -> Sequence[str]:
-        videos = self.annotation_doc.videos
-        if videos:
-            return videos
-        return tuple()
+        return tuple(item.url for item in self.media if item.type == MEDIA_VIDEO)
 
     @cached_property
     def cropped_title(self) -> str:

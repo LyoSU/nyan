@@ -127,11 +127,22 @@ class Document(Serializable):
         self.views = new_doc.views
 
     def asdict(self, is_short: bool = False) -> dict[str, Any]:
+        """`is_short` drops what a stored cluster can do without.
+
+        The text is re-read from the annotation cache and the embedding is only
+        needed while clustering, so neither has to be carried in
+        `posted_clusters`. The image vectors do: the daemon re-reads posted
+        clusters from storage on every iteration, and `Cluster.images` picks its
+        photos out of `embedded_images` while the ratio gate counts `images`.
+        Dropping one and keeping the other passed the gate with nothing to
+        choose from, so a published post lost its photos — and got them back
+        whenever a source happened to be re-crawled that iteration, which is
+        what made the media look random.
+        """
         record = super().asdict()
         if is_short:
             record.pop("text")
             record.pop("embedding")
-            record.pop("embedded_images")
         return record
 
     @property

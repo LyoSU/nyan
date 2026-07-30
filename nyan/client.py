@@ -3,11 +3,19 @@ import json
 import logging
 from typing import Any
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, fields, replace
 
 from httpx import Timeout, Limits, HTTPTransport, Client, Response
 
-from nyan.rich import Block, RenderedPost, fix_media_url
+from nyan.media import (
+    MEDIA_ANIMATION,
+    MEDIA_VIDEO,
+    MediaItem,
+    SentMedia,
+    attach_urls,
+    extract_sent_media,
+)
+from nyan.rich import Block, RenderedPost, fix_media_url, media_payloads
 from nyan.util import Serializable
 
 
@@ -38,6 +46,44 @@ class MessageId(Serializable):
     # for messages sent before this field existed; those are identified from
     # Telegram's own error the first time an update is attempted.
     post_format: str = ""
+    # What Telegram stored for every attachment, in the order it was sent. Kept
+    # for two readers: an edit, which references a file_id instead of a URL that
+    # may already be gone, and the site, which serves the media through the bot
+    # and so needs the file_id rather than the CDN link the crawler found.
+    media: list[SentMedia] = field(default_factory=list)
+    # Whether this message's text lives in a caption. Media was sent with it, or
+    # Telegram said so — either way editMessageText cannot touch it. Recorded
+    # because guessing from the current render was wrong in both directions: a
+    # cluster that gained photos after publication was edited as a caption it
+    # never had, and Telegram's refusal stopped the post updating for good.
+    is_caption: bool = False
+
+    @classmethod
+    def fromdict(cls, d: dict[str, Any]) -> "MessageId":
+        # `Serializable.fromdict` is shallow, so the attachments would come back
+        # as plain dicts and break the first edit that touched them.
+        keys = {f.name for f in fields(cls)}
+        values = {k: v for k, v in d.items() if k in keys}
+        values["media"] = [
+            SentMedia.fromdict(m) if isinstance(m, dict) else m
+            for m in values.get("media") or []
+        ]
+        return cls(**values)
+
+    def file_ids(self) -> dict[str, str]:
+        """Known URL -> file_id, for rewriting an edit's attachments."""
+        return {item.url: item.file_id for item in self.media if item.url}
+
+    @property
+    def has_caption(self) -> bool:
+        """Whether editMessageText would be refused on this message.
+
+        Recorded attachments are proof on their own: anything sent with media
+        carries a caption. `is_caption` covers the messages that have none
+        recorded — those sent before file ids were kept, identified from
+        Telegram's own refusal.
+        """
+        return self.is_caption or bool(self.media)
 
     def as_tuple(self) -> tuple[str, int]:
         return (self.issue, self.message_id)
@@ -119,9 +165,7 @@ class TelegramClient:
         message = self.send_message(
             post.text,
             issue_name,
-            photos=post.photos,
-            videos=post.videos,
-            animations=post.animations,
+            media=post.media,
             reply_to=reply_to,
         )
         if message:
@@ -133,8 +177,17 @@ class TelegramClient:
         issue = self.issues[message.issue]
         if post.is_rich:
             assert post.blocks is not None
+            # Rewritten before sending, so the edit references files Telegram
+            # already holds. A URL from an earlier crawl may no longer resolve,
+            # and then the edit takes the whole post's media down with it.
+            urls = self._use_known_files(post.blocks, message)
             response = self._edit_rich(message.message_id, post.blocks, issue=issue)
-        elif post.has_media:
+            if response.status_code == 200:
+                # Attachments an update added arrive with a file_id of their own,
+                # and the next edit has to be able to reference those too.
+                self._record_media(message, response, urls)
+                return
+        elif message.has_caption:
             assert post.text is not None
             response = self._edit_caption(message.message_id, post.text, issue=issue)
         else:
@@ -147,8 +200,10 @@ class TelegramClient:
         if self._is_caption_only(response):
             # A message sent as media carries a caption, not text, and cannot be
             # edited with editMessageText. Record what it is so the next
-            # iteration renders and edits it as a caption instead.
+            # iteration renders and edits it as a caption instead. Messages sent
+            # before `is_caption` was recorded are the only ones that get here.
             message.post_format = FORMAT_LEGACY
+            message.is_caption = True
             logging.warning(
                 "Message %d predates the rich format; will update it as a "
                 "caption from now on",
@@ -162,6 +217,40 @@ class TelegramClient:
             response.status_code,
             response.text,
         )
+
+    @staticmethod
+    def _use_known_files(blocks: Sequence[Block], message: MessageId) -> list[str]:
+        """Swap every attachment we have a file_id for, in place.
+
+        Returns the URLs in send order — including the ones left as URLs, which
+        is how the response's file_ids get paired back to them.
+        """
+        known = message.file_ids()
+        urls: list[str] = []
+        for payload in media_payloads(blocks):
+            url = str(payload["media"])
+            urls.append(url)
+            file_id = known.get(url)
+            if file_id:
+                payload["media"] = file_id
+        return urls
+
+    @staticmethod
+    def _record_media(
+        message: MessageId, response: Response, urls: Sequence[str]
+    ) -> None:
+        """Keep what Telegram stored for this message's attachments.
+
+        Read from every send and every successful edit, because the set changes:
+        a cluster grows, a photo joins the post, and that one is only referable
+        by file_id once Telegram has answered for it.
+        """
+        result = response.json().get("result")
+        if not result:
+            return
+        media = attach_urls(extract_sent_media(result), list(urls))
+        if media:
+            message.media = media
 
     @staticmethod
     def _is_caption_only(response: Response) -> bool:
@@ -216,17 +305,17 @@ class TelegramClient:
         message_id = self._extract_message_id(response)
         if message_id is None:
             return None
-        return MessageId(
+        message = MessageId(
             message_id=message_id, issue=issue_name, from_discussion=False
         )
+        self._record_media(message, response, self._use_known_files(blocks, message))
+        return message
 
     def send_message(
         self,
         text: str,
         issue_name: str,
-        photos: Sequence[str] = tuple(),
-        animations: Sequence[str] = tuple(),
-        videos: Sequence[str] = tuple(),
+        media: Sequence[MediaItem] = tuple(),
         reply_to: int | None = None,
         parse_mode: str = "html",
     ) -> MessageId | None:
@@ -235,37 +324,41 @@ class TelegramClient:
             return None
         issue = self.issues[issue_name]
         response = None
-        if len(photos) == 1:
-            response = self._send_photo(
-                text, photos[0], issue=issue, reply_to=reply_to, parse_mode=parse_mode
+        # One attachment goes out as itself, several as a group. A group is
+        # allowed to mix photos and videos, which is what lets the choice of
+        # attachments stay in one place instead of each format ranking the types
+        # its own way.
+        if len(media) > 1:
+            response = self._send_media_group(
+                text, media, issue=issue, reply_to=reply_to, parse_mode=parse_mode
             )
-        elif len(photos) > 1:
-            response = self._send_photos(
-                text, photos, issue=issue, reply_to=reply_to, parse_mode=parse_mode
-            )
-        elif len(animations) >= 1:
-            response = self._send_animation(
-                text,
-                animations[0],
-                issue=issue,
-                reply_to=reply_to,
-                parse_mode=parse_mode,
-            )
-        elif len(videos) >= 1:
+        elif len(media) == 1 and media[0].type == MEDIA_VIDEO:
             response = self._send_video(
-                text, videos[0], issue=issue, reply_to=reply_to, parse_mode=parse_mode
+                text, media[0].url, issue=issue, reply_to=reply_to, parse_mode=parse_mode
+            )
+        elif len(media) == 1 and media[0].type == MEDIA_ANIMATION:
+            response = self._send_animation(
+                text, media[0].url, issue=issue, reply_to=reply_to, parse_mode=parse_mode
+            )
+        elif len(media) == 1:
+            response = self._send_photo(
+                text, media[0].url, issue=issue, reply_to=reply_to, parse_mode=parse_mode
             )
         else:
             response = self._send_text(
                 text, issue=issue, reply_to=reply_to, parse_mode=parse_mode
             )
 
+        sent_with_media = bool(media)
         if response.status_code == 400 and "description" in response.text:
             response_dict = response.json()
             description = response_dict.get("description", "")
             if description == "Bad Request: message caption is too long":
                 logging.warning("Caption too long, resending as text only")
                 response = self._send_text(text, issue=issue, reply_to=reply_to)
+                # The attachments went nowhere, so the text is text: an update
+                # has to edit it as one.
+                sent_with_media = False
 
         if response.status_code != 200:
             logging.error(
@@ -276,7 +369,14 @@ class TelegramClient:
         message_id = self._extract_message_id(response)
         if message_id is None:
             return None
-        return MessageId(message_id=message_id, issue=issue_name, from_discussion=False)
+        message = MessageId(
+            message_id=message_id,
+            issue=issue_name,
+            from_discussion=False,
+            is_caption=sent_with_media,
+        )
+        self._record_media(message, response, [item.url for item in media])
+        return message
 
     @staticmethod
     def _extract_message_id(response: Response) -> int | None:
@@ -457,28 +557,32 @@ class TelegramClient:
             params["allow_sending_without_reply"] = True
         return self._post(url_template.format(issue.bot_token), params)
 
-    def _send_photos(
+    def _send_media_group(
         self,
         text: str,
-        photos: Sequence[str],
+        media: Sequence[MediaItem],
         issue: IssueConfig,
         reply_to: int | None = None,
         parse_mode: str = "html",
     ) -> Response:
         url_template = self.host + "/bot{}/sendMediaGroup"
-        media = [
+        # In the order chosen, types mixed as they come: a group where a video
+        # sits between two photos is exactly what the cluster decided to show.
+        group = [
             {
-                "type": "photo",
-                "media": fix_media_url(photo),
+                "type": item.type,
+                "media": fix_media_url(item.url),
+                # The caption belongs to the first attachment only; repeated, it
+                # would be shown once per item.
                 "caption": text if i == 0 else "",
                 "parse_mode": parse_mode,
             }
-            for i, photo in enumerate(photos)
+            for i, item in enumerate(media)
         ]
         params = {
             "chat_id": issue.channel_id,
             "disable_notification": True,
-            "media": json.dumps(media),
+            "media": json.dumps(group),
         }
         if reply_to:
             params["reply_to_message_id"] = reply_to

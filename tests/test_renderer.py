@@ -918,3 +918,68 @@ def test_legacy_format_still_produces_text_and_media(
 )
 def test_source_count_is_declined_correctly(count: int, expected: str) -> None:
     assert pluralize_sources(count) == expected
+
+
+def test_a_photo_and_a_video_share_one_slideshow(renderer: Renderer) -> None:
+    """Both kinds are chosen together, so both go into the same swipeable group.
+
+    The renderer used to return a video *instead of* the photos, which meant a
+    well-filmed event lost every picture the other channels had.
+    """
+    cluster = make_cluster(
+        [
+            make_doc(
+                VERIFIED,
+                "https://t.me/rbc_news/1",
+                videos=("https://example.com/v.mp4",),
+                pub_time=100,
+            ),
+            make_doc(
+                AGGREGATOR,
+                "https://t.me/nexta_live/1",
+                images=("b",),
+                pub_time=200,
+                embedded_images=[{"url": "https://example.com/b.jpg"}],
+            ),
+        ],
+    )
+    post = renderer.render_cluster(cluster, "main")
+
+    assert post is not None
+    assert post.blocks is not None
+    slideshow = find(post.blocks, "slideshow")
+    assert [b["type"] for b in slideshow["blocks"]] == ["video", "photo"]
+
+
+def test_the_legacy_format_carries_the_media_the_cluster_chose(
+    renderer: Renderer,
+) -> None:
+    """Both formats show the same attachments, in the same order.
+
+    They used to disagree: the rich renderer preferred video, the legacy client
+    preferred photos, so the config value decided what a reader saw.
+    """
+    cluster = make_cluster(
+        [
+            make_doc(
+                VERIFIED,
+                "https://t.me/rbc_news/1",
+                videos=("https://example.com/v.mp4",),
+                pub_time=100,
+            ),
+            make_doc(
+                AGGREGATOR,
+                "https://t.me/nexta_live/1",
+                images=("b",),
+                pub_time=200,
+                embedded_images=[{"url": "https://example.com/b.jpg"}],
+            ),
+        ],
+    )
+    post = renderer.render_cluster(cluster, "main", post_format="legacy")
+
+    assert post is not None
+    assert [(item.type, item.url) for item in post.media] == [
+        ("video", "https://example.com/v.mp4"),
+        ("photo", "https://example.com/b.jpg"),
+    ]
