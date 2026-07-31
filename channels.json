@@ -1824,6 +1824,26 @@
       "kind": "media"
     },
     {
+      "name": "cukrcity",
+      "groups": {
+        "main": "blue",
+        "local": "blue"
+      },
+      "alias": "Цукр | Суми",
+      "issue": "local",
+      "kind": "media"
+    },
+    {
+      "name": "kordonmedia",
+      "groups": {
+        "main": "blue",
+        "local": "blue"
+      },
+      "alias": "Кордон.Медіа | Сумщина",
+      "issue": "local",
+      "kind": "media"
+    },
+    {
       "name": "ukraine_context",
       "groups": {
         "main": "blue",
@@ -2899,6 +2919,26 @@
       "alias": "Ready to Fight",
       "issue": "culture",
       "kind": "organization"
+    },
+    {
+      "name": "vatagaesports",
+      "groups": {
+        "main": "blue",
+        "culture": "blue"
+      },
+      "alias": "Vataga Esports",
+      "issue": "culture",
+      "kind": "media"
+    },
+    {
+      "name": "databord",
+      "groups": {
+        "main": "blue",
+        "culture": "blue"
+      },
+      "alias": "Датаборд",
+      "issue": "culture",
+      "kind": "media"
     },
     {
       "name": "wallstreetukr",
