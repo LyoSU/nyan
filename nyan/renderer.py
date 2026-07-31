@@ -311,11 +311,19 @@ class Renderer:
             # larger font rather than as a headline. Compared side by side, the
             # bold one is the one that looks like a news headline.
             blocks.append(rich.heading(rich.bold(headline), size=size))
-        blocks.extend(self.render_media(cluster))
+        media = self.render_media(cluster)
 
         if summary:
-            blocks.extend(self.render_summary(summary, groups))
+            # Headline, lede, photo: the reader gets what happened before the
+            # picture of it, instead of scrolling a slideshow to reach the first
+            # sentence. Where the lede ends is `lede_length`'s decision.
+            story = self.render_summary(summary, groups)
+            lede = self.lede_length(summary)
+            blocks.extend(story[:lede])
+            blocks.extend(media)
+            blocks.extend(story[lede:])
         else:
+            blocks.extend(media)
             body = self.split_headline(cluster)[1]
             if body:
                 blocks.append(rich.paragraph(body))
@@ -363,6 +371,25 @@ class Renderer:
                     rich.join([emoji, name], " ") if emoji else name
                 )
         return sources
+
+    @staticmethod
+    def lede_length(summary: Summary) -> int:
+        """How many rendered blocks the post's lede occupies, for media to follow.
+
+        One if the post opens with a paragraph, zero otherwise — which puts the
+        media straight under the headline, as it was before the lede existed.
+        Only a paragraph counts: every other opening shape introduces the blocks
+        under it, and media dropped in between separates a label from the thing
+        it labels. Read from the model's blocks rather than the rendered ones
+        because two rendered paragraphs are not the same thing: a `disputed`
+        block also renders as a paragraph, holding the bold title of the list
+        beneath it.
+
+        The one block returned by `summary_blocks` for a `text` block is what
+        makes this a length rather than a search.
+        """
+        opening = summary.blocks[0].type if summary.blocks else ""
+        return 1 if opening == nyan_summary.TEXT else 0
 
     def split_headline(self, cluster: Cluster) -> tuple[str | None, str | None]:
         """Return (headline, body) for the cluster's text.

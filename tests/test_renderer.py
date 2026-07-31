@@ -156,14 +156,78 @@ def test_block_order_is_stable(renderer: Renderer) -> None:
     assert post.blocks is not None
     assert [b["type"] for b in post.blocks] == [
         "heading",
-        "photo",
-        # The model's own blocks, in the order it chose them.
+        # The model's own blocks, in the order it chose them, with the media
+        # after the lede.
         "paragraph",
+        "photo",
         "list",
         "details",
         "divider",
         "footer",
     ]
+
+
+def media_cluster(*blocks: dict[str, Any]) -> Cluster:
+    """A cluster with one photo and, if given, a summary of `blocks`."""
+    return make_cluster(
+        [make_doc(VERIFIED, "https://t.me/rbc_news/1", pub_time=100, images=("a",))],
+        embedded_images=[{"url": "https://example.com/a.jpg"}],
+        summary=make_summary(*blocks) if blocks else None,
+    )
+
+
+def block_types(renderer: Renderer, cluster: Cluster) -> list[str]:
+    post = renderer.render_cluster(cluster, "main")
+    assert post is not None and post.blocks is not None
+    return [b["type"] for b in post.blocks]
+
+
+def test_media_follows_the_lede(renderer: Renderer) -> None:
+    """Headline, lede, photo — the order a newspaper page puts them in.
+
+    The reader gets what happened before the picture of it, instead of scrolling
+    a slideshow to reach the first sentence.
+    """
+    types = block_types(
+        renderer,
+        media_cluster(
+            {"type": "text", "text": "Що сталося."},
+            {"type": "text", "text": "Подробиці."},
+        ),
+    )
+
+    assert types[:4] == ["heading", "paragraph", "photo", "paragraph"]
+
+
+def test_media_stays_on_top_when_the_post_opens_with_a_subheading(
+    renderer: Renderer,
+) -> None:
+    """A block that introduces what follows it must not be cut off from it.
+
+    Only a paragraph is a lede. A subheading, a list of links or a quote owns
+    the blocks under it, and a photo dropped in between separates a label from
+    the thing it labels.
+    """
+    types = block_types(
+        renderer,
+        media_cluster(
+            {"type": "subheading", "text": "Головне"},
+            {"type": "text", "text": "Що сталося."},
+        ),
+    )
+
+    assert types[:4] == ["heading", "photo", "heading", "paragraph"]
+
+
+def test_the_quoted_post_keeps_its_media_on_top(renderer: Renderer) -> None:
+    """Without a summary there is no lede to hold the photo back.
+
+    The fallback shape carries the channel's whole post as one paragraph, so
+    "after the first paragraph" would mean after all of the text.
+    """
+    types = block_types(renderer, media_cluster())
+
+    assert types[:3] == ["heading", "photo", "paragraph"]
 
 
 def test_a_quoted_post_is_credited_and_a_summarized_one_is_not(
