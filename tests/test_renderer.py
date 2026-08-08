@@ -164,10 +164,12 @@ def test_block_order_is_stable(renderer: Renderer) -> None:
     assert [b["type"] for b in post.blocks] == [
         "heading",
         # The model's own blocks, in the order it chose them, with the media
-        # after the lede.
+        # after the lede and the list that itemises it — the two are one
+        # telling, and a picture wedged between them presses the bullets under
+        # itself.
         "paragraph",
-        "photo",
         "list",
+        "photo",
         "details",
         "divider",
         "footer",
@@ -1056,13 +1058,8 @@ def test_the_legacy_format_carries_the_media_the_cluster_chose(
     ]
 
 
-def test_each_picture_credits_the_channel_it_came_from(renderer: Renderer) -> None:
-    """A carousel mixes channels, so the byline belongs to the frame.
-
-    The post's text has one author and says so under the paragraph. Its
-    pictures can come from three different channels, and a single credit for
-    the post cannot say which frame belongs to whom.
-    """
+def test_a_lone_picture_credits_the_channel_it_came_from(renderer: Renderer) -> None:
+    """The picture is somebody's file, and the post should say whose."""
     cluster = make_cluster(
         [
             make_doc(VERIFIED, "https://t.me/rbc_news/1"),
@@ -1078,8 +1075,121 @@ def test_each_picture_credits_the_channel_it_came_from(renderer: Renderer) -> No
     assert post is not None
     assert post.blocks is not None
     photo = find(post.blocks, "photo")
-    assert photo["caption"]["credit"] == {
-        "type": "url",
-        "text": "WITNESS",
-        "url": "https://t.me/witness/7",
-    }
+    credit = photo["caption"]["credit"]
+    assert [part for part in credit if isinstance(part, dict)] == [
+        {"type": "url", "text": "WITNESS", "url": "https://t.me/witness/7"},
+    ]
+
+
+def test_a_carousel_credits_every_channel_behind_it(renderer: Renderer) -> None:
+    """Telegram ignores captions on the blocks inside a slideshow.
+
+    Measured, not assumed: a caption on a nested photo block is accepted by the
+    API and rendered by nothing, while a caption on the slideshow itself shows.
+    So a per-frame byline is not available, and the honest alternative is to
+    name every channel whose file is in the carousel, in the order the frames
+    appear.
+    """
+    cluster = make_cluster(
+        [
+            make_doc(
+                VERIFIED,
+                "https://t.me/rbc_news/1",
+                embedded_images=[{"url": "https://example.com/a.jpg"}],
+            ),
+            make_doc(
+                "witness",
+                "https://t.me/witness/7",
+                videos=("https://example.com/v.mp4",),
+            ),
+        ],
+    )
+    post = renderer.render_cluster(cluster, "main")
+
+    assert post is not None
+    assert post.blocks is not None
+    slideshow = find(post.blocks, "slideshow")
+    assert "caption" in slideshow
+    assert all("caption" not in block for block in slideshow["blocks"])
+    credit = slideshow["caption"]["credit"]
+    assert [part for part in credit if isinstance(part, dict)] == [
+        {"type": "url", "text": "WITNESS", "url": "https://t.me/witness/7"},
+        {"type": "url", "text": "RBC_NEWS", "url": "https://t.me/rbc_news/1"},
+    ]
+
+
+def test_the_credit_is_labelled_the_way_a_newsroom_labels_it() -> None:
+    """A newsroom writes "Фото: УНІАН", and a reader has seen that form before.
+
+    A bare list of channel names under a carousel reads as a caption about the
+    story. The label says what the names are: whose file this is, not who the
+    story is about.
+    """
+    from nyan.media import MediaItem
+    from nyan.renderer import media_credit
+
+    photos = media_credit(
+        [
+            MediaItem(type="photo", url="a.jpg", channel_title="УНІАН",
+                      source_url="https://t.me/unian/1"),
+            MediaItem(type="photo", url="b.jpg", channel_title="Суспільне",
+                      source_url="https://t.me/suspilne/2"),
+        ]
+    )
+    assert photos is not None
+    assert photos[0] == "Фото: "
+
+    videos = media_credit(
+        [MediaItem(type="video", url="v.mp4", channel_title="УНІАН",
+                   source_url="https://t.me/unian/1")]
+    )
+    assert videos is not None
+    assert videos[0] == "Відео: "
+
+    mixed = media_credit(
+        [
+            MediaItem(type="video", url="v.mp4", channel_title="УНІАН",
+                      source_url="https://t.me/unian/1"),
+            MediaItem(type="photo", url="a.jpg", channel_title="Суспільне",
+                      source_url="https://t.me/suspilne/2"),
+        ]
+    )
+    assert mixed is not None
+    assert mixed[0] == "Фото і відео: "
+
+
+def test_media_does_not_sit_directly_above_a_bulleted_list(renderer: Renderer) -> None:
+    """A carousel with bullets pressed under it reads as a cramped block.
+
+    The lede tells the reader what happened; the list that follows is the same
+    telling, itemised. Media belongs after that unit, not wedged into it — but
+    it must still not separate a bold label from the list it introduces, which
+    is why it stops before "Пишуть окремі джерела" rather than after.
+    """
+    summary = make_summary(
+        {"type": "text", "text": "Лід-абзац новини."},
+        {"type": "list", "items": ["Перший пункт", "Другий пункт"]},
+        {
+            "type": "attributed",
+            "claims": [{"text": "Окреме твердження", "channels": [VERIFIED]}],
+        },
+    )
+    cluster = make_cluster(
+        [
+            make_doc(
+                VERIFIED,
+                "https://t.me/rbc_news/1",
+                embedded_images=[{"url": "https://example.com/a.jpg"}],
+            ),
+            make_doc("rbc_ua_news", "https://t.me/rbc_ua_news/2"),
+        ],
+        summary=summary,
+    )
+    post = renderer.render_cluster(cluster, "main")
+
+    assert post is not None
+    assert post.blocks is not None
+    types = [block["type"] for block in post.blocks]
+    media_at = types.index("photo")
+    assert types[media_at - 1] == "list", types
+    assert types[media_at + 1] != "list", types

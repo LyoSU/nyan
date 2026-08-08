@@ -15,7 +15,7 @@ from nyan.channels import GROUP_ORDER, Channels
 from nyan.clusters import Cluster
 from nyan.document import Document
 from nyan.markup import link_emphasis, parse_markup
-from nyan.media import MEDIA_ANIMATION, MEDIA_VIDEO, MediaItem
+from nyan.media import MEDIA_ANIMATION, MEDIA_PHOTO, MEDIA_VIDEO, MediaItem
 from nyan.rich import Block, RenderedPost, RichText
 from nyan.summary import Summary
 from nyan.util import DEFAULT_TIMEZONE, normalize_channel_id, ts_to_dt
@@ -46,6 +46,14 @@ ATTRIBUTED_TITLE = "Пишуть окремі джерела"
 # stays above the section heading, an important story above an ordinary one.
 DEFAULT_HEADLINE_SIZE = 3
 
+# How a newsroom labels an attribution under a picture. The label matters as
+# much as the names: a bare list of channels under a carousel reads as a
+# caption about the story, while "Фото: УНІАН" says what the names are — whose
+# file this is, not who the story is about.
+PHOTO_CREDIT_LABEL = "Фото"
+VIDEO_CREDIT_LABEL = "Відео"
+MIXED_CREDIT_LABEL = "Фото і відео"
+
 # An em dash, the way print attributes a passage to its author. Not a hyphen:
 # "- Укрінформ" reads as a bullet point, which is the wrong signal entirely.
 CREDIT_DASH = "—"
@@ -63,6 +71,59 @@ MAX_HEADING_SIZE = 6
 
 def clamp_heading_size(size: int) -> int:
     return max(MIN_HEADING_SIZE, min(MAX_HEADING_SIZE, size))
+
+
+LIST_BLOCK = "list"
+PARAGRAPH_BLOCK = "paragraph"
+
+
+def media_position(story: Sequence[Block], after_lede: int) -> int:
+    """Where the attachments go, given where the lede ends.
+
+    Past the list that follows the lede, because the two are one telling —
+    first in prose, then itemised — and a carousel wedged between them leaves
+    the bullets pressed under the picture, which reads as a cramped block
+    rather than as a list.
+
+    It stops before a paragraph that introduces a list of its own, though: that
+    paragraph is a bold label ("Джерела різняться") and the list under it is
+    what it labels. Media dropped in between separates the two.
+    """
+    index = after_lede
+    while index < len(story) and story[index].get("type") == LIST_BLOCK:
+        index += 1
+    return index
+
+
+def media_credit(media: Sequence[MediaItem]) -> RichText | None:
+    """Whose files these are, named once for the whole attachment block.
+
+    Every channel in the carousel, in the order its frame appears, and each one
+    only once — a channel with two frames is still one source. The credit names
+    who published the copy on screen, not whoever photographed the scene: where
+    the rendition came from is what is actually known here.
+    """
+    seen: set[str] = set()
+    parts: list[RichText] = []
+    for item in media:
+        if not item.channel_title or not item.source_url:
+            continue
+        if item.channel_title in seen:
+            continue
+        seen.add(item.channel_title)
+        parts.append(rich.link(item.channel_title, item.source_url))
+    if not parts:
+        return None
+    kinds = {item.type for item in media}
+    moving = bool(kinds & {MEDIA_VIDEO, MEDIA_ANIMATION})
+    still = MEDIA_PHOTO in kinds
+    if moving and still:
+        label = MIXED_CREDIT_LABEL
+    elif moving:
+        label = VIDEO_CREDIT_LABEL
+    else:
+        label = PHOTO_CREDIT_LABEL
+    return [f"{label}: ", *rich.join(parts, ", ")]
 
 
 def claim_credit(
@@ -315,13 +376,14 @@ class Renderer:
 
         if summary:
             # Headline, lede, photo: the reader gets what happened before the
-            # picture of it, instead of scrolling a slideshow to reach the first
-            # sentence. Where the lede ends is `lede_length`'s decision.
+            # picture of it, instead of scrolling a slideshow to reach the
+            # first sentence. Where the lede ends is `lede_length`'s decision,
+            # and `media_position` moves past what must not be split from it.
             story = self.render_summary(summary, groups)
-            lede = self.lede_length(summary)
-            blocks.extend(story[:lede])
+            at = media_position(story, self.lede_length(summary))
+            blocks.extend(story[:at])
             blocks.extend(media)
-            blocks.extend(story[lede:])
+            blocks.extend(story[at:])
         else:
             blocks.extend(media)
             body = self.split_headline(cluster)[1]
@@ -438,32 +500,30 @@ class Renderer:
         the video block was returned *instead of* the photos.
         """
         media = list(cluster.media)[: rich.MAX_MEDIA]
-        blocks = [self.render_media_item(item) for item in media]
-        if len(blocks) == 1:
-            return blocks
-        if len(blocks) > 1:
-            return [rich.slideshow(*blocks)]
-        return []
+        if not media:
+            return []
+        if len(media) == 1:
+            return [self.render_media_item(media[0], credit=media_credit(media))]
+        # No credit on the frames: Telegram accepts a caption on a block inside
+        # a slideshow and renders it nowhere, so a per-frame byline is silently
+        # lost. Only the slideshow's own caption shows, which makes one credit
+        # naming every channel in the carousel the available honest answer.
+        return [
+            rich.slideshow(
+                *[self.render_media_item(item) for item in media],
+                credit=media_credit(media),
+            )
+        ]
 
     @staticmethod
-    def render_media_item(item: MediaItem) -> Block:
-        """One attachment, credited to the channel whose copy it is.
+    def render_media_item(item: MediaItem, credit: RichText | None = None) -> Block:
+        """One attachment, credited only where a credit is actually rendered.
 
-        Per frame rather than per post, because a carousel mixes channels: the
-        story's text has one author and says so under the paragraph, while its
-        pictures can come from three different places. Which frame belongs to
-        whom is not something a single credit for the post can express.
-
-        The credit names the channel whose copy is on screen — the file the
-        reader is looking at — and not necessarily whoever photographed the
-        scene. That is the honest claim to make: what we know is where this
-        rendition came from.
+        Which is not inside a slideshow: Telegram accepts a caption on a nested
+        block and shows it nowhere. So the caller passes a credit for a lone
+        attachment and none for a frame of a carousel, where the byline sits on
+        the carousel instead.
         """
-        credit = (
-            rich.link(item.channel_title, item.source_url)
-            if item.channel_title and item.source_url
-            else None
-        )
         if item.type == MEDIA_VIDEO:
             return rich.video(item.url, credit=credit)
         if item.type == MEDIA_ANIMATION:
