@@ -582,3 +582,62 @@ def test_two_copies_cannot_reveal_a_watermark() -> None:
     )
 
     assert urls(selected) == ["clean.jpg"]
+
+
+def test_a_playable_copy_is_preferred_over_a_cleaner_unplayable_one() -> None:
+    """Telegram refuses a .mov by its extension, and the copies are the same clip.
+
+    A cluster carries the same footage from every channel that posted it, and
+    about one copy in twenty arrives as .mov. Choosing one of those turns a
+    finished post into either a re-upload or a post without its video, while an
+    .mp4 of the same scene was sitting in the group all along.
+    """
+    group = group_media(
+        [
+            candidate("a", "https://cdn/clip.mov", media_type=MEDIA_VIDEO,
+                      quality=0.9, duration=17),
+            candidate("b", "https://cdn/clip.mp4", media_type=MEDIA_VIDEO,
+                      quality=0.1, duration=17),
+        ]
+    )
+
+    assert group[0].representative.url.endswith(".mp4")
+
+
+def test_among_playable_copies_the_cleanest_still_wins() -> None:
+    """Format only breaks the tie it has to; it does not outrank quality."""
+    group = group_media(
+        [
+            candidate("a", "https://cdn/poor.mp4", media_type=MEDIA_VIDEO,
+                      quality=0.1, duration=17),
+            candidate("b", "https://cdn/good.mp4", media_type=MEDIA_VIDEO,
+                      quality=0.9, duration=17),
+        ]
+    )
+
+    assert group[0].representative.url.endswith("good.mp4")
+
+
+def test_an_all_mov_group_still_shows_its_video() -> None:
+    """With no playable copy, the best of what there is — the upload handles it."""
+    group = group_media(
+        [
+            candidate("a", "https://cdn/poor.mov", media_type=MEDIA_VIDEO,
+                      quality=0.1, duration=17),
+            candidate("b", "https://cdn/good.mov", media_type=MEDIA_VIDEO,
+                      quality=0.9, duration=17),
+        ]
+    )
+
+    assert group[0].representative.url.endswith("good.mov")
+
+
+def test_photos_are_unaffected_by_the_video_rule() -> None:
+    group = group_media(
+        [
+            candidate("a", "https://cdn/poor.jpg", quality=0.1),
+            candidate("b", "https://cdn/good.png", quality=0.9),
+        ]
+    )
+
+    assert group[0].representative.url.endswith("good.png")

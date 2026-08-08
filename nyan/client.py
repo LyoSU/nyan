@@ -11,11 +11,14 @@ from httpx import Timeout, Limits, HTTPTransport, Client, Response
 from nyan.media import (
     MEDIA_ANIMATION,
     MEDIA_VIDEO,
+    PLAYABLE_VIDEO_SUFFIX,
     MediaItem,
     SentMedia,
     attach_urls,
     extract_sent_media,
+    is_playable,
 )
+from nyan.download import fetch_media
 from nyan.rich import (
     Block,
     MEDIA_BLOCK_TYPES,
@@ -33,6 +36,12 @@ ISSUE_WARNING = "Missing issue '%s' in the client config"
 # Values of MessageId.post_format.
 FORMAT_RICH = "rich"
 FORMAT_LEGACY = "legacy"
+
+# Bot API ceiling for an uploaded file.
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+
+# name -> (filename, content, mime), the shape httpx wants for multipart.
+UploadedFiles = dict[str, tuple[str, bytes, str]]
 
 
 @dataclass
@@ -291,6 +300,41 @@ class TelegramClient:
         logging.info("Issue '%s' posts to %s, cloned from '%s'", name, channel_id, like)
         return True
 
+    @staticmethod
+    def _upload_unplayable_videos(blocks: Sequence[Block]) -> UploadedFiles:
+        """Carry the videos Telegram will not fetch, and send them as bytes.
+
+        The channels post about one clip in twenty as .mov, and Telegram judges
+        a URL by its extension: it refuses those without looking, even though
+        the file behind them is already H.264/AAC in an mp4-branded container.
+        So the same bytes go up under an .mp4 name and are accepted.
+
+        Only the unplayable ones. The other nineteen in twenty are .mp4 that
+        Telegram fetches perfectly well, and downloading them here would buy
+        nothing but traffic.
+
+        Payloads are rewritten in place, the way `_use_known_files` rewrites
+        them for file_ids.
+        """
+        files: UploadedFiles = {}
+        for index, payload in enumerate(media_payloads(blocks)):
+            url = payload.get("media", "")
+            if payload.get("type") != "video" or not url.startswith("http"):
+                continue
+            if is_playable(MEDIA_VIDEO, url):
+                continue
+
+            content = fetch_media(url, MAX_UPLOAD_BYTES)
+            if content is None:
+                # Leave the URL in place: Telegram may still take it, and the
+                # rejection retry is there for when it does not.
+                continue
+
+            name = f"video{index}"
+            files[name] = (f"{name}{PLAYABLE_VIDEO_SUFFIX}", content, "video/mp4")
+            payload["media"] = f"attach://{name}"
+        return files
+
     # "Bad Request: RICH_MESSAGE_VIDEO_INVALID". The middle word names the kind
     # of block Telegram could not fetch, which is what makes a targeted retry
     # possible instead of dropping every attachment the post had.
@@ -302,6 +346,7 @@ class TelegramClient:
         response: Response,
         issue: "IssueConfig",
         reply_to: int | None,
+        files: UploadedFiles | None = None,
     ) -> tuple[list[Block], Response]:
         """Send the post again without the attachments Telegram refused.
 
@@ -337,7 +382,19 @@ class TelegramClient:
             len(dropped),
             ", ".join(dropped),
         )
-        return kept, self._send_rich(kept, issue=issue, reply_to=reply_to)
+        # Only the uploads still referenced by what is left, or the request
+        # would carry a file no block points at.
+        still_attached = {
+            url.removeprefix("attach://")
+            for url in remaining
+            if url.startswith("attach://")
+        }
+        kept_files = {
+            name: blob for name, blob in (files or {}).items() if name in still_attached
+        }
+        return kept, self._send_rich(
+            kept, issue=issue, reply_to=reply_to, files=kept_files
+        )
 
     def send_rich_message(
         self,
@@ -349,11 +406,12 @@ class TelegramClient:
             logging.warning(ISSUE_WARNING, issue_name)
             return None
         issue = self.issues[issue_name]
-        response = self._send_rich(blocks, issue=issue, reply_to=reply_to)
+        files = self._upload_unplayable_videos(blocks)
+        response = self._send_rich(blocks, issue=issue, reply_to=reply_to, files=files)
 
         if response.status_code != 200:
             blocks, response = self._retry_without_rejected_media(
-                blocks, response, issue, reply_to
+                blocks, response, issue, reply_to, files
             )
 
         if response.status_code != 200:
@@ -510,6 +568,7 @@ class TelegramClient:
         blocks: Sequence[Block],
         issue: IssueConfig,
         reply_to: int | None = None,
+        files: UploadedFiles | None = None,
     ) -> Response:
         url_template = self.host + "/bot{}/sendRichMessage"
         params: dict[str, Any] = {
@@ -523,7 +582,7 @@ class TelegramClient:
             params["reply_parameters"] = json.dumps(
                 {"message_id": reply_to, "allow_sending_without_reply": True}
             )
-        return self._post(url_template.format(issue.bot_token), params)
+        return self._post(url_template.format(issue.bot_token), params, files)
 
     def _edit_rich(
         self, message_id: int, blocks: Sequence[Block], issue: IssueConfig
@@ -694,5 +753,7 @@ class TelegramClient:
             issue.last_update_id = max(issue.last_update_id, update["update_id"] + 1)
         return updates
 
-    def _post(self, url: str, params: dict[str, Any]) -> Response:
-        return self.client.post(url, data=params)
+    def _post(
+        self, url: str, params: dict[str, Any], files: UploadedFiles | None = None
+    ) -> Response:
+        return self.client.post(url, data=params, files=files or None)

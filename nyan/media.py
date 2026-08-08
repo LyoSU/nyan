@@ -35,6 +35,23 @@ MEDIA_ANIMATION = "animation"
 
 MEDIA_TYPES = (MEDIA_PHOTO, MEDIA_VIDEO, MEDIA_ANIMATION)
 
+# What Telegram will fetch from a URL as a video. It goes by the extension in
+# the link rather than by what the file turns out to contain, so a .mov is
+# refused unseen — even though the channels' clips are invariably H.264 and AAC
+# in an mp4-branded container, which is to say already an MP4 in all but name.
+PLAYABLE_VIDEO_SUFFIX = ".mp4"
+
+
+def is_playable(media_type: str, url: str) -> bool:
+    """Whether Telegram will accept this attachment straight from its URL.
+
+    Only videos can fail this: photos are fetched by content, and one that
+    cannot be read was already dropped when the vision step embedded it.
+    """
+    if media_type != MEDIA_VIDEO:
+        return True
+    return url.split("?")[0].lower().endswith(PLAYABLE_VIDEO_SUFFIX)
+
 # Above this cosine two pictures are one. Kept where it has always been — the
 # same encoder, the same meaning — but no longer the only thing deciding, since
 # a stamped repost scores well below it; see `_is_duplicate`.
@@ -219,7 +236,13 @@ class MediaGroup:
             # survives a trip through storage; sorting by url instead would
             # pick whichever copy happens to sort last, which is a property of
             # Telegram's CDN filenames and of nothing else.
+            # Playability leads, and is the one thing that legitimately sits in
+            # front of the score rather than inside it. Cleanliness and quality
+            # are degrees of how well a copy reads; this is whether the reader
+            # gets the video at all, since the copies here are the same footage
+            # and about one in twenty of them arrives as an unplayable .mov.
             key=lambda member: (
+                is_playable(member.type, member.url),
                 self._copy_score(member, consensus),
                 -member.pub_time,
             ),

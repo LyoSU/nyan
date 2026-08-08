@@ -67,8 +67,10 @@ def record_calls(client: TelegramClient, responses: list[FakeResponse]) -> list[
     calls: list[Any] = []
     queue = list(responses)
 
-    def fake_post(url: str, params: dict[str, Any]) -> FakeResponse:
-        calls.append((url, params))
+    def fake_post(
+        url: str, params: dict[str, Any], files: dict[str, Any] | None = None
+    ) -> FakeResponse:
+        calls.append((url, params, files or {}))
         return queue.pop(0) if queue else FakeResponse()
 
     client._post = fake_post  # type: ignore[method-assign]
@@ -103,7 +105,7 @@ def test_rich_blocks_are_sent_as_json(client: TelegramClient) -> None:
 
     client.send_post(rich_post(), "main")
 
-    url, params = calls[0]
+    url, params, _ = calls[0]
     assert url.endswith("/sendRichMessage")
     assert json.loads(params["rich_message"])["blocks"][0]["type"] == "heading"
     assert params["chat_id"] == -100
@@ -115,7 +117,7 @@ def test_a_reply_uses_reply_parameters(client: TelegramClient) -> None:
 
     client.send_post(rich_post(), "main", reply_to=42)
 
-    _, params = calls[0]
+    _, params, _ = calls[0]
     assert "reply_to_message_id" not in params
     assert json.loads(params["reply_parameters"])["message_id"] == 42
 
@@ -266,7 +268,7 @@ def test_photos_and_videos_go_out_as_one_group(client: TelegramClient) -> None:
 
     client.send_post(legacy_post(video("b.mp4"), photo("a.jpg")), "main")
 
-    url, params = calls[0]
+    url, params, _ = calls[0]
     assert url.endswith("/sendMediaGroup")
     assert [item["type"] for item in json.loads(params["media"])] == ["video", "photo"]
 
@@ -286,7 +288,7 @@ def test_a_rich_update_sends_the_file_id_instead_of_the_url(
 
     client.update_post(message, RenderedPost(blocks=[rich_photo("a.jpg")]))
 
-    _, params = calls[0]
+    _, params, _ = calls[0]
     assert json.loads(params["rich_message"])["blocks"][0]["photo"]["media"] == "known"
 
 
@@ -341,7 +343,7 @@ def test_a_post_sent_without_media_is_still_updated_as_text(
 
     client.update_post(message, legacy_post(photo("a.jpg")))
 
-    url, _ = calls[0]
+    url, _, _ = calls[0]
     assert url.endswith("/editMessageText")
 
 
@@ -360,7 +362,7 @@ def test_a_post_sent_with_media_is_updated_as_a_caption(
 
     client.update_post(message, RenderedPost(text="Новий текст"))
 
-    url, _ = calls[0]
+    url, _, _ = calls[0]
     assert url.endswith("/editMessageCaption")
 
 
@@ -450,3 +452,66 @@ def test_a_post_with_nothing_left_to_drop_is_not_sent_twice(
 
     assert message is None
     assert len(calls) == 1
+
+
+def test_a_mov_is_uploaded_under_an_mp4_name(
+    client: TelegramClient, monkeypatch: Any
+) -> None:
+    """Telegram judges a video by the extension in the url, not by its contents.
+
+    The .mov files the channels post are already H.264/AAC in an mp4-branded
+    container, so re-sending the same bytes under an .mp4 name is all it takes.
+    """
+    monkeypatch.setattr("nyan.client.fetch_media", lambda url, limit: b"\x00mp4bytes")
+    calls = record_calls(client, [FakeResponse()])
+
+    client.send_rich_message([rich_video("https://cdn/clip.mov")], "main")
+
+    sent_blocks = json.loads(calls[0][1]["rich_message"])["blocks"]
+    assert sent_blocks[0]["video"]["media"].startswith("attach://")
+    name, (filename, content, mime) = next(iter(calls[0][2].items()))
+    assert filename.endswith(".mp4")
+    assert mime == "video/mp4"
+    assert content == b"\x00mp4bytes"
+    assert sent_blocks[0]["video"]["media"] == f"attach://{name}"
+
+
+def test_an_mp4_is_left_as_a_url(client: TelegramClient, monkeypatch: Any) -> None:
+    """95% of videos are already mp4; downloading them would buy nothing."""
+    def refuse(url: str, limit: int) -> bytes | None:
+        raise AssertionError("an mp4 must not be downloaded")
+
+    monkeypatch.setattr("nyan.client.fetch_media", refuse)
+    calls = record_calls(client, [FakeResponse()])
+
+    client.send_rich_message([rich_video("https://cdn/clip.mp4")], "main")
+
+    sent_blocks = json.loads(calls[0][1]["rich_message"])["blocks"]
+    assert sent_blocks[0]["video"]["media"] == "https://cdn/clip.mp4"
+    assert not calls[0][2]
+
+
+def test_a_failed_download_leaves_the_url_in_place(
+    client: TelegramClient, monkeypatch: Any
+) -> None:
+    """The retry is the safety net; a download failure must not lose the post."""
+    monkeypatch.setattr("nyan.client.fetch_media", lambda url, limit: None)
+    calls = record_calls(client, [FakeResponse()])
+
+    client.send_rich_message([rich_video("https://cdn/clip.mov")], "main")
+
+    sent_blocks = json.loads(calls[0][1]["rich_message"])["blocks"]
+    assert sent_blocks[0]["video"]["media"] == "https://cdn/clip.mov"
+
+
+def test_photos_are_never_uploaded(client: TelegramClient, monkeypatch: Any) -> None:
+    """Photos already survive the vision step, and Telegram takes them by url."""
+    def refuse(url: str, limit: int) -> bytes | None:
+        raise AssertionError("a photo must not be downloaded")
+
+    monkeypatch.setattr("nyan.client.fetch_media", refuse)
+    calls = record_calls(client, [FakeResponse()])
+
+    client.send_rich_message([rich_photo("https://cdn/still.jpg")], "main")
+
+    assert not calls[0][2]
