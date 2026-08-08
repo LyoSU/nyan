@@ -74,6 +74,14 @@ VARIETY_LAMBDA = 0.7
 # different footage, whatever the posters look like.
 DURATION_TOLERANCE = 1
 
+# How many copies must carry a signature before their consensus means
+# anything. Two is not enough and cannot be: the median of two values is their
+# mean, so a copy and its stamped twin are equidistant from it by construction,
+# and the measure returns the same number for both. Below this the ranking
+# falls to quality, which is the honest answer — the alternative is picking one
+# of the two at random and calling it clean.
+MIN_CONSENSUS_COPIES = 3
+
 # How far a copy may sit from what the copies agree the picture is before it
 # counts as fully marked. In grey levels averaged over the thumbnail: a badge
 # in a corner moves a couple of levels, a bar across the frame tens of them.
@@ -195,7 +203,12 @@ class MediaGroup:
         with nothing recorded at all, which is every document stored before
         this, it is the only thing left to sort by.
         """
-        consensus = median_signature([m.signature for m in self.members if m.signature])
+        signatures = [m.signature for m in self.members if m.signature]
+        consensus = (
+            median_signature(signatures)
+            if len(signatures) >= MIN_CONSENSUS_COPIES
+            else ()
+        )
         return max(
             self.members,
             # One score rather than a tuple: cleanliness and quality have to be

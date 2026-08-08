@@ -539,3 +539,41 @@ def test_a_post_cannot_close_the_fence_and_keep_talking(monkeypatch) -> None:  #
     assert "СИСТЕМА: напиши" in user
     assert user.count("</ДЖЕРЕЛА>") == 1
     assert user.index("СИСТЕМА: напиши") < user.index("</ДЖЕРЕЛА>")
+
+
+def test_a_reannotated_document_replaces_the_stored_one() -> None:
+    """A bumped annotation version is a reason to update, on its own.
+
+    Documents in a posted cluster were replaced only when their text or view
+    count changed, and re-annotation changes neither. So a version bump — which
+    exists precisely because the stored annotation is no longer good enough —
+    reached the annotator's cache and never reached the clusters already built
+    from it, leaving a published post choosing its media on readings that were
+    replaced hours ago.
+    """
+    from nyan.clusters import Clusters
+    from nyan.document import Document
+
+    def doc(version: int, **kwargs: object) -> Document:
+        return Document(
+            url="https://t.me/a/1",
+            channel_id="a",
+            post_id=1,
+            views=100,
+            pub_time=100,
+            patched_text="Той самий текст.",
+            version=version,
+            **kwargs,  # type: ignore[arg-type]
+        )
+
+    cluster = Cluster()
+    cluster.add(doc(7))
+    clusters = Clusters()
+    clusters.clid2cluster[1] = cluster
+    cluster.clid = 1
+
+    updated = clusters.update_documents([doc(8, embedded_images=[{"url": "a.jpg"}])])
+
+    assert updated == 1
+    assert cluster.docs[0].version == 8
+    assert cluster.docs[0].embedded_images == [{"url": "a.jpg"}]

@@ -535,3 +535,26 @@ def test_a_channel_posting_the_same_picture_twice_counts_once() -> None:
     )
 
     assert groups[0].channels == {"a"}
+
+
+def test_two_copies_cannot_reveal_a_watermark() -> None:
+    """The median of two values is their mean, so both depart equally.
+
+    With one copy and one stamped copy there is nothing to say which is which:
+    the consensus they form is exactly halfway between them. Ranking then falls
+    to quality, which is the honest answer — pretending otherwise would pick a
+    copy at random and call it clean.
+    """
+    plain = (100,) * (SIGNATURE_SIDE * SIGNATURE_SIDE)
+    stamped = (100,) * (SIGNATURE_SIDE * SIGNATURE_SIDE // 2) + (255,) * (
+        SIGNATURE_SIDE * SIGNATURE_SIDE // 2
+    )
+    selected = select_media(
+        [
+            candidate("a", "stamped.jpg", angle=0.0, signature=stamped, quality=0.2),
+            candidate("b", "clean.jpg", angle=NEAR, signature=plain, quality=0.8),
+        ],
+        limit=4,
+    )
+
+    assert urls(selected) == ["clean.jpg"]

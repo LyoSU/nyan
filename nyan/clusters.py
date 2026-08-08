@@ -814,6 +814,13 @@ class Clusters:
                 if (
                     doc.patched_text == new_doc.patched_text
                     and doc.views == new_doc.views
+                    # A bumped annotation version is a reason on its own.
+                    # Re-annotation changes neither the text nor the views, so
+                    # without this a version bump reaches the annotator's cache
+                    # and never reaches the clusters already built from it —
+                    # and a published post keeps choosing its media on readings
+                    # that were replaced hours ago.
+                    and doc.version == new_doc.version
                 ):
                     continue
                 cluster.docs[doc_index] = new_doc
