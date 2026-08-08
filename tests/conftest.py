@@ -165,6 +165,16 @@ def compare_docs():
                         err_msg=f"{key}: {p} vs {c}"
                     )
                 continue
+            if (
+                isinstance(pred_value, (list, tuple))
+                and isinstance(canon_value, (list, tuple))
+                and list(pred_value) == list(canon_value)
+            ):
+                # JSON has no tuples, so a field defaulting to () is written as
+                # [] and read back as a list. That round trip is not a
+                # difference between two documents — and treating it as one is
+                # what kept this test red no matter which side was regenerated.
+                continue
             if pred_value != canon_value:
                 diff[key] = (pred_value, canon_value)
         check.is_false(diff, f"Diff in keys {','.join(diff.keys())} in doc '{curl}'")
