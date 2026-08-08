@@ -35,6 +35,7 @@ from jinja2 import Template
 from nyan import rich
 from nyan.client import TelegramClient
 from nyan.clusters import Clusters
+from nyan.logs import setup_logging
 from nyan.mongo import get_topics_collection
 from nyan.openai import openai_completion, DEFAULT_MODEL, DEFAULT_REASONING_EFFORT
 from nyan.markup import strip_markup
@@ -271,9 +272,7 @@ def main(
     model_name: str,
     auto: bool,
 ) -> None:
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
-    )
+    setup_logging()
 
     now = get_current_ts()
     start_ts, end_ts = window(mongo_config_path, duration_hours, now)

@@ -13,6 +13,7 @@ from nyan.client import MessageId, TelegramClient
 from nyan.clusters import Clusters, Cluster
 from nyan.clusterer import Clusterer
 from nyan.channels import Channels
+from nyan.logs import log_new_iteration
 from nyan.ranker import Ranker
 from nyan.renderer import Renderer
 from nyan.document import (
@@ -74,7 +75,7 @@ class Daemon:
             logging.warning("No input documents at %s", input_path)
             return
 
-        logging.info("===== New iteration =====")
+        log_new_iteration()
         clusters_offset = self.config["clusters_offset"]
         posted_clusters = self.load_posted_clusters(
             mongo_config_path, posted_clusters_path, clusters_offset

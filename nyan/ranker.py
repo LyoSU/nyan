@@ -6,6 +6,7 @@ from collections import defaultdict
 from nyan.channels import normalize_group
 from nyan.clusters import Cluster
 from nyan.document import Document
+from nyan.logs import log_cluster
 
 
 # Below this many candidates an issue publishes everything it has: percentile
@@ -202,15 +203,13 @@ class Ranker:
             age = cluster.age
             if age > hta and views_per_hour >= border_views_per_hour:
                 filtered_clusters.append(cluster)
-                logging.info("Added by views: %d %s", views_per_hour, cropped_title)
+                log_cluster("added", views_per_hour, cropped_title)
             elif age < hta and views_per_hour >= higher_border_views_per_hour:
                 # Young and already popular: the story is breaking, so it gets
                 # a bigger heading in the post.
                 cluster.is_important = True
                 filtered_clusters.append(cluster)
-                logging.info(
-                    "Added by views (important): %d %s", views_per_hour, cropped_title
-                )
+                log_cluster("important", views_per_hour, cropped_title)
             elif not cluster.messages:
-                logging.info("Skipped by views: %d %s", views_per_hour, cropped_title)
+                log_cluster("skipped", views_per_hour, cropped_title)
         return filtered_clusters

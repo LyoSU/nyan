@@ -1,18 +1,7 @@
 import argparse
-import logging
-import os
 
 from nyan.daemon import Daemon
-
-
-def setup_logging() -> None:
-    # Unbuffered stdout so `docker logs -f` shows progress as it happens
-    # instead of in blocks whenever the pipe buffer fills.
-    logging.basicConfig(
-        level=os.getenv("LOG_LEVEL") or "INFO",
-        format="%(asctime)s %(levelname)s %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+from nyan.logs import setup_logging
 
 
 def main(
