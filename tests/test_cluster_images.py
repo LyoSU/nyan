@@ -217,6 +217,32 @@ def test_relevance_to_the_story_survives_storage() -> None:
     ]
 
 
+def test_a_reply_does_not_inherit_the_picture_of_its_context_post() -> None:
+    """The reply has no media; the post it answers describes an older event.
+
+    Both documents may legitimately land in one semantic cluster.  The parent
+    picture is its own real attachment rather than a thumbnail accidentally
+    scraped from the reply markup, so the crawler cannot remove it.  Selection
+    must reject it because the parent document is not about the current story,
+    even when its channel is accountable enough to lead with a lone picture.
+    """
+    child = make_doc("update", [], pub_time=200)
+    child.embedding = unit(0.0)
+    parent = make_doc(
+        "context",
+        [{"url": "previous-event.jpg", "embedding": unit(FAR)}],
+        pub_time=100,
+    )
+    parent.embedding = unit(FAR)
+    child.reply_to = parent.url
+    cluster = make_cluster(child, parent)
+
+    assert child.images == ()
+    assert child.videos == ()
+    assert cluster.media == ()
+    assert parent.story_relevance < 0.9
+
+
 def test_a_photo_without_an_embedding_is_still_used() -> None:
     """Older documents have none, and a picture beats no picture."""
     cluster = make_cluster(

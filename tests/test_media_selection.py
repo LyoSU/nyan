@@ -442,6 +442,30 @@ def test_a_lone_picture_from_a_document_far_from_the_story_is_dropped() -> None:
     assert urls(selected) == ["wire.jpg"]
 
 
+def test_accountability_does_not_make_an_unrelated_picture_relevant() -> None:
+    """A trustworthy source can vouch for a picture, not change its subject.
+
+    This is the failure mode of a reply whose own post has no media: the older
+    context post is in the same cluster and has a legitimate photograph, but
+    that photograph still belongs to the older event.  Authority is considered
+    only after relevance has admitted a picture to the current story.
+    """
+    selected = select_media(
+        [
+            candidate(
+                "ministry",
+                "previous-event.jpg",
+                authority=AUTHORITY_OFFICIAL,
+                relevance=0.2,
+            )
+        ],
+        limit=4,
+        min_relevance=0.9,
+    )
+
+    assert urls(selected) == []
+
+
 def test_a_video_can_be_the_lead_when_it_is_the_confirmed_one() -> None:
     """Footage from the scene is stronger material than a wire photo."""
     video = [

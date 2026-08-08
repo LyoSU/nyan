@@ -482,15 +482,19 @@ def select_media(
     the story's; agreement that photographs exist is not.
     """
     groups = group_media(candidates, max_distance)
-    leadable = [group for group in groups if group.can_lead]
+
+    # Relevance is eligibility, not a ranking signal.  Accountability can make
+    # a source's otherwise uncorroborated picture safe enough to lead, but it
+    # cannot make a picture from a neighbouring event belong to this one.  In
+    # particular, a Telegram reply and the post it answers are often clustered
+    # together: the reply may carry no media at all while the older context post
+    # does.  Letting `can_lead` bypass this gate put the context post's picture
+    # on the new event even when its document similarity was effectively zero.
+    relevant = [group for group in groups if group.relevance >= min_relevance]
+    leadable = [group for group in relevant if group.can_lead]
     if not leadable:
         return tuple()
-    showable = leadable + [
-        group
-        for group in groups
-        if not group.can_lead and group.relevance >= min_relevance
-    ]
-    ranked = _rank_by_relevance_and_variety(showable, limit)
+    ranked = _rank_by_relevance_and_variety(relevant, limit)
     # The lead has to be a picture that may lead even when another outranks it
     # on variety, since variety is meaningless for the slot nothing precedes.
     if ranked and not ranked[0].can_lead:
