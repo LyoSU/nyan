@@ -1360,3 +1360,71 @@ def test_a_video_outside_a_player_is_still_collected(spider: TelegramSpider) -> 
     items = posts_from(list(spider.parse_channel(channel_response(VIDEO_PLAYER_HTML))))
 
     assert "https://cdn.telesco.pe/loose.mp4" in items[0]["videos"]
+
+
+REPLY_MEDIA_HTML = f"""
+<body><main><div>
+<section class="tgme_channel_history"><div>
+  <div class="tgme_widget_message" data-post="uanews/300">
+    <div class="tgme_widget_message_bubble">
+      <div class="tgme_widget_message_reply">
+        <a class="tgme_widget_message_photo_wrap"
+           style="background-image:url('https://cdn.telesco.pe/quoted.jpg')"></a>
+        <video class="tgme_widget_message_video" src="https://cdn.telesco.pe/quoted.mp4"></video>
+        <div class="tgme_widget_message_text js-message_reply_text">Цитований пост</div>
+      </div>
+      <a class="tgme_widget_message_photo_wrap"
+         style="background-image:url('https://cdn.telesco.pe/own.jpg')"></a>
+      <div class="tgme_widget_message_text js-message_text">Власний текст.</div>
+      <span class="tgme_widget_message_views">7</span>
+      <time class="time" datetime="{as_datetime_attr(POST_TIMES[0])}"></time>
+    </div>
+  </div>
+  <div class="tgme_widget_message" data-post="uanews/301">
+    <div class="tgme_widget_message_bubble">
+      <a class="tgme_widget_message_video_player" href="https://t.me/uanews/301">
+        <video class="tgme_widget_message_video" src="https://cdn.telesco.pe/clip.mp4"></video>
+        <i class="tgme_widget_message_video_thumb"
+           style="background-image:url('https://cdn.telesco.pe/poster.jpg')"></i>
+        <time class="message_video_duration">1:23</time>
+      </a>
+      <div class="tgme_widget_message_text js-message_text">Текст із відео.</div>
+      <span class="tgme_widget_message_views">9</span>
+      <time class="time" datetime="{as_datetime_attr(POST_TIMES[1])}"></time>
+    </div>
+  </div>
+</div></section></div></main></body>
+"""
+
+
+def test_a_quoted_posts_thumbnail_is_not_the_posts_own_picture(
+    spider: TelegramSpider,
+) -> None:
+    """The reply block sits inside the same bubble as the post's media.
+
+    Nothing separated them: the media extractors read the whole bubble while
+    only the text extractor knew about quotes. What held it together was that
+    Telegram renders a quote as an `<a>`, and HTML forbids nesting an anchor
+    inside one — so the parser hoists any nested media out of the quote and the
+    ancestor test never fires. That is an accident of markup, not a rule: the
+    day the quote is rendered as a `<div>`, as this fixture is, the quoted
+    post's picture goes to the front of ours, where the carousel and the site
+    both use it as the cover.
+    """
+    items = posts_from(list(spider.parse_channel(channel_response(REPLY_MEDIA_HTML))))
+
+    assert items[0]["images"] == ["https://cdn.telesco.pe/own.jpg"]
+    assert items[0]["videos"] == []
+
+
+def test_a_videos_duration_is_recorded(spider: TelegramSpider) -> None:
+    """The one comparable thing a clip has besides its poster.
+
+    Two channels reposting one clip get different urls and, because Telegram
+    re-encodes, often different posters too — so the poster alone cannot always
+    tell that it is one clip. The duration is on the page already.
+    """
+    items = posts_from(list(spider.parse_channel(channel_response(REPLY_MEDIA_HTML))))
+
+    assert items[1]["videos"] == ["https://cdn.telesco.pe/clip.mp4"]
+    assert items[1]["video_durations"] == [83]

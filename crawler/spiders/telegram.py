@@ -234,7 +234,49 @@ def find_message_text(post_element: Any) -> Any | None:
 BACKGROUND_IMAGE_RE = re.compile(r"background-image\s*:\s*url\((['\"]?)(.*?)\1\)")
 
 
-def extract_videos(post_element: Any) -> tuple[list[str], list[str]]:
+# Wrappers whose contents belong to some other post, not to this one. The text
+# extractor has always known about them; the media extractors did not, and held
+# together only because Telegram happens to render a quote's thumbnail under a
+# class they do not match. That is an accident of markup, and the next redesign
+# is free to end it — silently, by putting the quoted post's picture at the
+# front of ours, where the carousel and the site both use it as the cover.
+FOREIGN_MEDIA_ANCESTORS = (
+    "tgme_widget_message_reply",
+    "link_preview",
+)
+
+_FOREIGN_ANCESTOR_XPATH = " or ".join(
+    f"contains(@class, '{name}')" for name in FOREIGN_MEDIA_ANCESTORS
+)
+
+
+def own_media_nodes(post_element: Any, css: str) -> list[Any]:
+    """Nodes matching `css` that are the post's own, not a quoted post's."""
+    return [
+        node
+        for node in post_element.css(css)
+        if not node.xpath(f"ancestor::*[{_FOREIGN_ANCESTOR_XPATH}]")
+    ]
+
+
+def parse_duration(text: str) -> int:
+    """Telegram's "1:23" or "1:02:03" as seconds, or 0 when unreadable.
+
+    Worth having and free: it is printed on the player already, and it is the
+    one comparable thing a clip has besides its poster. Two channels reposting
+    one clip get different urls and, because Telegram re-encodes what it is
+    given, often different posters too.
+    """
+    parts = text.strip().split(":")
+    if not parts or not all(part.isdigit() for part in parts):
+        return 0
+    seconds = 0
+    for part in parts:
+        seconds = seconds * 60 + int(part)
+    return seconds
+
+
+def extract_videos(post_element: Any) -> tuple[list[str], list[str], list[int]]:
     """Video urls and the still Telegram renders for each, index-aligned.
 
     The still is the only comparable thing a video has. Two channels posting the
@@ -251,24 +293,27 @@ def extract_videos(post_element: Any) -> tuple[list[str], list[str]]:
     """
     videos: list[str] = []
     thumbs: list[str] = []
+    durations: list[int] = []
 
-    def add(url: str, thumb: str) -> None:
+    def add(url: str, thumb: str, duration: int) -> None:
         if url and url not in videos:
             videos.append(url)
             thumbs.append(thumb)
+            durations.append(duration)
 
-    for player in post_element.css("a.tgme_widget_message_video_player"):
+    for player in own_media_nodes(post_element, "a.tgme_widget_message_video_player"):
         style = player.css("i.tgme_widget_message_video_thumb::attr(style)").get() or ""
         match = BACKGROUND_IMAGE_RE.search(style)
         add(
             (player.css("video::attr(src)").get() or "").strip(),
             match.group(2).strip() if match else "",
+            parse_duration(player.css("time.message_video_duration::text").get() or ""),
         )
 
-    for url in post_element.css("video.tgme_widget_message_video::attr(src)").getall():
-        add(url.strip(), "")
+    for node in own_media_nodes(post_element, "video.tgme_widget_message_video"):
+        add((node.xpath("@src").get() or "").strip(), "", 0)
 
-    return videos, thumbs
+    return videos, thumbs, durations
 
 
 def extract_images(post_element: Any) -> list[str]:
@@ -278,7 +323,8 @@ def extract_images(post_element: Any) -> list[str]:
     sizes, so the same url arrives more than once.
     """
     images: list[str] = []
-    for style in post_element.css("a.tgme_widget_message_photo_wrap::attr(style)").getall():
+    for node in own_media_nodes(post_element, "a.tgme_widget_message_photo_wrap"):
+        style = node.xpath("@style").get() or ""
         for match in BACKGROUND_IMAGE_RE.finditer(style):
             url = match.group(2).strip()
             if url and url not in images:
@@ -915,7 +961,9 @@ class TelegramSpider(scrapy.Spider):
 
         item["images"] = extract_images(post_element)
 
-        item["videos"], item["video_thumbs"] = extract_videos(post_element)
+        item["videos"], item["video_thumbs"], item["video_durations"] = extract_videos(
+            post_element
+        )
 
         reply_element = post_element.css(reply_path)
         if reply_element:

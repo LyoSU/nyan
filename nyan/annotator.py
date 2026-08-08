@@ -299,8 +299,12 @@ class Annotator:
         if not by_thumb:
             return []
         embedded = self.image_processor(list(by_thumb))
+        # Everything the processor read off the still, re-keyed to the video.
+        # Listing the fields instead would drop whatever is added next — which
+        # is what happened to the hashes, the quality and the signature: they
+        # reached photos and silently never reached video.
         return [
-            {"url": by_thumb[item["url"]], "embedding": item["embedding"]}
+            {**item, "url": by_thumb[item["url"]], "thumb": item["url"]}
             for item in embedded
             if item["url"] in by_thumb
         ]

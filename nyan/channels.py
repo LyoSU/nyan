@@ -53,6 +53,20 @@ def normalize_group(group: str) -> str:
     return LEGACY_GROUPS.get(group, group)
 
 
+def group_authority(group: str) -> int:
+    """How answerable a tier is for what it publishes, as a rank.
+
+    `GROUP_ORDER` already lists the tiers worst-accountability last, so its
+    positions are the ranking — there is no second scale to keep in step with
+    it. An unknown or missing tier ranks last: a channel nobody could place is
+    not thereby trustworthy.
+    """
+    normalized = normalize_group(group)
+    if normalized not in GROUP_ORDER:
+        return len(GROUP_ORDER) - 1
+    return GROUP_ORDER.index(normalized)
+
+
 # What kind of author is behind the channel. Media is the default and gets no
 # emoji: a marker that appears on most rows stops being a marker. A channel in
 # the "grey" tier has no kind at all, because not knowing who is speaking is

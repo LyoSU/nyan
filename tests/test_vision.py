@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from io import BytesIO
 
+import numpy as np
 import pytest
 import requests
 from PIL import Image
@@ -93,3 +94,34 @@ def test_the_readable_stills_around_a_broken_one_survive(
 
     assert [image["url"] for image in fetched] == [good]
     assert fetched[0]["content"].size == (4, 4)
+
+
+def test_an_annotated_image_carries_what_picks_between_copies(
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The hashes, the quality and the signature, computed at fetch time.
+
+    All three describe the picture rather than its meaning, and all three are
+    needed when a post is assembled — long after the crawl, from a document
+    read out of Mongo. Recomputing them then would mean fetching every copy of
+    every candidate again, inside `Cluster.media`, which the daemon calls for
+    every cluster on every iteration.
+    """
+    from nyan.image import ImageProcessor
+    from nyan.picture import SIGNATURE_SIDE
+
+    url = "https://cdn.telegram/photo.png"
+    embedder, get = fetcher({url: png_bytes()})
+    monkeypatch.setattr(requests, "get", get)
+    monkeypatch.setattr(
+        embedder, "embed_images", lambda images: np.zeros((len(images), 4)), raising=False
+    )
+    processor: ImageProcessor = object.__new__(ImageProcessor)
+    processor.vision_embedder = embedder
+
+    (annotated,) = processor([url])
+
+    assert annotated["url"] == url
+    assert len(annotated["hashes"]) == 2
+    assert 0.0 <= annotated["quality"] <= 1.0
+    assert len(annotated["signature"]) == SIGNATURE_SIDE * SIGNATURE_SIDE

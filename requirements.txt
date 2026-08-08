@@ -24,6 +24,14 @@ torchvision >= 0.17
 pyonmttok >= 1.37
 natasha >= 1.6
 pillow >= 10.4
+# Perceptual hashing, for recognising one photograph across the channels that
+# reposted it under their own watermarks. Its own dependencies — numpy, scipy,
+# pillow — are already here; only PyWavelets is new, and only because the
+# package ships a wavelet hash we do not use. Written out rather than
+# reimplemented: a DCT hash has several places where a mistake is silent rather
+# than loud, and a self-consistent but subtly worse hash would surface months
+# later as "dedup works so-so".
+imagehash >= 4.3.2
 requests >= 2.32
 
 # Clustering

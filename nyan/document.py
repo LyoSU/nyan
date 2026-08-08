@@ -53,6 +53,12 @@ class Document(Serializable):
     #: empty where it rendered none. The only comparable thing a video has: see
     #: `extract_videos` in the spider.
     video_thumbs: Sequence[str] = tuple()
+    #: How long each video runs, in seconds, index-aligned with `videos` and 0
+    #: where the player printed nothing. The one comparable thing a clip has
+    #: besides its poster, and posters disagree more often than lengths do:
+    #: Telegram re-encodes what it is given, so two channels' posters of one
+    #: clip can be different frames.
+    video_durations: Sequence[int] = tuple()
     reply_to: str | None = None
     forward_from: str | None = None
     #: Other channels this post names, as bare handles. A directed edge, unlike
@@ -99,6 +105,15 @@ class Document(Serializable):
     #: still could be fetched. Keyed by the video's own url, not the still's, so
     #: the vector can be found from `videos` alone.
     embedded_videos: Sequence[dict[str, Any]] = tuple()
+
+    #: How close this document sits to the story its cluster is about, by the
+    #: text embedding that put it there. Computed once, when the embeddings are
+    #: still in hand, and kept — unlike `embedding`, which `asdict(is_short)`
+    #: drops, and which the daemon therefore does not have when it re-reads a
+    #: posted cluster from storage. Without it the same cluster would judge its
+    #: own attachments differently before and after being stored, which is the
+    #: failure that made a published post's photos come and go.
+    story_relevance: float = 1.0
 
     version: int = CURRENT_VERSION
 

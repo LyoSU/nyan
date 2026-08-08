@@ -15,10 +15,10 @@ import numpy as np
 from numpy.typing import NDArray
 from jinja2 import Environment
 
-from nyan.channels import normalize_group
+from nyan.channels import group_authority, normalize_group
 from nyan.client import MessageId
 from nyan.document import Document, crop_words
-from nyan.media import MEDIA_PHOTO, MEDIA_VIDEO, MediaItem
+from nyan.media import MEDIA_PHOTO, MEDIA_VIDEO, MediaCandidate, MediaItem, select_media
 from nyan.mongo import get_clusters_collection
 from nyan.title import choose_title
 from nyan.openai import openai_completion, DEFAULT_REASONING_EFFORT
@@ -79,23 +79,9 @@ def render_prompt(name: str, **context: Any) -> list[dict[str, str]]:
 # Length of the title used in logs, long enough to recognize a story by.
 MAX_TITLE_WORDS = 14
 
-# How much of a cluster has to carry media before any of it is shown. One rule
-# for photos and videos together: a video used to need no corroboration at all
-# while a photo needed 40% of the sources, so the weaker evidence — a single
-# channel's clip, which is as likely to be its own branding — had the lower bar.
-MIN_MEDIA_DOCS_RATIO = 0.4
-MIN_MEDIA_DOCS = 3
-
-# Media is collected across the whole cluster, so the same picture arrives once
-# per channel that posted it — under a different Telegram CDN URL every time,
-# which makes URL comparison useless. Vectors are stored per image (see
-# nyan/image.py) and, for a video, of the still Telegram renders for it, so
-# near-duplicates are recognized by content: above this cosine similarity two
-# attachments are the same thing to a reader. One threshold for both, because
-# both vectors come out of the same encoder.
-DUPLICATE_IMAGE_SIMILARITY = 0.92
-
-# One attachment per channel, and few enough of them that the post stays a post.
+# Few enough attachments that the post stays a post. How they are chosen — one
+# picture per group of copies, ordered by how many channels carried each — is
+# `nyan.media.select_media`, which also owns the thresholds it needs.
 MAX_CLUSTER_MEDIA = 4
 
 # Documents sent to the LLM. Enough for a well-covered story to be summarized
@@ -136,98 +122,79 @@ _ANALYSIS_CACHE_MAX_SIZE = 2048
 GENERATION_GROWTH = 1.5
 
 
-def _channel_media(doc: Document) -> tuple[MediaItem, ...]:
-    """What this channel could contribute to the post, best first.
+def _document_media(doc: Document) -> tuple[MediaCandidate, ...]:
+    """Everything this document attached, as candidates for a slot.
 
-    A channel is one source, so it ends up with one slot no matter how much it
-    attached — but which of its attachments takes that slot cannot be settled
-    here, because it depends on what the other channels already filled. So this
-    returns the preferences and `_deduplicate_media` picks.
-
-    Video first: a recording from the scene is the stronger material, and the
-    reader can tell it apart from a wire photo at a glance. The photo is the
-    fallback for a channel whose clip another channel already posted, so that
-    such a channel still contributes something rather than nothing.
+    All of them, not the one the channel would rank first. Which of a channel's
+    attachments is worth a slot depends on what the rest of the cluster
+    carried, and that cannot be known here — while the count of channels behind
+    each picture, which is what decides, is only visible once every attachment
+    is in one pile. `nyan.media.select_media` does the choosing.
     """
-    options: list[MediaItem] = []
-    if doc.videos:
-        video_url = doc.videos[0]
-        # The vector of the still Telegram renders for it, when the annotator
-        # managed to fetch one. Without it two copies of the same clip are only
-        # comparable by url, which differs per channel — which is how the same
-        # footage from three channels filled the slideshow.
-        video_embedding = next(
-            (
-                v.get("embedding")
-                for v in doc.embedded_videos
-                if v.get("url") == video_url
-            ),
-            None,
-        )
-        options.append(
-            MediaItem(
+    candidates: list[MediaCandidate] = []
+    embedded_videos = {
+        str(video.get("url")): video for video in doc.embedded_videos if video.get("url")
+    }
+    durations = dict(zip(doc.videos, doc.video_durations, strict=False))
+    for url in doc.videos:
+        video = embedded_videos.get(url, {})
+        candidates.append(
+            MediaCandidate(
                 type=MEDIA_VIDEO,
-                url=video_url,
-                embedding=tuple(video_embedding) if video_embedding else None,
+                url=url,
+                channel_id=doc.channel_id,
+                pub_time=doc.pub_time,
+                # The vector and hashes of the still Telegram renders for it:
+                # the clip itself is never downloaded, and its CDN url differs
+                # per channel, so the poster is the only comparable thing a
+                # video has.
+                embedding=_as_tuple(video.get("embedding")),
+                hashes=tuple(video.get("hashes") or ()),
+                quality=float(video.get("quality") or 0.0),
+                signature=tuple(video.get("signature") or ()),
+                duration=int(durations.get(url, 0) or 0),
+                relevance=doc.story_relevance,
+                authority=_document_authority(doc),
             )
         )
     for image in doc.embedded_images:
-        url = image.get("url")
-        if not url:
+        image_url = str(image.get("url") or "")
+        if not image_url:
             continue
-        embedding = image.get("embedding")
-        options.append(
-            MediaItem(
+        candidates.append(
+            MediaCandidate(
                 type=MEDIA_PHOTO,
-                url=str(url),
-                # A tuple, not the stored list: an item has to stay hashable and
-                # comparable after a trip through JSON, which turns tuples into
-                # lists and would otherwise make a restored cluster's media
-                # unequal to the same cluster's in memory.
-                embedding=tuple(embedding) if embedding else None,
+                url=image_url,
+                channel_id=doc.channel_id,
+                pub_time=doc.pub_time,
+                # A tuple, not the stored list: a candidate has to stay
+                # hashable and comparable after a trip through JSON, which
+                # turns tuples into lists and would otherwise make a restored
+                # cluster's media unequal to the same cluster's in memory.
+                embedding=_as_tuple(image.get("embedding")),
+                hashes=tuple(image.get("hashes") or ()),
+                quality=float(image.get("quality") or 0.0),
+                signature=tuple(image.get("signature") or ()),
+                relevance=doc.story_relevance,
+                authority=_document_authority(doc),
             )
         )
-        break
-    return tuple(options)
+    return tuple(candidates)
 
 
-def _deduplicate_media(options: Sequence[Sequence[MediaItem]]) -> tuple[MediaItem, ...]:
-    """One item per channel, with near-duplicates and repeated URLs removed.
+def _document_authority(doc: Document) -> int:
+    """How answerable this document's channel is for what it published.
 
-    `options` is per channel, in preference order, and the first option that is
-    not already in the post wins its slot.
-
-    Comparison is by embedding, because the same photo redistributed by several
-    channels gets a different URL from each of them, and so does the same clip. A
-    video is compared through the still Telegram renders for it. Items with no
-    embedding — older documents, a video with no still, a fetch that failed — are
-    kept on URL identity alone, and a possible duplicate is a smaller price than
-    dropping the only picture of an event. The same goes for one whose embedding is of a
-    width nothing else here shares, which is what an encoder swap leaves behind
-    in the annotation cache.
+    Read off the document rather than the registry, the way `Cluster.group` and
+    the site already do it: a channel that has since been re-tiered must not
+    change what an already published post shows.
     """
-    kept: list[MediaItem] = []
-    kept_embeddings: list[NDArray[np.float32]] = []
-    seen_urls: set[str] = set()
-    for channel_options in options:
-        for item in channel_options:
-            if item.url in seen_urls:
-                continue
-            vector = _unit_vector(item.embedding) if item.embedding else None
-            if vector is not None:
-                comparable = [v for v in kept_embeddings if v.shape == vector.shape]
-                if comparable:
-                    similarity = float(np.max(np.stack(comparable) @ vector))
-                    if similarity >= DUPLICATE_IMAGE_SIMILARITY:
-                        continue
-            seen_urls.add(item.url)
-            kept.append(item)
-            if vector is not None:
-                kept_embeddings.append(vector)
-            break
-        if len(kept) >= MAX_CLUSTER_MEDIA:
-            break
-    return tuple(kept)
+    group = doc.groups.get(doc.issue or "main", "")
+    return group_authority(group)
+
+
+def _as_tuple(embedding: Any) -> tuple[float, ...] | None:
+    return tuple(embedding) if embedding else None
 
 
 def _unit_vector(embedding: Sequence[float]) -> NDArray[np.float32] | None:
@@ -334,52 +301,47 @@ class Cluster:
 
     @cached_property
     def media(self) -> Sequence[MediaItem]:
-        """What the post shows, gathered from every channel that attached
-        something.
+        """What the post shows, best first.
 
-        Taking media from the chosen document alone left plenty of posts with
-        nothing at all, because the channel that writes best is often not the one
-        that was there. Gathering across the cluster fixes that but introduces
-        the opposite problem — the same wire photo, reposted by six channels — so
-        see `_deduplicate_media`.
+        Gathered from every channel that attached something, because the
+        channel that writes best is often not the one that was there. That
+        leaves the same wire photo arriving once per channel, which is what
+        `nyan.media.select_media` is for — and which it treats as evidence
+        rather than as noise: the pictures the coverage agrees on lead the
+        post, and one of them has to exist before the post shows anything.
+
+        First is a position, not a flag. The carousel opens on it and the site
+        uses it as the post's cover, so the lead is chosen by sorting.
 
         Photos and videos are chosen together, in one list, because they end up
         in one slideshow and therefore compete for the same few slots. Deciding
         between them per format, as the renderer and the client used to, meant
         the same cluster showed a video in one format and a photo in the other.
         """
-        doc_count = len(self.unique_docs)
-        if doc_count == 0:
-            return tuple()
+        candidates: list[MediaCandidate] = []
+        for doc in self.unique_docs:
+            self._record_story_relevance(doc)
+            candidates.extend(_document_media(doc))
+        return select_media(candidates, MAX_CLUSTER_MEDIA)
 
-        # Only show media when enough sources attached some: a picture from a
-        # single channel is usually its own branding rather than the story.
-        media_doc_count = sum(
-            bool(doc.images or doc.videos) for doc in self.unique_docs
-        )
-        if (
-            media_doc_count / doc_count < MIN_MEDIA_DOCS_RATIO
-            and media_doc_count < MIN_MEDIA_DOCS
-        ):
-            return tuple()
+    def _record_story_relevance(self, doc: Document) -> None:
+        """How far this document sits from the story, kept on the document.
 
-        candidates: list[tuple[MediaItem, ...]] = []
-        seen_channels: set[str] = set()
-        annotation_channel = self.annotation_doc.channel_id
-        docs = sorted(
-            self.unique_docs,
-            key=lambda d: (d.channel_id != annotation_channel, d.pub_time),
-        )
-        for doc in docs:
-            if doc.channel_id in seen_channels:
-                continue
-            options = _channel_media(doc)
-            if not options:
-                continue
-            candidates.append(options)
-            seen_channels.add(doc.channel_id)
-
-        return _deduplicate_media(candidates)
+        Computed here rather than in the annotator because it is a property of
+        the document's place in a cluster, which the annotator never sees. Kept
+        rather than recomputed because `asdict(is_short=True)` drops the text
+        embeddings, so a cluster re-read from storage could not work it out
+        again — and would then show a different set of attachments than the
+        same cluster showed before it was stored.
+        """
+        annotation_doc = self.annotation_doc
+        if doc.embedding is None or annotation_doc.embedding is None:
+            return
+        story = _unit_vector(annotation_doc.embedding)
+        own = _unit_vector(doc.embedding)
+        if story is None or own is None or story.shape != own.shape:
+            return
+        doc.story_relevance = float(own @ story)
 
     @cached_property
     def images(self) -> Sequence[str]:

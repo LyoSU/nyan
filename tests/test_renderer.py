@@ -31,6 +31,7 @@ def make_doc(
     videos: Sequence[str] = (),
     links: Sequence[str] = (),
     embedded_images: Sequence[dict[str, Any]] = (),
+    group: str = "blue",
 ) -> Document:
     return Document(
         url=url,
@@ -44,6 +45,12 @@ def make_doc(
         videos=videos,
         links=links,
         embedded_images=list(embedded_images),
+        # An accountable tier, because these tests are about where the media
+        # block sits and not about whether the picture earns a slot. An
+        # anonymous channel's lone picture is not shown at all, which would
+        # leave every one of them asserting against a post with no media.
+        groups={"main": group},
+        issue="main",
     )
 
 
