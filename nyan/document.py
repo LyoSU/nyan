@@ -17,7 +17,12 @@ from nyan.util import Serializable, gen_batch, normalize_url
 # 7: the image encoder became SigLIP 2 and the language detector changed, so
 # annotations from before carry 512-wide image vectors next to the new 768-wide
 # ones, and a `language` decided by a different classifier.
-CURRENT_VERSION = 7
+# 8: pictures gained the readings that tell one rendition from another — the
+# perceptual hashes, the quality score, the thumbnail signature. Waiting for
+# them to arrive on their own would mean waiting for each post's text to
+# change, which for a photograph is rarely, and until then a stamped repost is
+# invisible to everything except the embedding that cannot see it.
+CURRENT_VERSION = 8
 
 MAX_CROPPED_WORDS = 50
 
