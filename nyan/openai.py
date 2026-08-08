@@ -24,24 +24,44 @@ def env_number(name: str, default: str) -> float:
         return float(default)
 
 
+def _optional_int(name: str) -> int | None:
+    """An env override that is absent unless it is set."""
+    value = os.getenv(name)
+    if not value:
+        return None
+    try:
+        return int(float(value))
+    except ValueError:
+        logging.warning("Invalid %s=%r, sending no limit", name, value)
+        return None
+
+
 @dataclass
 class OpenAIDecodingArguments:
-    # Reasoning models spend this budget on thinking before they emit a token
-    # of the answer, and some gateways bill that as completion without
-    # reporting it as reasoning: one production call spent ~2250 tokens on
-    # thinking for a ~300-token post. A truncated answer is not an error the
-    # caller can see — it is invalid JSON, so the post silently falls back to
-    # a quote — hence the headroom, several times what any answer needs.
-    max_tokens: int = int(env_number("LLM_MAX_TOKENS", "8000"))
-    top_p: float = 0.95
-    n: int = 1
-    stream: bool = False
+    """What to send beyond the messages — by default, nothing.
+
+    Every one of these used to carry a value: a token cap, `top_p`, two
+    penalties, a sampling temperature. Current models refuse most of them, so
+    each call spent a rejection and a retry before the request the model would
+    accept was finally sent, and the ones that were accepted only pushed the
+    model away from the defaults it was tuned at. A model's own defaults are
+    the ones it was tuned at, so the request says nothing it does not have to.
+
+    The fields remain so a caller can still ask for a cap when it needs one:
+    `LLM_MAX_TOKENS` sets one for every call, and `stop` is here for a caller
+    that wants it. Absent means absent — nothing is sent for a field left None.
+    """
+
+    max_tokens: int | None = _optional_int("LLM_MAX_TOKENS")
     stop: Sequence[str] | None = None
-    presence_penalty: float = 0.0
-    frequency_penalty: float = 0.0
+    n: int = 1
 
     def as_params(self) -> dict[str, Any]:
-        return {k: v for k, v in asdict(self).items() if v is not None}
+        params = {k: v for k, v in asdict(self).items() if v is not None}
+        # `n` is asserted rather than sent: one completion is the API default,
+        # and naming it is one more parameter to be refused.
+        params.pop("n", None)
+        return params
 
 
 DEFAULT_ARGS = OpenAIDecodingArguments()

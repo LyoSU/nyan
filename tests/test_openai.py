@@ -4,7 +4,11 @@ from typing import Any
 import pytest
 
 from nyan import openai as llm
-from nyan.openai import DEFAULT_ARGS, openai_completion, parse_unsupported_params
+from nyan.openai import (
+    OpenAIDecodingArguments,
+    openai_completion,
+    parse_unsupported_params,
+)
 
 
 class FakeCompletions:
@@ -99,24 +103,41 @@ def test_remembers_the_rejection_so_the_next_call_costs_nothing(fake_client) -> 
     assert "reasoning_effort" not in completions.calls[2]
 
 
+def test_a_request_carries_nothing_it_was_not_asked_to(fake_client) -> None:  # type: ignore[no-untyped-def]
+    """Sampling parameters are the model's own business.
+
+    Every one that used to be sent — a token cap, top_p, two penalties — is
+    either refused by current models, costing a rejection and a retry on every
+    call, or pushes the model off the defaults it was tuned at.
+    """
+    completions = fake_client()
+
+    openai_completion(_messages())
+
+    assert set(completions.calls[0]) == {"messages", "model"}
+
+
 def test_renames_max_tokens_for_reasoning_models(fake_client) -> None:  # type: ignore[no-untyped-def]
+    """A cap asked for through LLM_MAX_TOKENS still has to survive the gateway."""
     error = Exception(
         "Unsupported value: 'max_tokens' is not supported with this model. "
         "Use 'max_completion_tokens' instead."
     )
     completions = fake_client(errors=[error])
+    capped = OpenAIDecodingArguments(max_tokens=8000)
 
-    openai_completion(_messages())
+    openai_completion(_messages(), decoding_args=capped)
 
     assert "max_tokens" not in completions.calls[1]
     # The value carries over untouched; only the parameter name changes.
-    assert completions.calls[1]["max_completion_tokens"] == DEFAULT_ARGS.max_tokens
+    assert completions.calls[1]["max_completion_tokens"] == 8000
 
 
 def test_shrinks_the_output_when_asked_to_reduce(fake_client) -> None:  # type: ignore[no-untyped-def]
     completions = fake_client(errors=[Exception("Please reduce the length")])
+    capped = OpenAIDecodingArguments(max_tokens=8000)
 
-    openai_completion(_messages())
+    openai_completion(_messages(), decoding_args=capped)
 
     assert completions.calls[1]["max_tokens"] < completions.calls[0]["max_tokens"]
 
