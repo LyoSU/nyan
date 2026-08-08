@@ -49,7 +49,7 @@ DEFAULT_ARGS = OpenAIDecodingArguments()
 
 # Model id passed to the gateway. Override via the LLM_MODEL env var to switch
 # models without a code change / redeploy.
-DEFAULT_MODEL = env_str("LLM_MODEL", "openai/gpt-5.4-mini")
+DEFAULT_MODEL = env_str("LLM_MODEL", "openai/gpt-5.6-luna")
 
 # OpenAI-compatible endpoint. Defaults to OpenRouter, but can be pointed at a
 # self-hosted gateway (e.g. LiteLLM / OmniRoute) via the LLM_BASE_URL env var.

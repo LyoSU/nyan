@@ -1,8 +1,9 @@
 import json
 import logging
 import os
-from collections import defaultdict
+from collections import Counter, defaultdict
 from typing import Any, cast
+from collections.abc import Mapping
 
 import numpy as np
 from numpy.typing import NDArray
@@ -12,6 +13,7 @@ from sklearn.metrics import pairwise_distances  # type: ignore
 
 from nyan.clusters import Cluster
 from nyan.document import Document
+from nyan.util import normalize_url
 
 
 MIN_DISTANCE = 0.0
@@ -28,7 +30,9 @@ class Clusterer:
         with open(config_path) as r:
             self.config: dict[str, Any] = json.load(r)
 
-    def __call__(self, docs: list[Document]) -> list[Cluster]:
+    def __call__(
+        self, docs: list[Document], published: Mapping[str, int] | None = None
+    ) -> list[Cluster]:
         assert docs, "No docs for clusterer"
 
         # AgglomerativeClustering requires at least two samples, and a lone
@@ -43,18 +47,66 @@ class Clusterer:
 
         clustering = AgglomerativeClustering(**self.config["clustering"])
         labels = clustering.fit_predict(distances).tolist()
+        if published:
+            labels = self.hold_published_together(docs, labels, published)
 
-        indices: list[list[int]] = [[] for _ in range(max(labels) + 1)]
+        indices: dict[int, list[int]] = defaultdict(list)
         for index, label in enumerate(labels):
             indices[label].append(index)
 
         clusters = []
-        for doc_indices in indices:
+        for doc_indices in indices.values():
             cluster = Cluster()
             for index in doc_indices:
                 cluster.add(docs[index])
             clusters.append(cluster)
         return clusters
+
+    @staticmethod
+    def hold_published_together(
+        docs: list[Document], labels: list[int], published: Mapping[str, int]
+    ) -> list[int]:
+        """Put every published post's documents back into one piece.
+
+        The window is re-clustered from nothing on each iteration, and
+        agglomerative clustering is not stable under new points: on production
+        data, re-running it over the same 24 hours left 47% of already published
+        clusters in more than one piece. A piece made mostly of documents the
+        post never carried shares too few URLs with it for `find_similar` to
+        recognize, so the same story is published again as its own.
+
+        Documents are moved to where most of their post already is, rather than
+        the pieces being merged into each other. Merging would chain: a piece
+        holding documents from two different posts would join those posts, and
+        through them anything else they touch. Moving only ever relocates
+        documents that one post already published together.
+        """
+        by_post: dict[int, list[int]] = defaultdict(list)
+        for index, doc in enumerate(docs):
+            clid = published.get(normalize_url(doc.url))
+            if clid is not None:
+                by_post[clid].append(index)
+
+        held = list(labels)
+        for indices in by_post.values():
+            if len(indices) < 2:
+                continue
+            counts = Counter(held[index] for index in indices)
+            if len(counts) == 1:
+                continue
+            # Ties go to the label holding the earliest document, so the
+            # decision does not depend on how the window happened to be ordered.
+            most = max(counts.values())
+            candidates = [label for label, count in counts.items() if count == most]
+            home = min(
+                candidates,
+                key=lambda label: min(
+                    docs[index].pub_time for index in indices if held[index] == label
+                ),
+            )
+            for index in indices:
+                held[index] = home
+        return held
 
     def calc_distances(self, docs: list[Document]) -> NDArray[Any]:
         """Pairwise cosine distances, adjusted by the configured penalties.

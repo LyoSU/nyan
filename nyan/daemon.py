@@ -3,10 +3,8 @@ import json
 import logging
 from collections import Counter
 from time import sleep
-from typing import Any, cast
+from typing import Any
 from collections import Counter as CounterT
-
-from sklearn.metrics.pairwise import cosine_similarity  # type: ignore
 
 from nyan.annotator import Annotator
 from nyan.client import MessageId, TelegramClient
@@ -15,6 +13,7 @@ from nyan.clusterer import Clusterer
 from nyan.channels import Channels
 from nyan.logs import log_new_iteration
 from nyan.ranker import Ranker
+from nyan.relation import SAME, Relation, judge_relation, nearest_clusters
 from nyan.renderer import Renderer
 from nyan.document import (
     read_documents_file,
@@ -97,7 +96,9 @@ class Daemon:
         updates_count = posted_clusters.update_documents(annotated_docs)
         logging.info("%d updated documents", updates_count)
 
-        new_clusters: list[Cluster] = self.clusterer(annotated_docs)
+        new_clusters: list[Cluster] = self.clusterer(
+            annotated_docs, posted_clusters.published_documents()
+        )
         logging.info("%d clusters overall", len(new_clusters))
 
         ranked_clusters: dict[str, list[Cluster]] = self.ranker(new_clusters)
@@ -261,14 +262,35 @@ class Daemon:
         # Looked up before rendering, not after: the post's text is written
         # lazily inside render_cluster, and the model has to know what the reader
         # already sees directly above this post.
-        target = self.find_reply_target(cluster, posted_clusters, issue_name)
+        relation = self.find_relation(cluster, posted_clusters, issue_name)
+        parent = relation.cluster
+
+        # The same story as one already published, and that post can still be
+        # edited: fold this in rather than sending a second message. `find_similar`
+        # missed it because the clusterer had cut the story into pieces that share
+        # too few source URLs to be recognized by their URLs alone.
+        if (
+            relation.verdict == SAME
+            and parent is not None
+            and parent.accepts_updates(max_time_updated)
+        ):
+            self.update_posted_cluster(
+                cluster, parent, posted_clusters, issue_name, max_time_updated
+            )
+            return
+
+        # Everything else stands under the post it belongs to, if there is one:
+        # a development of it, or the same story arriving after that post stopped
+        # being re-rendered — which absorbing would publish to nobody.
         reply_to = None
-        if target is not None:
-            parent, reply_to = target
-            # The stored headline, never `parent.headline`: that property calls
-            # the LLM on demand, so asking a neighbour for its title would pay
-            # to rewrite a post that is already published.
-            cluster.reply_to_headline = parent.stored_headline or ""
+        if parent is not None:
+            message = parent.get_issue_message(issue_name)
+            if message is not None:
+                reply_to = message.message_id
+                # The stored headline, never `parent.headline`: that property
+                # calls the LLM on demand, so asking a neighbour for its title
+                # would pay to rewrite a post that is already published.
+                cluster.reply_to_headline = parent.stored_headline or ""
 
         post = self.renderer.render_cluster(cluster, issue_name)
         if post is None:
@@ -376,49 +398,26 @@ class Daemon:
         )
         self.client.update_post(message, post)
 
-    def find_reply_target(
+    def find_relation(
         self, cluster: Cluster, posted_clusters: Clusters, issue_name: str
-    ) -> tuple[Cluster, int] | None:
-        """The published post this one belongs under, and its message id.
+    ) -> Relation:
+        """What this story is to the posts already published: same, next, or new.
 
-        Both halves come from one lookup because both are needed at once: the
-        message id threads the new post under the old one in Telegram, and the
-        neighbour itself carries the headline the prompt needs so that two posts
-        standing next to each other do not say the same thing twice.
+        Two stages, because neither half can do the job alone. The cosine
+        narrows hundreds of published posts to a couple of plausible ones, which
+        is what it is good for; it cannot make the decision, and the numbers say
+        so plainly. Over a week of production, pairs of separately published
+        posts that turned out to be the same event and pairs that merely share a
+        template overlap almost completely — an AUC of 0.70, and 74% the best
+        accuracy any single threshold could reach. The most similar pair of the
+        whole week, 0.984, was two different nights of explosions over Kyiv.
 
-        A neighbour is not the same story — an identical one is found by
-        `Clusters.find_similar` and edited in place instead. This is merely the
-        closest one above the configured similarity, so it may equally be the
-        previous stage of one event or a separate event on the same topic.
+        `related_threshold` is now that narrowing floor rather than a verdict,
+        which is why it sits well below where a verdict would have to.
         """
-        threshold = float(self.config["related_threshold"])
-
-        current_ts = get_current_ts()
-        clusters = posted_clusters.get_embedded_clusters(current_ts, issue_name)
-        if not clusters:
-            return None
-
-        pivot_embedding = [cluster.annotation_doc.embedding]
-        embeddings = [cl.embedding for cl in clusters]
-        sims = cosine_similarity(pivot_embedding, embeddings)[0]
-
-        max_index = sims.argmax()
-        max_sim = sims[max_index]
-        best_cluster = clusters[max_index]
-        logging.info(
-            "Closest cluster to '%s' is '%s' at %.3f",
-            cluster.cropped_title,
-            best_cluster.cropped_title,
-            max_sim,
+        candidates = nearest_clusters(
+            cluster,
+            posted_clusters.get_embedded_clusters(get_current_ts(), issue_name),
+            threshold=float(self.config["related_threshold"]),
         )
-
-        if best_cluster.pub_time_percentile > cluster.pub_time_percentile:
-            return None
-
-        if max_sim < threshold:
-            return None
-
-        for m in best_cluster.messages:
-            if m.issue == issue_name:
-                return best_cluster, cast(int, m.message_id)
-        return None
+        return judge_relation(cluster, candidates)

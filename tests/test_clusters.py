@@ -577,3 +577,92 @@ def test_a_reannotated_document_replaces_the_stored_one() -> None:
     assert updated == 1
     assert cluster.docs[0].version == 8
     assert cluster.docs[0].embedded_images == [{"url": "a.jpg"}]
+
+
+def test_embedding_is_the_centroid_of_the_documents() -> None:
+    """The cluster's vector is where its coverage sits, not where one post does.
+
+    `annotation_doc` is picked for having a usable headline, so the cluster was
+    represented by whichever channel wrote the best title — including, in one
+    week of production, a post about an asteroid standing in for a cluster about
+    strikes on Kharkiv. The mean of the members moves with the story instead.
+    """
+    cluster = Cluster()
+    for embedding in ([1.0, 0.0], [0.0, 1.0], [1.0, 0.0]):
+        doc = _make_doc(f"https://t.me/a/{embedding}", pub_time=1)
+        doc.embedding = embedding
+        cluster.add(doc)
+
+    vector = cluster.embedding
+    assert vector is not None
+    # Mean is (2/3, 1/3); normalized that is (0.894, 0.447).
+    assert abs(vector[0] - 0.894427) < 1e-5
+    assert abs(vector[1] - 0.447214) < 1e-5
+
+
+def test_embedding_survives_a_round_trip_without_document_vectors() -> None:
+    """Documents are stored short, so the centroid has to be stored beside them.
+
+    Without this a cluster read back from Mongo had no vector of its own and
+    fell back to one document's, which is the representation this replaces.
+    """
+    cluster = Cluster()
+    for embedding in ([1.0, 0.0], [0.0, 1.0]):
+        doc = _make_doc(f"https://t.me/a/{embedding}", pub_time=1)
+        doc.embedding = embedding
+        cluster.add(doc)
+
+    restored = Cluster.fromdict(cluster.asdict())
+
+    assert all(doc.embedding is None for doc in restored.docs)
+    assert restored.embedding == cluster.embedding
+
+
+def test_embedding_falls_back_to_the_annotation_document() -> None:
+    """Clusters stored before the centroid existed still have to answer."""
+    cluster = Cluster()
+    doc = _make_doc("https://t.me/a/1", pub_time=1)
+    doc.embedding = [0.6, 0.8]
+    cluster.add(doc)
+
+    stored = cluster.asdict()
+    del stored["embedding"]
+    restored = Cluster.fromdict(stored)
+
+    assert restored.embedding == [0.6, 0.8]
+
+
+def test_published_documents_maps_only_what_was_posted() -> None:
+    """What the clusterer must hold in place: documents a reader has seen.
+
+    A cluster with no message was never published, so nothing about it is owed
+    to anyone and it is free to be re-cut.
+    """
+    posted = _make_cluster("https://t.me/source/1", 101)
+    posted.clid = 7
+    unposted = Cluster()
+    unposted.add(_make_doc("https://t.me/source/2"))
+    unposted.clid = 8
+
+    clusters = Clusters()
+    clusters.add(posted)
+    clusters.add(unposted)
+
+    assert clusters.published_documents() == {
+        normalize_url("https://t.me/source/1"): 7
+    }
+
+
+def test_a_post_stops_accepting_updates_once_it_is_old() -> None:
+    """Whether editing the published message can still reach the reader.
+
+    The daemon has to know this before it decides what to do with a story it
+    recognizes as one it already told: absorbing documents into a post that
+    will no longer be re-rendered publishes nothing at all, which is worse than
+    a duplicate.
+    """
+    cluster = Cluster()
+    cluster.add(_make_doc("https://t.me/source/1", pub_time=1000))
+
+    assert cluster.accepts_updates(600, now=1500)
+    assert not cluster.accepts_updates(600, now=1600)

@@ -231,10 +231,36 @@ class Cluster:
         self.saved_hash: str | None = None
         self.saved_analysis: dict[str, Any] | None = None
 
+        # Running mean of the members' vectors, kept unnormalized alongside the
+        # number of documents that contributed, so that a cluster read back from
+        # storage can go on averaging when new coverage arrives. Documents are
+        # stored short and lose their own vectors, which is why this cannot be
+        # recomputed from `self.docs` after a round trip.
+        self.embedding_mean: list[float] | None = None
+        self.embedding_count: int = 0
+
     def add(self, doc: Document) -> None:
         self.docs.append(doc)
         url_normalized = normalize_url(doc.url)
         self.url2doc[url_normalized] = doc
+        self._fold_embedding(doc.embedding)
+
+    def _fold_embedding(self, embedding: Sequence[float] | None) -> None:
+        if not embedding:
+            return
+        if self.embedding_mean is None or len(self.embedding_mean) != len(embedding):
+            # A width change means an encoder swap: annotations are cached, so
+            # for a while both widths are in flight. Whichever arrives second
+            # starts the average over rather than crashing the iteration.
+            self.embedding_mean = list(embedding)
+            self.embedding_count = 1
+            return
+        count = self.embedding_count
+        self.embedding_mean = [
+            (mean * count + value) / (count + 1)
+            for mean, value in zip(self.embedding_mean, embedding, strict=True)
+        ]
+        self.embedding_count = count + 1
 
     def has(self, doc: Document) -> bool:
         return normalize_url(doc.url) in self.url2doc
@@ -294,9 +320,30 @@ class Cluster:
 
     @property
     def embedding(self) -> list[float] | None:
+        """Where this cluster's coverage sits, as a direction.
+
+        The mean of the members rather than one member's vector: `annotation_doc`
+        is chosen for having a usable headline, so a cluster used to be
+        represented by whichever channel wrote the best title — which is not
+        reliably a document about the same thing as the rest of the cluster.
+        """
+        if self.embedding_mean is not None:
+            unit = _unit_vector(self.embedding_mean)
+            if unit is not None:
+                return [float(value) for value in unit]
         if not self.annotation_doc:
             return None
         return self.annotation_doc.embedding
+
+    def accepts_updates(self, max_time_updated: int, now: int | None = None) -> bool:
+        """Whether editing the published message can still reach the reader.
+
+        Past this the post is left as it was sent, so anything that arrives
+        afterwards has to be published rather than absorbed: documents folded
+        into a post that will not be re-rendered are seen by nobody.
+        """
+        current = now if now is not None else get_current_ts()
+        return abs(current - self.pub_time_percentile) < max_time_updated
 
     @cached_property
     def pub_time_percentile(self) -> int:
@@ -671,6 +718,8 @@ class Cluster:
             "is_important": self.is_important,
             "create_time": self.create_time,
             "reply_to_headline": self.reply_to_headline,
+            "embedding": self.embedding_mean,
+            "embedding_count": self.embedding_count,
         }
 
     @classmethod
@@ -713,6 +762,16 @@ class Cluster:
                 "summary": d.get("summary"),
                 "generation": d.get("generation"),
             }
+        # After the documents, not before: `add` folds each one into the running
+        # mean, and short documents contribute nothing, so what storage holds is
+        # the only record of what the full cluster averaged to. Absent in
+        # clusters written before the centroid existed — those fall back to the
+        # annotation document's vector.
+        stored_embedding = d.get("embedding")
+        if stored_embedding:
+            cluster.embedding_mean = list(stored_embedding)
+            cluster.embedding_count = int(d.get("embedding_count") or 1)
+
         cluster.is_important = d.get("is_important", False)
         cluster.create_time = d.get("create_time")
         # Absent in clusters stored before replies were passed to the model.
@@ -764,6 +823,20 @@ class Clusters:
         if intersection_ratio < min_intersection_ratio:
             return None
         return old_cluster
+
+    def published_documents(self) -> dict[str, int]:
+        """Which post each already published document belongs to.
+
+        Handed to the clusterer so that a post the reader has already seen is
+        not re-cut into pieces by a later run over the same window.
+        """
+        assignments: dict[str, int] = dict()
+        for clid, cluster in self.clid2cluster.items():
+            if not cluster.messages or clid is None:
+                continue
+            for url in cluster.urls:
+                assignments[normalize_url(url)] = clid
+        return assignments
 
     def get_embedded_clusters(self, current_ts: int, issue: str) -> list[Cluster]:
         filtered_clusters = []

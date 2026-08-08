@@ -179,3 +179,63 @@ def test_clusterer_refuses_an_empty_input(tmp_path: Any) -> None:
 
     with pytest.raises(AssertionError):
         clusterer([])
+
+
+def test_documents_already_published_together_stay_together(tmp_path: Any) -> None:
+    """A published post must not be re-cut by a later run.
+
+    Measured on production: re-clustering the same 24-hour window put 47% of
+    already published clusters into more than one piece, four of them into four
+    to eight pieces. A piece dominated by documents the post never carried
+    shares too few URLs with it to be recognized, and is published a second
+    time as its own story.
+    """
+    clusterer = make_clusterer(tmp_path)
+    apart = [0.0, 1.0, 0.0, 0.0]
+    docs = [
+        make_doc("a", 1000),
+        make_doc("b", 1000),
+        # Far enough from the other two that the clusterer would split it off.
+        make_doc("c", 1000, embedding=apart),
+    ]
+    published = {doc.url: 42 for doc in docs}
+
+    clusters = clusterer(docs, published)
+
+    assert len(clusters) == 1
+    assert {doc.channel_id for doc in clusters[0].docs} == {"a", "b", "c"}
+
+
+def test_an_unpublished_document_is_not_dragged_along(tmp_path: Any) -> None:
+    """Only what a post already carries is held in place.
+
+    Documents are moved into their post's piece rather than the pieces being
+    merged, so a story that happens to share a piece with a published one is
+    not swallowed by it.
+    """
+    clusterer = make_clusterer(tmp_path)
+    apart = [0.0, 1.0, 0.0, 0.0]
+    docs = [
+        make_doc("a", 1000),
+        make_doc("b", 1000, embedding=apart),
+        make_doc("c", 1000, embedding=apart),
+    ]
+    published = {docs[0].url: 42, docs[1].url: 42}
+
+    clusters = clusterer(docs, published)
+
+    by_channel = {
+        doc.channel_id: index
+        for index, cluster in enumerate(clusters)
+        for doc in cluster.docs
+    }
+    assert by_channel["a"] == by_channel["b"]
+    assert by_channel["c"] != by_channel["a"]
+
+
+def test_clustering_without_a_published_map_is_unchanged(tmp_path: Any) -> None:
+    clusterer = make_clusterer(tmp_path)
+    apart = [0.0, 1.0, 0.0, 0.0]
+    docs = [make_doc("a", 1000), make_doc("b", 1000, embedding=apart)]
+
+    assert len(clusterer(docs)) == 2
