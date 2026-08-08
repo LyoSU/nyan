@@ -1766,6 +1766,16 @@
       "kind": "media"
     },
     {
+      "name": "zmina_ua",
+      "groups": {
+        "main": "blue",
+        "war": "blue"
+      },
+      "alias": "Центр прав людини ZMINA",
+      "issue": "war",
+      "kind": "organization"
+    },
+    {
       "name": "antikor",
       "groups": {
         "main": "blue",
