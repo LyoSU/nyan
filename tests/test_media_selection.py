@@ -255,6 +255,50 @@ def test_the_copy_that_departs_from_the_others_is_not_shown() -> None:
     assert urls(selected) == ["clean.jpg"]
 
 
+def test_cleanliness_and_quality_are_weighed_against_each_other() -> None:
+    """Neither one alone picks the copy a reader should get.
+
+    Ranking on the watermark measure first makes it absolute: a barely marked
+    copy beats an unmarked one whatever the two look like, so a clean 240px
+    thumbnail wins over a lightly stamped full-size photograph. Ranking on
+    quality first does the reverse and puts the watermark back on screen.
+    """
+    plain = (100,) * (SIGNATURE_SIDE * SIGNATURE_SIDE)
+    barely_marked = (100,) * (SIGNATURE_SIDE * SIGNATURE_SIDE - 8) + (130,) * 8
+    selected = select_media(
+        [
+            # Unmarked, and a poor rendition of the photograph.
+            candidate("thumb", "tiny.jpg", angle=0.0, signature=plain, quality=0.05),
+            # A faint mark, and the picture itself in full.
+            candidate(
+                "full", "full.jpg", angle=NEAR, signature=barely_marked, quality=0.95
+            ),
+            candidate("third", "third.jpg", angle=2 * NEAR, signature=plain, quality=0.1),
+        ],
+        limit=4,
+    )
+
+    assert urls(selected) == ["full.jpg"]
+
+
+def test_a_heavy_watermark_still_loses_to_a_worse_rendition() -> None:
+    """The balance must not tip so far that a stamped copy wins on size."""
+    plain = (100,) * (SIGNATURE_SIDE * SIGNATURE_SIDE)
+    stamped = (100,) * (SIGNATURE_SIDE * SIGNATURE_SIDE // 2) + (255,) * (
+        SIGNATURE_SIDE * SIGNATURE_SIDE // 2
+    )
+    selected = select_media(
+        [
+            candidate("clean", "clean.jpg", angle=0.0, signature=plain, quality=0.35),
+            candidate("big", "stamped.jpg", angle=NEAR, signature=stamped, quality=1.0),
+            candidate("third", "third.jpg", angle=2 * NEAR, signature=plain, quality=0.3),
+        ],
+        limit=4,
+    )
+
+    assert urls(selected) == ["clean.jpg"]
+
+
 def test_the_earliest_channels_copy_represents_the_group() -> None:
     """Whoever posted first is the source; later copies carry other marks."""
     selected = select_media(

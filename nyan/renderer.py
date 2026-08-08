@@ -447,11 +447,28 @@ class Renderer:
 
     @staticmethod
     def render_media_item(item: MediaItem) -> Block:
+        """One attachment, credited to the channel whose copy it is.
+
+        Per frame rather than per post, because a carousel mixes channels: the
+        story's text has one author and says so under the paragraph, while its
+        pictures can come from three different places. Which frame belongs to
+        whom is not something a single credit for the post can express.
+
+        The credit names the channel whose copy is on screen — the file the
+        reader is looking at — and not necessarily whoever photographed the
+        scene. That is the honest claim to make: what we know is where this
+        rendition came from.
+        """
+        credit = (
+            rich.link(item.channel_title, item.source_url)
+            if item.channel_title and item.source_url
+            else None
+        )
         if item.type == MEDIA_VIDEO:
-            return rich.video(item.url)
+            return rich.video(item.url, credit=credit)
         if item.type == MEDIA_ANIMATION:
-            return rich.animation(item.url)
-        return rich.photo(item.url)
+            return rich.animation(item.url, credit=credit)
+        return rich.photo(item.url, credit=credit)
 
     def render_credit(self, cluster: Cluster) -> Block:
         """Whose text this is, right under the text — a byline, not a footnote.

@@ -74,6 +74,19 @@ VARIETY_LAMBDA = 0.7
 # different footage, whatever the posters look like.
 DURATION_TOLERANCE = 1
 
+# How far a copy may sit from what the copies agree the picture is before it
+# counts as fully marked. In grey levels averaged over the thumbnail: a badge
+# in a corner moves a couple of levels, a bar across the frame tens of them.
+FULLY_MARKED_DEPARTURE = 40.0
+
+# How the two readings that pick between copies are weighed. Both matter and
+# neither may win outright: ranking on the mark first makes a clean 240px
+# thumbnail beat a lightly stamped full-size photograph, and ranking on quality
+# first puts the watermark back on screen. The mark weighs more because it is
+# somebody else's brand on our post, while a softer rendition is only softer.
+CLEANLINESS_WEIGHT = 0.6
+QUALITY_WEIGHT = 0.4
+
 # How close to the story a document must be for its unconfirmed picture to be
 # shown. Documents enter a cluster at a cosine of about 0.9, so this only
 # excludes the ones that arrived at the very edge of the threshold — the
@@ -96,6 +109,11 @@ class MediaItem:
     type: str
     url: str
     embedding: tuple[float, ...] | None = None
+    #: Which channel's copy this is, and the post it came from. A carousel
+    #: mixes channels, so a single credit for the whole post cannot say which
+    #: frame belongs to whom — the byline has to travel with the frame.
+    channel_title: str = ""
+    source_url: str = ""
 
 
 @dataclass(frozen=True)
@@ -119,6 +137,10 @@ class MediaCandidate:
     url: str
     channel_id: str
     pub_time: int
+    #: How the channel is named to a reader, and the post this copy is in. Both
+    #: ride along so the chosen copy can be credited where it is shown.
+    channel_title: str = ""
+    source_url: str = ""
     embedding: tuple[float, ...] | None = None
     hashes: tuple[str, ...] = ()
     relevance: float = 1.0
@@ -159,34 +181,47 @@ class MediaGroup:
 
     @property
     def representative(self) -> MediaCandidate:
-        """The copy to actually show: the cleanest, then the earliest.
+        """The copy to actually show: unmarked and a good rendition, at once.
 
-        Quality first, because the copies differ in ways the reader sees. One
-        channel posts the photograph; another posts it as a third of a card,
-        under a bar, re-encoded and upscaled. They are the same picture to the
-        hash and a different picture to a reader.
+        The copies of one photograph differ in ways a reader sees. One channel
+        posts the picture; another posts it under its own bar, as a third of a
+        generated card, re-encoded and upscaled. They are one picture to the
+        hash and two different things to look at.
 
-        Time breaks the tie, and does so meaningfully: whoever posted first is
-        where the picture came from, so its copy is the one that has not yet
-        collected anybody else's furniture. It cannot lead, though, because a
-        source that posts fast is not thereby the one that posts cleanly — and
-        on documents with no quality recorded at all, which is every document
-        stored before this, time is the only thing left to sort by.
+        Time breaks an exact tie, and does so meaningfully: whoever posted
+        first is where the picture came from, so its copy has not yet collected
+        anybody else's furniture. It only breaks ties, because a source that
+        posts fast is not thereby the one that posts cleanly — but on documents
+        with nothing recorded at all, which is every document stored before
+        this, it is the only thing left to sort by.
         """
         consensus = median_signature([m.signature for m in self.members if m.signature])
         return max(
             self.members,
-            # No url in the key: `max` keeps the first of equal candidates, and
-            # the order they arrive in is the cluster's own document order,
-            # which is stable across a trip through storage. Sorting by url
-            # instead would pick whichever copy happens to sort last, which is
-            # a property of Telegram's CDN filenames and of nothing else.
+            # One score rather than a tuple: cleanliness and quality have to be
+            # weighed against each other, and a tuple compares
+            # lexicographically — the first element decides and the second is
+            # never reached in practice. `max` keeps the first of equal
+            # candidates, so the order is the cluster's own document order and
+            # survives a trip through storage; sorting by url instead would
+            # pick whichever copy happens to sort last, which is a property of
+            # Telegram's CDN filenames and of nothing else.
             key=lambda member: (
-                -self._departure(member, consensus),
-                member.quality,
+                self._copy_score(member, consensus),
                 -member.pub_time,
             ),
         )
+
+    def _copy_score(self, member: MediaCandidate, consensus: Sequence[int]) -> float:
+        """How well a copy serves a reader: unmarked, and a good rendition.
+
+        Both at once, because either alone picks badly. The cleanest copy of a
+        photograph is sometimes a 240px thumbnail somebody re-uploaded, and the
+        largest copy is often the one with a channel's bar across it.
+        """
+        departure = self._departure(member, consensus)
+        cleanliness = 1.0 - min(departure / FULLY_MARKED_DEPARTURE, 1.0)
+        return CLEANLINESS_WEIGHT * cleanliness + QUALITY_WEIGHT * member.quality
 
     @staticmethod
     def _departure(member: MediaCandidate, consensus: Sequence[int]) -> float:
@@ -455,6 +490,9 @@ def select_media(
             type=group.representative.type,
             url=group.representative.url,
             embedding=group.representative.embedding,
+            channel_title=group.representative.channel_title
+            or group.representative.channel_id,
+            source_url=group.representative.source_url,
         )
         for group in ranked
     )

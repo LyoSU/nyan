@@ -1054,3 +1054,32 @@ def test_the_legacy_format_carries_the_media_the_cluster_chose(
         ("video", "https://example.com/v.mp4"),
         ("photo", "https://example.com/b.jpg"),
     ]
+
+
+def test_each_picture_credits_the_channel_it_came_from(renderer: Renderer) -> None:
+    """A carousel mixes channels, so the byline belongs to the frame.
+
+    The post's text has one author and says so under the paragraph. Its
+    pictures can come from three different channels, and a single credit for
+    the post cannot say which frame belongs to whom.
+    """
+    cluster = make_cluster(
+        [
+            make_doc(VERIFIED, "https://t.me/rbc_news/1"),
+            make_doc(
+                "witness",
+                "https://t.me/witness/7",
+                embedded_images=[{"url": "https://example.com/a.jpg"}],
+            ),
+        ],
+    )
+    post = renderer.render_cluster(cluster, "main")
+
+    assert post is not None
+    assert post.blocks is not None
+    photo = find(post.blocks, "photo")
+    assert photo["caption"]["credit"] == {
+        "type": "url",
+        "text": "WITNESS",
+        "url": "https://t.me/witness/7",
+    }

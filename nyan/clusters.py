@@ -143,6 +143,8 @@ def _document_media(doc: Document) -> tuple[MediaCandidate, ...]:
                 type=MEDIA_VIDEO,
                 url=url,
                 channel_id=doc.channel_id,
+                channel_title=doc.channel_title,
+                source_url=doc.url,
                 pub_time=doc.pub_time,
                 # The vector and hashes of the still Telegram renders for it:
                 # the clip itself is never downloaded, and its CDN url differs
@@ -166,6 +168,8 @@ def _document_media(doc: Document) -> tuple[MediaCandidate, ...]:
                 type=MEDIA_PHOTO,
                 url=image_url,
                 channel_id=doc.channel_id,
+                channel_title=doc.channel_title,
+                source_url=doc.url,
                 pub_time=doc.pub_time,
                 # A tuple, not the stored list: a candidate has to stay
                 # hashable and comparable after a trip through JSON, which
