@@ -9,6 +9,7 @@ bonus applied only when the stream is a terminal.
 
 import logging
 import os
+import re
 import sys
 from datetime import datetime
 from typing import IO, Literal
@@ -69,6 +70,34 @@ def should_colorize(stream: IO[str]) -> bool:
     if os.environ.get("TERM") == "dumb":
         return False
     return bool(getattr(stream, "isatty", lambda: False)())
+
+
+# The bot token sits in the path of every Bot API call, and httpx logs the
+# request url in full. Matching the path segment rather than a bare token keeps
+# this from firing on ordinary text that happens to look like one.
+_BOT_TOKEN = re.compile(r"/bot\d+:[A-Za-z0-9_-]+")
+_REDACTED = "/bot<token>"
+
+
+class RedactSecrets(logging.Filter):
+    """Strip bot tokens from records before any handler writes them out.
+
+    A filter rather than formatting: the token has to be gone from the record
+    itself, so it cannot reach a second handler — or a log aggregator — through
+    a path this module does not control.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.msg, str):
+            record.msg = _BOT_TOKEN.sub(_REDACTED, record.msg)
+        # httpx passes the url as an argument, so the token is not in `msg` yet
+        # at the time this runs.
+        if isinstance(record.args, tuple):
+            record.args = tuple(
+                _BOT_TOKEN.sub(_REDACTED, arg) if isinstance(arg, str) else arg
+                for arg in record.args
+            )
+        return True
 
 
 def _paint(text: str, colour: str, colorize: bool) -> str:
@@ -167,6 +196,7 @@ def setup_logging() -> None:
     """Install the formatter on the root logger. Safe to call more than once."""
     handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(NyanFormatter(colorize=should_colorize(handler.stream)))
+    handler.addFilter(RedactSecrets())
 
     # force=True so a second entry point (digest after send, or a library that
     # called basicConfig first) replaces the handler instead of doubling it.

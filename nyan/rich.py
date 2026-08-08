@@ -207,6 +207,43 @@ def media_payloads(blocks: Sequence[Block]) -> list[dict[str, Any]]:
     return found
 
 
+def media_urls(blocks: Sequence[Block]) -> list[str]:
+    """Every attachment URL in a block tree, so a rejection can name one."""
+    return [payload["media"] for payload in media_payloads(blocks)]
+
+
+# Block types that carry an attachment, and so are the ones Telegram can reject.
+MEDIA_BLOCK_TYPES = ("photo", "video", "animation")
+
+
+def without_media(
+    blocks: Sequence[Block], media_type: str | None = None
+) -> list[Block]:
+    """The same post with its attachments — or one type of them — removed.
+
+    Naming a type matters: a rejected video says nothing about the photos beside
+    it, and photos have already been fetched and decoded by the vision step, so
+    they are the attachments most likely to still be good.
+
+    Blocks are copied rather than edited, since the caller still holds the
+    original and may want to record what it tried to send.
+    """
+    kept: list[Block] = []
+    for block in blocks:
+        block_type = block.get("type")
+        if block_type in MEDIA_BLOCK_TYPES and media_type in (None, block_type):
+            continue
+        if block_type == "slideshow":
+            frames = without_media(block.get("blocks", []), media_type)
+            # A slideshow with nothing in it is not a post element; it is the
+            # next rejection.
+            if not frames:
+                continue
+            block = {**block, "blocks": frames}
+        kept.append(block)
+    return kept
+
+
 @dataclass
 class RenderedPost:
     """A post ready to send, in whichever format the renderer produced.

@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import re
 from typing import Any
 from collections.abc import Sequence
 from dataclasses import dataclass, field, fields, replace
@@ -15,7 +16,15 @@ from nyan.media import (
     attach_urls,
     extract_sent_media,
 )
-from nyan.rich import Block, RenderedPost, fix_media_url, media_payloads
+from nyan.rich import (
+    Block,
+    MEDIA_BLOCK_TYPES,
+    RenderedPost,
+    fix_media_url,
+    media_payloads,
+    media_urls,
+    without_media,
+)
 from nyan.util import Serializable
 
 
@@ -282,6 +291,54 @@ class TelegramClient:
         logging.info("Issue '%s' posts to %s, cloned from '%s'", name, channel_id, like)
         return True
 
+    # "Bad Request: RICH_MESSAGE_VIDEO_INVALID". The middle word names the kind
+    # of block Telegram could not fetch, which is what makes a targeted retry
+    # possible instead of dropping every attachment the post had.
+    _MEDIA_REJECTION = re.compile(r"RICH_MESSAGE_(\w+?)_INVALID")
+
+    def _retry_without_rejected_media(
+        self,
+        blocks: Sequence[Block],
+        response: Response,
+        issue: "IssueConfig",
+        reply_to: int | None,
+    ) -> tuple[list[Block], Response]:
+        """Send the post again without the attachments Telegram refused.
+
+        Videos are the attachments this happens to, because they are the only
+        kind nothing fetches before the post goes out: photos are downloaded and
+        decoded by the vision step, so an unreachable one is dropped long before
+        Telegram sees it, while an mp4 is only ever a URL passed along.
+
+        Losing the attachment beats losing the post. Before this, one video the
+        Bot API could not reach returned None all the way up to the daemon, and
+        the cluster was never published at all.
+
+        Returns the blocks actually sent, since the caller pairs Telegram's
+        answer back to them by position.
+        """
+        match = self._MEDIA_REJECTION.search(response.text)
+        if not match:
+            return list(blocks), response
+
+        kind = match.group(1).lower()
+        # An unfamiliar kind — or a generic MEDIA_INVALID — takes them all,
+        # since there is no way to tell which attachment was meant.
+        kept = without_media(blocks, kind if kind in MEDIA_BLOCK_TYPES else None)
+
+        remaining = media_urls(kept)
+        dropped = [url for url in media_urls(blocks) if url not in remaining]
+        if not dropped:
+            # Resending an identical payload only buys the same rejection.
+            return list(blocks), response
+
+        logging.warning(
+            "Telegram would not take %d attachment(s), resending without: %s",
+            len(dropped),
+            ", ".join(dropped),
+        )
+        return kept, self._send_rich(kept, issue=issue, reply_to=reply_to)
+
     def send_rich_message(
         self,
         blocks: Sequence[Block],
@@ -293,6 +350,11 @@ class TelegramClient:
             return None
         issue = self.issues[issue_name]
         response = self._send_rich(blocks, issue=issue, reply_to=reply_to)
+
+        if response.status_code != 200:
+            blocks, response = self._retry_without_rejected_media(
+                blocks, response, issue, reply_to
+            )
 
         if response.status_code != 200:
             logging.error(

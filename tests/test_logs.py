@@ -2,7 +2,13 @@ import io
 import logging
 import re
 
-from nyan.logs import NyanFormatter, iteration_banner, log_cluster, should_colorize
+from nyan.logs import (
+    NyanFormatter,
+    RedactSecrets,
+    iteration_banner,
+    log_cluster,
+    should_colorize,
+)
 
 
 class _Terminal(io.StringIO):
@@ -160,3 +166,46 @@ def test_the_iteration_banner_carries_the_full_date() -> None:
 
     assert re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", banner)
     assert "new iteration" in banner
+
+
+def test_a_bot_token_never_reaches_the_log() -> None:
+    """httpx logs the full request URL, and ours carries the bot token in it.
+
+    Every one of those lines went to the Coolify log panel, to any file the
+    output was piped into, and to whoever was shown a screenshot.
+    """
+    record = _record(
+        'HTTP Request: POST '
+        'https://api.telegram.org/bot1234567890:FAKE-TOKEN-FOR-TESTS-ONLY'
+        '/sendRichMessage "HTTP/1.1 400 Bad Request"'
+    )
+
+    assert RedactSecrets().filter(record) is True
+    line = NyanFormatter(colorize=False).format(record)
+
+    assert "FAKE-TOKEN-FOR-TESTS-ONLY" not in line
+    assert "1234567890" not in line
+    # The method still has to be readable: that is why the line is kept at all.
+    assert "sendRichMessage" in line
+
+
+def test_redaction_survives_deferred_formatting() -> None:
+    """httpx passes the url as an argument, not baked into the message."""
+    record = logging.LogRecord(
+        "httpx", logging.INFO, __file__, 0,
+        'HTTP Request: %s "%s"',
+        ("https://api.telegram.org/bot123456:SECRET_TOKEN_HERE/sendMessage", "200 OK"),
+        None,
+    )
+
+    RedactSecrets().filter(record)
+
+    assert "SECRET_TOKEN_HERE" not in record.getMessage()
+
+
+def test_redaction_leaves_ordinary_lines_alone() -> None:
+    record = _record("13 clusters after the first filter")
+
+    RedactSecrets().filter(record)
+
+    assert record.getMessage() == "13 clusters after the first filter"

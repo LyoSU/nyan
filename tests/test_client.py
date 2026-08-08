@@ -13,6 +13,7 @@ from nyan.client import FORMAT_LEGACY, FORMAT_RICH, MessageId, TelegramClient
 from nyan.media import MEDIA_PHOTO, MEDIA_VIDEO, MediaItem, SentMedia
 from nyan.rich import RenderedPost, heading, paragraph
 from nyan.rich import photo as rich_photo
+from nyan.rich import video as rich_video
 
 
 CLIENT_CONFIG = {
@@ -376,3 +377,76 @@ def test_file_ids_survive_serialization() -> None:
 
     assert restored.media == message.media
     assert restored.media[0].file_id == "known"
+
+
+def video_invalid_error() -> FakeResponse:
+    """What Telegram answers when it cannot fetch a video it was given."""
+    return FakeResponse(
+        400,
+        {
+            "ok": False,
+            "error_code": 400,
+            "description": "Bad Request: RICH_MESSAGE_VIDEO_INVALID",
+        },
+    )
+
+
+def post_with_a_video() -> list[Any]:
+    return [
+        heading("Заголовок"),
+        rich_video("https://cdn/clip.mp4"),
+        rich_photo("https://cdn/still.jpg"),
+    ]
+
+
+def test_a_rejected_video_costs_the_attachment_not_the_post(
+    client: TelegramClient,
+) -> None:
+    """Losing the whole cluster over one unfetchable mp4 is the worse trade.
+
+    A video Telegram cannot fetch used to return None all the way up, and the
+    news simply never went out.
+    """
+    calls = record_calls(client, [video_invalid_error(), FakeResponse()])
+
+    message = client.send_rich_message(post_with_a_video(), "main")
+
+    assert message is not None
+    assert len(calls) == 2
+    resent = json.loads(calls[1][1]["rich_message"])["blocks"]
+    assert [block["type"] for block in resent] == ["heading", "photo"]
+
+
+def test_the_rejected_url_is_named_in_the_log(
+    client: TelegramClient, caplog: Any
+) -> None:
+    """Otherwise the error says a video failed, but never which one."""
+    record_calls(client, [video_invalid_error(), FakeResponse()])
+
+    with caplog.at_level("WARNING"):
+        client.send_rich_message(post_with_a_video(), "main")
+
+    assert "https://cdn/clip.mp4" in caplog.text
+
+
+def test_a_failure_that_is_not_about_media_is_not_retried(
+    client: TelegramClient,
+) -> None:
+    calls = record_calls(client, [caption_only_error(), FakeResponse()])
+
+    message = client.send_rich_message(post_with_a_video(), "main")
+
+    assert message is None
+    assert len(calls) == 1
+
+
+def test_a_post_with_nothing_left_to_drop_is_not_sent_twice(
+    client: TelegramClient,
+) -> None:
+    """Resending an identical payload just buys the same rejection."""
+    calls = record_calls(client, [video_invalid_error(), FakeResponse()])
+
+    message = client.send_rich_message([heading("Заголовок")], "main")
+
+    assert message is None
+    assert len(calls) == 1
