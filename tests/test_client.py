@@ -515,3 +515,38 @@ def test_photos_are_never_uploaded(client: TelegramClient, monkeypatch: Any) -> 
     client.send_rich_message([rich_photo("https://cdn/still.jpg")], "main")
 
     assert not calls[0][2]
+
+
+def test_a_refused_upload_falls_back_to_the_plain_url(
+    client: TelegramClient, monkeypatch: Any
+) -> None:
+    """attach:// is how the Bot API takes an upload, but unverified for this method.
+
+    If it turns out not to be, the post must not be worse off than before the
+    upload existed: it goes again with the URL, exactly as it used to.
+    """
+    monkeypatch.setattr("nyan.client.fetch_media", lambda url, limit: b"bytes")
+    refusal = FakeResponse(
+        400, {"description": "Bad Request: wrong file identifier specified"}
+    )
+    calls = record_calls(client, [refusal, FakeResponse()])
+
+    message = client.send_rich_message([rich_video("https://cdn/clip.mov")], "main")
+
+    assert message is not None
+    assert len(calls) == 2
+    resent = json.loads(calls[1][1]["rich_message"])["blocks"]
+    assert resent[0]["video"]["media"] == "https://cdn/clip.mov"
+    assert not calls[1][2]
+
+
+def test_the_fallback_does_not_fire_when_nothing_was_uploaded(
+    client: TelegramClient,
+) -> None:
+    """An mp4 post that fails has no upload to undo, so it goes straight to retry."""
+    calls = record_calls(client, [video_invalid_error(), FakeResponse()])
+
+    client.send_rich_message([rich_video("https://cdn/clip.mp4")], "main")
+
+    resent = json.loads(calls[1][1]["rich_message"])["blocks"]
+    assert not resent

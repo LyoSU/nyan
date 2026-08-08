@@ -301,7 +301,17 @@ class TelegramClient:
         return True
 
     @staticmethod
-    def _upload_unplayable_videos(blocks: Sequence[Block]) -> UploadedFiles:
+    def _restore_uploaded_urls(blocks: Sequence[Block], uploaded: dict[str, str]) -> None:
+        """Point the uploaded blocks back at the URLs they came from."""
+        for payload in media_payloads(blocks):
+            name = str(payload.get("media", "")).removeprefix("attach://")
+            if name in uploaded:
+                payload["media"] = uploaded[name]
+
+    @staticmethod
+    def _upload_unplayable_videos(
+        blocks: Sequence[Block],
+    ) -> tuple[UploadedFiles, dict[str, str]]:
         """Carry the videos Telegram will not fetch, and send them as bytes.
 
         The channels post about one clip in twenty as .mov, and Telegram judges
@@ -314,9 +324,11 @@ class TelegramClient:
         nothing but traffic.
 
         Payloads are rewritten in place, the way `_use_known_files` rewrites
-        them for file_ids.
+        them for file_ids. The URLs they held are returned alongside the files,
+        so the rewrite can be undone if Telegram will not take the upload.
         """
         files: UploadedFiles = {}
+        uploaded: dict[str, str] = {}
         for index, payload in enumerate(media_payloads(blocks)):
             url = payload.get("media", "")
             if payload.get("type") != "video" or not url.startswith("http"):
@@ -332,8 +344,9 @@ class TelegramClient:
 
             name = f"video{index}"
             files[name] = (f"{name}{PLAYABLE_VIDEO_SUFFIX}", content, "video/mp4")
+            uploaded[name] = url
             payload["media"] = f"attach://{name}"
-        return files
+        return files, uploaded
 
     # "Bad Request: RICH_MESSAGE_VIDEO_INVALID". The middle word names the kind
     # of block Telegram could not fetch, which is what makes a targeted retry
@@ -406,8 +419,21 @@ class TelegramClient:
             logging.warning(ISSUE_WARNING, issue_name)
             return None
         issue = self.issues[issue_name]
-        files = self._upload_unplayable_videos(blocks)
+        files, uploaded = self._upload_unplayable_videos(blocks)
         response = self._send_rich(blocks, issue=issue, reply_to=reply_to, files=files)
+
+        if response.status_code != 200 and uploaded:
+            # attach:// is the Bot API's own way of referencing an upload, but
+            # it is unverified against sendRichMessage specifically. If it is
+            # not taken, the post falls back to what it would have been without
+            # any of this — the plain URL — rather than to nothing.
+            logging.warning(
+                "Upload refused (%s), sending the original urls instead",
+                response.text[:200],
+            )
+            self._restore_uploaded_urls(blocks, uploaded)
+            files = {}
+            response = self._send_rich(blocks, issue=issue, reply_to=reply_to)
 
         if response.status_code != 200:
             blocks, response = self._retry_without_rejected_media(
