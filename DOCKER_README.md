@@ -62,7 +62,7 @@ MONGO_AUTH_SOURCE=admin
 ```env
 LLM_API_KEY=your_llm_key_here
 LLM_BASE_URL=https://openrouter.ai/api/v1
-LLM_MODEL=openai/gpt-5.4-mini
+LLM_MODEL=openai/gpt-5.6-luna
 LLM_TIMEOUT=60
 LLM_MAX_RETRIES=2
 LLM_REASONING_EFFORT=low
