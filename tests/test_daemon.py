@@ -320,3 +320,108 @@ def test_every_configured_issue_survives_the_check() -> None:
     ranked = {"main": [_cluster([1.0, 0.0])], "war": [_cluster([0.0, 1.0])]}
 
     assert daemon.drop_unpostable_issues(ranked) == ranked
+
+
+def _loose_doc(embedding: list[float], age_seconds: int = 600, post_id: int = 500) -> Document:
+    now = get_current_ts()
+    return Document(
+        url=f"https://t.me/other/{post_id}",
+        channel_id="other",
+        post_id=post_id,
+        views=100,
+        pub_time=now - age_seconds,
+        fetch_time=now,
+        text="Текст",
+        patched_text="Текст",
+        groups={"main": "blue"},
+        issue="main",
+        language="uk",
+        embedding=embedding,
+    )
+
+
+def test_a_lone_document_joins_the_post_it_belongs_to(monkeypatch: Any) -> None:
+    """A channel that carried the story but never reached a cluster of its own.
+
+    Neither of the other two changes can see this one: holding published
+    documents in place keeps what a post already has, and the judge at the
+    publish boundary compares clusters that got that far. A single document that
+    never gathered four independent sources gets to neither. Measured over a
+    day of production, 41 documents sit closer than 0.94 to a post they are not
+    in — the closest being Суспільне writing "У Києві чути вибухи" against a
+    post whose first line is the same sentence.
+    """
+    daemon = _daemon(attach_threshold=0.94)
+    daemon.renderer = _FakeRenderer()  # type: ignore[assignment]
+    daemon.client = _FakeClient()  # type: ignore[assignment]
+    parent = _cluster([1.0, 0.0], message_id=11, headline="Вибухи", age_seconds=1800)
+    _patch_judge(monkeypatch, SAME)
+
+    attached = daemon.attach_loose_documents([_loose_doc([1.0, 0.02])], _posted(parent))
+
+    assert attached == 1
+    assert len(parent.docs) == 2
+    client: Any = daemon.client
+    assert client.updated == [11], "the post was re-rendered with the new source"
+
+
+def test_a_lone_document_the_judge_refuses_stays_out(monkeypatch: Any) -> None:
+    daemon = _daemon(attach_threshold=0.94)
+    daemon.renderer = _FakeRenderer()  # type: ignore[assignment]
+    daemon.client = _FakeClient()  # type: ignore[assignment]
+    parent = _cluster([1.0, 0.0], message_id=11, headline="Вибухи", age_seconds=1800)
+    _patch_judge(monkeypatch, UNRELATED)
+
+    assert daemon.attach_loose_documents([_loose_doc([1.0, 0.02])], _posted(parent)) == 0
+    assert len(parent.docs) == 1
+
+
+def test_a_document_far_from_every_post_is_never_asked_about(monkeypatch: Any) -> None:
+    """The floor is far above the one used between clusters.
+
+    A single document carries much less evidence than a cluster does, so it has
+    to look almost identical before it is worth a question. At 0.94 that is some
+    forty documents a day; at 0.86, the floor used between clusters, it would be
+    thousands.
+    """
+    daemon = _daemon(attach_threshold=0.94)
+    daemon.renderer = _FakeRenderer()  # type: ignore[assignment]
+    daemon.client = _FakeClient()  # type: ignore[assignment]
+    parent = _cluster([1.0, 0.0], message_id=11, headline="Вибухи", age_seconds=1800)
+    seen = _patch_judge(monkeypatch, SAME)
+
+    assert daemon.attach_loose_documents([_loose_doc([0.9, 0.44])], _posted(parent)) == 0
+    assert seen == []
+
+
+def test_a_document_already_in_a_post_is_left_alone(monkeypatch: Any) -> None:
+    daemon = _daemon(attach_threshold=0.94)
+    daemon.renderer = _FakeRenderer()  # type: ignore[assignment]
+    daemon.client = _FakeClient()  # type: ignore[assignment]
+    parent = _cluster([1.0, 0.0], message_id=11, headline="Вибухи", age_seconds=1800)
+    seen = _patch_judge(monkeypatch, SAME)
+
+    attached = daemon.attach_loose_documents(list(parent.docs), _posted(parent))
+
+    assert attached == 0
+    assert seen == []
+
+
+def test_a_document_from_another_hour_is_not_offered(monkeypatch: Any) -> None:
+    """Time is the one thing the text cannot say.
+
+    "Вибухи в Києві" is written the same way on every night it happens, so a
+    document is only ever offered to a post published around its own time.
+    """
+    daemon = _daemon(attach_threshold=0.94)
+    daemon.renderer = _FakeRenderer()  # type: ignore[assignment]
+    daemon.client = _FakeClient()  # type: ignore[assignment]
+    parent = _cluster([1.0, 0.0], message_id=11, headline="Вибухи", age_seconds=1800)
+    seen = _patch_judge(monkeypatch, SAME)
+
+    attached = daemon.attach_loose_documents(
+        [_loose_doc([1.0, 0.02], age_seconds=1800 + 12 * 3600)], _posted(parent)
+    )
+
+    assert attached == 0
+    assert seen == []

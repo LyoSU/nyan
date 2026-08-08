@@ -3,7 +3,10 @@ import json
 import logging
 from collections import Counter
 from time import sleep
-from typing import Any
+from typing import Any, cast
+
+import numpy as np
+from numpy.typing import NDArray
 from collections import Counter as CounterT
 
 from nyan.annotator import Annotator
@@ -23,11 +26,26 @@ from nyan.document import (
     read_annotated_documents_mongo,
     write_annotated_documents_mongo,
 )
-from nyan.util import get_current_ts, ts_to_dt
+from nyan.util import get_current_ts, normalize_url, ts_to_dt
 
 
 # How long to wait before looking for documents again when there are none.
 EMPTY_INPUT_SLEEP_SECONDS = 10
+
+# How close a lone document has to be to a published post before it is worth
+# asking whether it belongs there. Measured over a day of production: some forty
+# documents a day clear it, seven clear 0.96, and thousands clear the 0.86 used
+# between clusters.
+DEFAULT_ATTACH_THRESHOLD = 0.94
+
+# And how far apart in time the two may be.
+ATTACH_WINDOW_SECONDS = 6 * 3600
+
+
+def _unit_rows(embeddings: list[list[float]]) -> NDArray[np.float32]:
+    matrix = np.asarray(embeddings, dtype=np.float32)
+    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+    return cast("NDArray[np.float32]", matrix / np.where(norms == 0.0, 1.0, norms))
 
 
 class Daemon:
@@ -95,6 +113,12 @@ class Daemon:
 
         updates_count = posted_clusters.update_documents(annotated_docs)
         logging.info("%d updated documents", updates_count)
+
+        # Before clustering rather than after: a document that joins a published
+        # post here is held with that post by the assignments handed down below,
+        # instead of being free to start a piece of its own all over again.
+        attached = self.attach_loose_documents(annotated_docs, posted_clusters)
+        logging.info("%d documents joined a post they had missed", attached)
 
         new_clusters: list[Cluster] = self.clusterer(
             annotated_docs, posted_clusters.published_documents()
@@ -370,8 +394,25 @@ class Daemon:
             )
             posted_clusters.invalidate_caches()
 
-        time_diff = abs(get_current_ts() - posted_cluster.pub_time_percentile)
-        if time_diff >= max_time_updated or not posted_cluster.changed():
+        self.refresh_post(posted_cluster, issue_name, max_time_updated)
+
+    def refresh_post(
+        self, posted_cluster: Cluster, issue_name: str, max_time_updated: int
+    ) -> None:
+        """Rewrite a published message around what its cluster now holds."""
+        message = posted_cluster.get_issue_message(issue_name)
+        if message is None:
+            return
+
+        if not posted_cluster.accepts_updates(max_time_updated):
+            logging.info(
+                "Past editing, message %d at %s: %s",
+                message.message_id,
+                message.issue,
+                posted_cluster.cropped_title,
+            )
+            return
+        if not posted_cluster.changed():
             logging.info(
                 "Same cluster %d at %s: %s",
                 message.message_id,
@@ -397,6 +438,91 @@ class Daemon:
             posted_cluster.cropped_title,
         )
         self.client.update_post(message, post)
+
+    def attach_loose_documents(
+        self, docs: list[Document], posted_clusters: Clusters
+    ) -> int:
+        """Put documents that carried a published story into the post that told it.
+
+        The other two halves of this cannot reach these. Holding published
+        documents in place across iterations keeps what a post already has, and
+        the judge on the publish boundary compares clusters that got that far —
+        while a channel whose post never gathered four independent sources of
+        its own is filtered out by the ranker and reaches neither. Over a day of
+        production that is some forty documents sitting closer than 0.94 to a
+        post they are not in, the closest of them being one newsroom writing
+        "У Києві чути вибухи" against a post whose first line is that sentence.
+
+        The floor is far above the one used between clusters because a single
+        document carries far less evidence than a cluster of them: at 0.86 this
+        would be thousands of questions a day rather than forty.
+        """
+        threshold = float(self.config.get("attach_threshold", DEFAULT_ATTACH_THRESHOLD))
+        max_time_updated = self.config["max_time_updated"]
+
+        published = [
+            cluster
+            for cluster in posted_clusters.clid2cluster.values()
+            if cluster.messages and cluster.embedding
+        ]
+        taken = posted_clusters.published_documents()
+        loose = [
+            doc
+            for doc in docs
+            if doc.embedding and normalize_url(doc.url) not in taken
+        ]
+        if not published or not loose:
+            return 0
+
+        # One width at a time. Annotations are cached, so an encoder swap leaves
+        # both widths in flight for a while, and comparing across them is
+        # meaningless. Attaching is an improvement rather than a duty, so a
+        # minority width simply waits for the next iteration.
+        width = Counter(len(doc.embedding or ()) for doc in loose).most_common(1)[0][0]
+        published = [c for c in published if len(c.embedding or ()) == width]
+        loose = [doc for doc in loose if len(doc.embedding or ()) == width]
+        if not published or not loose:
+            return 0
+
+        similarity = _unit_rows(
+            [doc.embedding or [] for doc in loose]
+        ) @ _unit_rows([cluster.embedding or [] for cluster in published]).T
+
+        # Time is the one thing the text cannot say: "вибухи в Києві" is written
+        # the same way on every night it happens, so a document is only offered
+        # to a post published around its own hour.
+        doc_times = np.array([doc.pub_time for doc in loose])
+        post_times = np.array([cluster.pub_time_percentile for cluster in published])
+        near = np.abs(doc_times[:, None] - post_times[None, :]) <= ATTACH_WINDOW_SECONDS
+        similarity = np.where(near, similarity, -1.0)
+
+        attached = 0
+        touched: dict[int, Cluster] = dict()
+        for index, doc in enumerate(loose):
+            best = int(similarity[index].argmax())
+            if similarity[index][best] < threshold:
+                continue
+            candidate = published[best]
+            story = Cluster()
+            story.add(doc)
+            if judge_relation(story, [candidate]).verdict != SAME:
+                continue
+            candidate.add(doc)
+            attached += 1
+            if candidate.clid is not None:
+                touched[candidate.clid] = candidate
+            logging.info(
+                "Document from %s joins message %s",
+                doc.channel_id,
+                [m.message_id for m in candidate.messages],
+            )
+
+        if attached:
+            posted_clusters.invalidate_caches()
+        for cluster in touched.values():
+            for message in cluster.messages:
+                self.refresh_post(cluster, message.issue, max_time_updated)
+        return attached
 
     def find_relation(
         self, cluster: Cluster, posted_clusters: Clusters, issue_name: str
