@@ -16,9 +16,12 @@ from nyan.media import (
     AUTHORITY_ANONYMOUS,
     AUTHORITY_MEDIA,
     AUTHORITY_OFFICIAL,
+    DUPLICATE_IMAGE_SIMILARITY,
     MEDIA_PHOTO,
     MEDIA_VIDEO,
     MediaCandidate,
+    _is_duplicate,
+    _similarity,
     group_media,
     select_media,
 )
@@ -641,3 +644,88 @@ def test_photos_are_unaffected_by_the_video_rule() -> None:
     )
 
     assert group[0].representative.url.endswith("good.png")
+
+
+def _clip(
+    url: str,
+    channel_id: str,
+    duration: int,
+    hashes: tuple[str, ...],
+    spread: int = 40,
+    embedding: tuple[float, ...] = (1.0, 0.0),
+) -> MediaCandidate:
+    """A video candidate whose poster prints with the given spread."""
+    signature = tuple(
+        (index * spread) % 256 for index in range(SIGNATURE_SIDE * SIGNATURE_SIDE)
+    )
+    return MediaCandidate(
+        type=MEDIA_VIDEO,
+        url=url,
+        channel_id=channel_id,
+        pub_time=1000,
+        duration=duration,
+        hashes=hashes,
+        embedding=embedding,
+        signature=signature if spread else tuple([7] * (SIGNATURE_SIDE**2)),
+    )
+
+
+def test_the_same_clip_trimmed_differently_is_one_clip() -> None:
+    """Channels cut the same footage to different lengths.
+
+    Message 38950 went out with three copies of one video of the Kyiv metro,
+    at 11, 14 and 14 seconds. The pair at 11 and 14 agreed on both readings the
+    rule takes — a Hamming distance of 10 and a cosine of 0.965 — and was thrown
+    out by a length rule that assumed a difference beyond one second meant
+    different footage. Trimming is why lengths differ, far more often than
+    re-encoding is.
+    """
+    first = _clip("a.mp4", "one", 11, ("d4e4fcb4c6e1941c",))
+    second = _clip("b.mp4", "two", 14, ("d4e4fcb4c6e1941c",))
+
+    assert _is_duplicate(first, second)
+
+
+def test_two_clips_behind_one_intro_card_stay_apart() -> None:
+    """What the length rule was right about.
+
+    Several channels put the same black card in front of whatever they post, so
+    a 22-second clip and a 42-second one print the same poster at a Hamming
+    distance of 4. The card says nothing about the footage — and a poster that
+    varies barely at all across itself is how that is known.
+    """
+    first = _clip("a.mp4", "one", 22, ("d4e4fcb4c6e1941c",), spread=0)
+    second = _clip("b.mp4", "two", 42, ("d4e4fcb4c6e1941c",), spread=0)
+
+    assert not _is_duplicate(first, second)
+
+
+def test_lengths_apart_are_not_settled_by_the_embedding_alone() -> None:
+    """Where the encoder is too generous to be trusted on its own.
+
+    A twelve-second clip of a burning refinery and a four-second one of empty
+    sky score 0.935 against each other, above the threshold that calls two
+    pictures the same. Their posters are twenty-six bits apart, which is the
+    reading that can tell them apart, so once the lengths disagree it is the
+    only one that counts.
+    """
+    first = _clip("a.mp4", "one", 12, ("d4e4fcb4c6e1941c",), embedding=(1.0, 0.0))
+    second = _clip(
+        "b.mp4", "two", 4, ("0b1b034e39168eb3",), embedding=(0.96, 0.28)
+    )
+
+    assert _similarity(first, second) >= DUPLICATE_IMAGE_SIMILARITY
+    assert not _is_duplicate(first, second)
+
+
+def test_one_file_under_two_tokens_is_one_file() -> None:
+    """Telegram addresses a file by its content, then signs the link per reader.
+
+    Two channels posting the identical clip get the same `file/<id>.mp4` and
+    different tokens, so comparing whole urls called them two clips and left it
+    to the poster to notice. Sixty pairs in three days.
+    """
+    first = _clip("https://cdn4.telesco.pe/file/7ee73.mp4?token=aaa", "one", 14, ())
+    second = _clip("https://cdn4.telesco.pe/file/7ee73.mp4?token=bbb", "two", 99, ())
+
+    assert _is_duplicate(first, second)

@@ -14,6 +14,7 @@ cycle.
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlsplit
 
 import numpy as np
 from numpy.typing import NDArray
@@ -23,6 +24,7 @@ from nyan.picture import (
     is_same_picture,
     median_signature,
     signature_deviation,
+    signature_spread,
 )
 from nyan.util import Serializable
 
@@ -86,10 +88,18 @@ MAX_LONE_AUTHORITY = AUTHORITY_MEDIA
 # whatever nobody else posted. See `_rank_by_relevance_and_variety`.
 VARIETY_LAMBDA = 0.7
 
-# How far two clips' reported lengths may differ and still be one clip. A
-# re-encode shifts the figure by a second at most; anything beyond that is
-# different footage, whatever the posters look like.
+# How far two clips' reported lengths may differ before the poster has to make
+# the whole case on its own. A re-encode shifts the figure by a fraction; past
+# that the two were cut differently, which is either a trim of one clip or two
+# clips — see `_is_duplicate` for how that is settled.
 DURATION_TOLERANCE = 1
+
+# How much a video's poster must vary across itself to be worth reading. Below
+# this it is a channel's intro card: flat colour and a caption, printing the
+# same in front of everything that channel posts. Measured over three days of
+# production posters — the cards sit near 7, every frame showing a scene sits
+# above 16, and the median is 41.
+MIN_POSTER_SPREAD = 16.0
 
 # How many copies must carry a signature before their consensus means
 # anything. Two is not enough and cannot be: the median of two values is their
@@ -344,6 +354,29 @@ def _similarity(first: MediaCandidate, second: MediaCandidate) -> float:
     return float(one @ other)
 
 
+def _same_file(first: str, second: str) -> bool:
+    """Whether two links address the same file under different signatures.
+
+    Telegram names a file by its content and then signs the link per reader, so
+    two channels posting the identical clip get the same `file/<id>.mp4` and
+    different tokens. Comparing whole urls called those two clips and left it to
+    the poster to notice — sixty pairs over three days of production.
+    """
+    if not first or not second:
+        return False
+    return urlsplit(first).path == urlsplit(second).path
+
+
+def _is_informative(candidate: MediaCandidate) -> bool:
+    """Whether this frame says anything about what it stands in front of.
+
+    A channel's intro card is flat colour and a caption, so it prints the same
+    in front of everything the channel posts. Unknown counts as uninformative:
+    a candidate stored before signatures existed cannot vouch for itself.
+    """
+    return signature_spread(candidate.signature) >= MIN_POSTER_SPREAD
+
+
 def _is_duplicate(
     first: MediaCandidate,
     second: MediaCandidate,
@@ -359,14 +392,24 @@ def _is_duplicate(
     re-crop or a re-colouring severe enough to move the hash, which is still
     plainly the same photograph.
     """
-    if first.url == second.url:
+    if first.url == second.url or _same_file(first.url, second.url):
         return True
-    # Length settles video before anything else looks at the poster. Telegram
-    # re-encodes what it is given, so one channel's poster of a clip can be
-    # another channel's poster of different footage from the same scene — same
-    # place, same light, same framing, and a hash that cannot tell them apart.
-    # Only when both lengths are known: older documents carry none, and no
-    # length is not a mismatch.
+    # Lengths that disagree mean the poster has to carry the whole case, and
+    # not every poster can. Two readings are taken from it normally; here only
+    # the hash counts, and only when the frame says something about the footage.
+    #
+    # Each half answers a case production produced. The embedding is dropped
+    # because it scored 0.935 between twelve seconds of a burning refinery and
+    # four seconds of empty sky — above the threshold that calls two pictures
+    # the same — while their hashes were twenty-six bits apart. The frame has to
+    # be informative because several channels open every clip with the same flat
+    # card, which prints identically in front of a 22-second video and a
+    # 42-second one.
+    #
+    # What is left is the case this rule used to lose: one clip trimmed to
+    # different lengths by different channels, which is far commoner than
+    # re-encoding and is why message 38950 showed the same video of the Kyiv
+    # metro three times.
     if (
         first.type == MEDIA_VIDEO
         and second.type == MEDIA_VIDEO
@@ -374,7 +417,13 @@ def _is_duplicate(
         and second.duration
         and abs(first.duration - second.duration) > DURATION_TOLERANCE
     ):
-        return False
+        return (
+            _is_informative(first)
+            and _is_informative(second)
+            and bool(first.hashes)
+            and len(first.hashes) == len(second.hashes)
+            and is_same_picture(first.hashes, second.hashes, max_distance)
+        )
     if (
         first.hashes
         and second.hashes

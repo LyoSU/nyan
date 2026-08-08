@@ -228,3 +228,28 @@ def test_a_stamped_copy_deviates_from_the_consensus_of_copies() -> None:
 def test_a_median_of_nothing_is_nothing() -> None:
     """Groups whose members predate signatures fall back to other rankings."""
     assert median_signature([]) == ()
+
+
+def test_a_flat_card_has_almost_no_spread() -> None:
+    """A channel's intro card varies barely at all across itself.
+
+    Measured on production video posters: the black `exilenova_plus` card that
+    several channels put in front of different clips prints at a spread near 7,
+    while every poster showing an actual scene sits above 16 and the median is
+    41. That gap is what separates a poster that says something about the
+    footage from one that only says whose channel it is.
+    """
+    from nyan.picture import signature_spread
+
+    flat = tuple([12] * 256)
+    varied = tuple(range(256))
+
+    assert signature_spread(flat) == 0.0
+    assert signature_spread(varied) > 50.0
+
+
+def test_the_spread_of_nothing_is_nothing() -> None:
+    from nyan.picture import signature_spread
+
+    assert signature_spread(()) == 0.0
+    assert signature_spread((7,)) == 0.0
