@@ -590,6 +590,26 @@
       ]
     },
     {
+      "name": "glavcomua",
+      "groups": {
+        "main": "blue",
+        "politics": "blue"
+      },
+      "alias": "Главком",
+      "issue": "main",
+      "kind": "media"
+    },
+    {
+      "name": "NGLmedia",
+      "groups": {
+        "main": "blue",
+        "politics": "blue"
+      },
+      "alias": "NGL.media",
+      "issue": "main",
+      "kind": "media"
+    },
+    {
       "name": "Novynarnia",
       "groups": {
         "main": "blue",
@@ -1549,6 +1569,14 @@
       "issue": "main"
     },
     {
+      "name": "vanek_nikolaev",
+      "groups": {
+        "main": "grey"
+      },
+      "alias": "Николаевский Ванёк",
+      "issue": "main"
+    },
+    {
       "name": "tgsn_ua",
       "groups": {
         "main": "grey"
@@ -1634,6 +1662,22 @@
       "monitor_only": true,
       "badge_sources": {
         "sanctions": "https://www.radiosvoboda.org/a/news-huzhva-shariy-pushylin-sanktsiyi/33088208.html"
+      }
+    },
+    {
+      "name": "stranaua",
+      "groups": {
+        "main": "blue"
+      },
+      "alias": "Страна",
+      "issue": "main",
+      "kind": "media",
+      "badges": [
+        "sanctions"
+      ],
+      "monitor_only": true,
+      "badge_sources": {
+        "sanctions": "https://imi.org.ua/news/zelenskyj-uviv-u-diyu-rishennya-rnbo-shhodo-blokuvannya-kloniv-sajtiv-shariya-ta-strany-i43880"
       }
     },
     {
@@ -1870,6 +1914,26 @@
         "politics": "blue"
       },
       "alias": "Відсіч",
+      "issue": "politics",
+      "kind": "organization"
+    },
+    {
+      "name": "fuckcorruption",
+      "groups": {
+        "main": "blue",
+        "politics": "blue"
+      },
+      "alias": "Центр протидії корупції",
+      "issue": "politics",
+      "kind": "organization"
+    },
+    {
+      "name": "chesno_movement",
+      "groups": {
+        "main": "blue",
+        "politics": "blue"
+      },
+      "alias": "Рух ЧЕСНО",
       "issue": "politics",
       "kind": "organization"
     },
@@ -3120,7 +3184,14 @@
       },
       "alias": "Шейх Тамир",
       "issue": "politics",
-      "kind": "person"
+      "kind": "person",
+      "badges": [
+        "investigated"
+      ],
+      "monitor_only": true,
+      "badge_sources": {
+        "investigated": "https://disinfo.detector.media/post/shcho-stoit-za-piarom-telehram-kanalu-sheikh-tamir"
+      }
     },
     {
       "name": "dangerlyoha",
