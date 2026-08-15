@@ -387,6 +387,16 @@
       ]
     },
     {
+      "name": "krymrealii",
+      "groups": {
+        "main": "blue",
+        "war": "blue"
+      },
+      "alias": "Крим.Реалії",
+      "issue": "war",
+      "kind": "media"
+    },
+    {
       "name": "cxemu",
       "groups": {
         "main": "blue",
@@ -1081,6 +1091,16 @@
         "economy": "blue"
       },
       "alias": "ЕП. Економічні хроніки війни",
+      "issue": "economy",
+      "kind": "media"
+    },
+    {
+      "name": "mindua",
+      "groups": {
+        "main": "blue",
+        "economy": "blue"
+      },
+      "alias": "Mind.ua",
       "issue": "economy",
       "kind": "media"
     },
