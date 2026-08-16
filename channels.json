@@ -2139,6 +2139,15 @@
       "issue": "war"
     },
     {
+      "name": "exilenova_plus",
+      "groups": {
+        "main": "grey",
+        "war": "grey"
+      },
+      "alias": "Exilenova+",
+      "issue": "war"
+    },
+    {
       "name": "totallzrada",
       "groups": {
         "main": "grey"
