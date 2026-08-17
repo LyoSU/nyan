@@ -418,6 +418,38 @@ def test_a_cluster_stored_before_replies_were_passed_has_no_neighbour() -> None:
     assert Cluster.fromdict(record).reply_to_headline == ""
 
 
+def test_a_reply_is_shown_the_text_of_the_post_above(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """The neighbour's headline alone could not stop the re-telling.
+
+    What did not fit the headline — the reasons, the numbers — looked like news
+    to a model that saw nothing else, and the reply re-told the whole story.
+    """
+    cluster = _make_multi_channel_cluster()
+    cluster.reply_to_headline = "Росія вдарила по Запоріжжю"
+    cluster.reply_to_text = "Влучання у два будинки, четверо поранених."
+    calls = _patch_llm(monkeypatch)
+
+    assert cluster.summary
+    assert "Влучання у два будинки" in prompt_text(calls[0])
+
+
+def test_the_text_a_reply_stands_under_survives_storage() -> None:
+    cluster = _make_multi_channel_cluster()
+    cluster.reply_to_headline = "Росія вдарила по Запоріжжю"
+    cluster.reply_to_text = "Влучання у два будинки, четверо поранених."
+
+    restored = Cluster.deserialize(cluster.serialize())
+
+    assert restored.reply_to_text == "Влучання у два будинки, четверо поранених."
+
+
+def test_a_cluster_stored_before_reply_texts_carries_none() -> None:
+    record = _make_multi_channel_cluster().asdict()
+    del record["reply_to_text"]
+
+    assert Cluster.fromdict(record).reply_to_text == ""
+
+
 # ------------------------------------------------- what the rewrite already said
 #
 # A rewrite edits a post that is already in the channel and on the site, so the

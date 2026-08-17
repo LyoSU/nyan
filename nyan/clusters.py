@@ -225,6 +225,10 @@ class Cluster:
         # already been said. Stored rather than recomputed: a rewrite has to see
         # the same neighbour the reader does, not whichever one is closest now.
         self.reply_to_headline: str = ""
+        # And that post's prose. The headline alone was too thin: what did not
+        # fit it — the reasons, the numbers — looked like news to a model that
+        # saw nothing else, and the reply re-told the whole story.
+        self.reply_to_text: str = ""
 
         self.saved_annotation_doc: Document | None = None
         self.saved_first_doc: Document | None = None
@@ -516,6 +520,7 @@ class Cluster:
             annotation_doc=self.annotation_doc,
             today=today,
             reply_to_headline=self.reply_to_headline,
+            reply_to_text=self.reply_to_text,
             previous_post=previous_post,
         )
 
@@ -718,6 +723,7 @@ class Cluster:
             "is_important": self.is_important,
             "create_time": self.create_time,
             "reply_to_headline": self.reply_to_headline,
+            "reply_to_text": self.reply_to_text,
             "embedding": self.embedding_mean,
             "embedding_count": self.embedding_count,
         }
@@ -774,8 +780,10 @@ class Cluster:
 
         cluster.is_important = d.get("is_important", False)
         cluster.create_time = d.get("create_time")
-        # Absent in clusters stored before replies were passed to the model.
+        # Absent in clusters stored before replies were passed to the model,
+        # and the text in those stored before the model saw more than a title.
         cluster.reply_to_headline = d.get("reply_to_headline") or ""
+        cluster.reply_to_text = d.get("reply_to_text") or ""
 
         return cluster
 

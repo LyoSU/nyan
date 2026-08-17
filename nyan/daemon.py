@@ -289,14 +289,20 @@ class Daemon:
         relation = self.find_relation(cluster, posted_clusters, issue_name)
         parent = relation.cluster
 
-        # The same story as one already published, and that post can still be
-        # edited: fold this in rather than sending a second message. `find_similar`
-        # missed it because the clusterer had cut the story into pieces that share
-        # too few source URLs to be recognized by their URLs alone.
+        # The same story as one already published: fold this in rather than
+        # sending a second message. `find_similar` missed it because the
+        # clusterer had cut the story into pieces that share too few source
+        # URLs to be recognized by their URLs alone. Past the editing window
+        # the documents are still taken in and nothing is sent — "same" means
+        # the reader has already been told this, and an evening story re-told
+        # by the morning wave of channels was absorbed exactly so whenever the
+        # clusterer happened to merge the waves itself. Only a post this issue
+        # never carried is excused: folding the story into it would tell these
+        # readers nothing.
         if (
             relation.verdict == SAME
             and parent is not None
-            and parent.accepts_updates(max_time_updated)
+            and parent.get_issue_message(issue_name) is not None
         ):
             self.update_posted_cluster(
                 cluster, parent, posted_clusters, issue_name, max_time_updated
@@ -304,17 +310,19 @@ class Daemon:
             return
 
         # Everything else stands under the post it belongs to, if there is one:
-        # a development of it, or the same story arriving after that post stopped
-        # being re-rendered — which absorbing would publish to nobody.
+        # a development of it, or the same story told where this issue's readers
+        # cannot see it.
         reply_to = None
         if parent is not None:
             message = parent.get_issue_message(issue_name)
             if message is not None:
                 reply_to = message.message_id
-                # The stored headline, never `parent.headline`: that property
-                # calls the LLM on demand, so asking a neighbour for its title
-                # would pay to rewrite a post that is already published.
+                # The stored headline and summary, never `parent.headline`:
+                # that property calls the LLM on demand, so asking a neighbour
+                # for its title would pay to rewrite a post that is already
+                # published.
                 cluster.reply_to_headline = parent.stored_headline or ""
+                cluster.reply_to_text = parent.stored_summary.as_text()
 
         post = self.renderer.render_cluster(cluster, issue_name)
         if post is None:

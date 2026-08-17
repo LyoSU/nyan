@@ -32,6 +32,7 @@ def _cluster(
     message_id: int | None = None,
     headline: str = "",
     age_seconds: int = 600,
+    message_issue: str = "main",
 ) -> Cluster:
     """One cluster of one document. Published when given a message id."""
     cluster = Cluster()
@@ -54,7 +55,7 @@ def _cluster(
         )
     )
     if message_id is not None:
-        cluster.messages.append(MessageId(message_id=message_id, issue="main"))
+        cluster.messages.append(MessageId(message_id=message_id, issue=message_issue))
     if headline:
         # As a cluster loaded from Mongo carries it: already written and paid
         # for, so reading it asks nothing of the LLM.
@@ -113,11 +114,13 @@ def test_a_distant_neighbour_is_never_asked_about(monkeypatch: Any) -> None:
 class _FakeRenderer:
     def __init__(self) -> None:
         self.rendered_under: list[str] = []
+        self.rendered_knowing: list[str] = []
 
     def render_cluster(
         self, cluster: Cluster, issue_name: str, post_format: str | None = None
     ) -> str:
         self.rendered_under.append(cluster.reply_to_headline)
+        self.rendered_knowing.append(cluster.reply_to_text)
         return "post"
 
     def render_discussion_message(self, doc: Document) -> str:
@@ -131,6 +134,7 @@ class _FakeClient:
         self.mapping_updates = 0
         self.discussion_messages: list[str] = []
         self.updated: list[int] = []
+        self.sent = 0
 
     def has_issue(self, issue_name: str) -> bool:
         return issue_name in self.issues
@@ -140,6 +144,7 @@ class _FakeClient:
 
     def send_post(self, post: Any, issue_name: str, reply_to: int | None = None) -> MessageId:
         self.reply_to = reply_to
+        self.sent += 1
         return MessageId(message_id=99, issue=issue_name)
 
     def get_discussion(self, message: MessageId) -> MessageId:
@@ -216,15 +221,19 @@ def test_the_same_story_joins_the_post_that_already_told_it(monkeypatch: Any) ->
     assert len(parent.docs) == 2, "the new documents joined it"
 
 
-def test_the_same_story_too_late_to_edit_is_published_under_the_post(
+def test_the_same_story_too_late_to_edit_is_absorbed_without_a_second_post(
     monkeypatch: Any,
 ) -> None:
-    """A development that arrives after the post has stopped being re-rendered.
+    """The same story resurfacing after the post stopped being re-rendered.
 
-    Folding it in would publish nothing at all: `update_posted_cluster` takes
-    the documents and then declines to re-render, so the story disappears. It
-    goes out as a reply instead, which is how a newsroom carries an update to
-    something already printed.
+    An evening story is re-told by the morning wave of channels, always past
+    the editing window — measured over a month of production, one such pair
+    every two days. Replying with a full post read as a duplicate, while the
+    very same wave was absorbed silently whenever the clusterer happened to
+    merge it on its own. "Same" means the reader has already been told this,
+    so the documents are taken in and nothing is sent: `refresh_post` declines
+    the edit by itself, and a genuine development is a `follow_up`, which
+    still goes out under the post.
     """
     daemon = _daemon(max_time_updated=600)
     daemon.renderer = _FakeRenderer()  # type: ignore[assignment]
@@ -235,9 +244,66 @@ def test_the_same_story_too_late_to_edit_is_published_under_the_post(
     daemon.send_cluster(_cluster([1.0, 0.02]), "main", _posted(parent), None, None)
 
     client: Any = daemon.client
-    assert client.reply_to == 11
-    assert client.updated == []
-    assert len(parent.docs) == 1, "the old post keeps what it was sent with"
+    assert client.sent == 0, "the reader has already been told this"
+    assert client.updated == [], "past editing, the post stays as it was sent"
+    assert len(parent.docs) == 2, "but the documents still join it"
+
+
+def test_the_same_story_this_issue_never_saw_is_still_published(
+    monkeypatch: Any,
+) -> None:
+    """"Same" is same for a reader — and this issue's readers never saw it.
+
+    A cluster's documents can belong to several issues while its post went out
+    in only one of them. Folding the story into that post would tell this
+    issue's readers nothing, so it goes out on its own here.
+    """
+    daemon = _daemon(max_time_updated=600)
+    daemon.renderer = _FakeRenderer()  # type: ignore[assignment]
+    daemon.client = _FakeClient()  # type: ignore[assignment]
+    parent = _cluster(
+        [1.0, 0.0],
+        message_id=11,
+        headline="Вибух",
+        age_seconds=7200,
+        message_issue="war",
+    )
+    _patch_judge(monkeypatch, SAME)
+
+    daemon.send_cluster(_cluster([1.0, 0.02]), "main", _posted(parent), None, None)
+
+    client: Any = daemon.client
+    assert client.sent == 1
+    assert client.reply_to is None, "nothing of this story stands in this issue"
+    assert len(parent.docs) == 1, "the other issue's post is left alone"
+
+
+def test_a_reply_is_written_knowing_the_text_it_stands_under(
+    monkeypatch: Any,
+) -> None:
+    """The neighbour's headline alone was too thin to stop the re-telling.
+
+    The reasons behind a decision rarely fit its headline, so a reply written
+    against the headline honestly took them for news and re-told the whole
+    story. The model gets the text the reader sees above, not just its title.
+    """
+    daemon = _daemon()
+    daemon.renderer = _FakeRenderer()  # type: ignore[assignment]
+    daemon.client = _FakeClient()  # type: ignore[assignment]
+    parent = _cluster(
+        [1.0, 0.0], message_id=11, headline="Трамп скоротив навчання", age_seconds=3600
+    )
+    assert parent.saved_analysis is not None
+    parent.saved_analysis["summary"] = {
+        "headline": "Трамп скоротив навчання",
+        "blocks": [{"type": "text", "text": "Причина — стосунки з Кімом."}],
+    }
+    _patch_judge(monkeypatch, FOLLOW_UP)
+
+    daemon.send_cluster(_cluster([1.0, 0.02]), "main", _posted(parent), None, None)
+
+    renderer: Any = daemon.renderer
+    assert renderer.rendered_knowing == ["Причина — стосунки з Кімом."]
 
 
 def test_the_sources_are_not_repeated_in_the_comments() -> None:
