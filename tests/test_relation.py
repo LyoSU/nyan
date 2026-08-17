@@ -162,6 +162,23 @@ def test_a_failed_call_publishes_the_story(monkeypatch: Any) -> None:
     assert judge_relation(story, [other]).verdict == UNRELATED
 
 
+def test_the_judge_is_told_stale_facts_make_a_follow_up(monkeypatch: Any) -> None:
+    """Materially new facts of the same event must go out, not be swallowed.
+
+    A "same" verdict is absorbed silently even past the editing window, so the
+    boundary between "same" and "follow_up" carries real weight: grown casualty
+    counts or an official denial reach the reader only as a "follow_up".
+    """
+    story = _cluster([1.0, 0.0])
+    other = _cluster([0.99, 0.14], message_id=1, age_seconds=3600)
+    calls = _patch_llm(monkeypatch, json.dumps({"match": 1, "verdict": "same"}))
+
+    judge_relation(story, [other])
+
+    prompt = "\n".join(str(m["content"]) for m in calls[0]["messages"])
+    assert "кількість жертв зросла" in prompt
+
+
 def test_the_candidates_reach_the_prompt(monkeypatch: Any) -> None:
     """The model has to see the text it is judging, numbered as it answers."""
     story = _cluster([1.0, 0.0], text="Нова подія сталася зранку.")
