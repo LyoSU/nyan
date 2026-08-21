@@ -41,9 +41,14 @@ ATTRIBUTED_TITLE = "Пишуть окремі джерела"
 
 # Heading size of the post's headline, 1-6, where 1 is the largest. 3 is the
 # smallest size that still reads as a headline rather than as emphasized body
-# text — checked against the whole ladder in a real client. The other two sizes
-# in a post derive from it, so tuning this one keeps the hierarchy: the headline
-# stays above the section heading, an important story above an ordinary one.
+# text — checked against the whole ladder in a real client. The section heading
+# derives from it, so tuning this one keeps the hierarchy intact.
+#
+# Every headline gets this size, a breaking story included. A bigger heading on
+# important clusters used to say "breaking", but the flag behind it fires on
+# whichever story happened to gather four channels inside a quarter of an hour,
+# which is most of them — so the size varied for a reason no reader could infer
+# from the post, and read as a rendering glitch rather than as emphasis.
 DEFAULT_HEADLINE_SIZE = 3
 
 # How a newsroom labels an attribution under a picture. The label matters as
@@ -257,12 +262,11 @@ class Renderer:
         self.post_format = config.get("post_format", "rich")
         self.sources_open = config.get("sources_open", False)
 
-        # One knob for the whole post: the two other heading sizes are one step
-        # either side of it, so they cannot cross over when it is retuned.
+        # One knob for the whole post: the section heading is one step below it,
+        # so the two cannot cross over when it is retuned.
         self.headline_size = clamp_heading_size(
             int(config.get("headline_size", DEFAULT_HEADLINE_SIZE))
         )
-        self.important_headline_size = clamp_heading_size(self.headline_size - 1)
         self.section_size = clamp_heading_size(self.headline_size + 1)
 
     def render_cluster(
@@ -360,18 +364,11 @@ class Renderer:
 
         headline = summary.headline or self.split_headline(cluster)[0]
         if headline:
-            # Important clusters get a bigger heading rather than a badge:
-            # a marker that appears often stops reading as a marker.
-            size = (
-                self.important_headline_size
-                if cluster.is_important
-                else self.headline_size
-            )
             # Bold on top of the heading: a client renders a heading in a
             # semibold weight, which at this size reads as body text with a
             # larger font rather than as a headline. Compared side by side, the
             # bold one is the one that looks like a news headline.
-            blocks.append(rich.heading(rich.bold(headline), size=size))
+            blocks.append(rich.heading(rich.bold(headline), size=self.headline_size))
         media = self.render_media(cluster)
 
         if summary:

@@ -290,7 +290,14 @@ def test_the_headline_is_bold_inside_its_heading(renderer: Renderer) -> None:
     }
 
 
-def test_important_cluster_gets_a_bigger_heading(renderer: Renderer) -> None:
+def test_importance_does_not_change_the_heading_size(renderer: Renderer) -> None:
+    """One size for every post, a breaking story included.
+
+    The bigger heading it used to get depended on a flag that fires whenever a
+    story gathered its channels quickly, so the size changed for a reason a
+    reader could not see in the post — which reads as a broken render, not as
+    emphasis.
+    """
     cluster = make_cluster([make_doc(VERIFIED, "https://t.me/rbc_news/1")])
     normal = renderer.render_cluster(cluster, "main")
     cluster.is_important = True
@@ -298,8 +305,7 @@ def test_important_cluster_gets_a_bigger_heading(renderer: Renderer) -> None:
 
     assert normal is not None and normal.blocks is not None
     assert important is not None and important.blocks is not None
-    # Smaller number, bigger type: sizes run 1-6 the way h1-h6 do.
-    assert find(important.blocks, "heading")["size"] < find(normal.blocks, "heading")["size"]
+    assert find(important.blocks, "heading")["size"] == find(normal.blocks, "heading")["size"]
 
 
 def make_renderer(tmp_path: Any, channels: Channels, **overrides: Any) -> Renderer:
@@ -346,7 +352,6 @@ def test_headline_size_out_of_range_is_clamped(
     assert renderer.headline_size == 6
     # Nothing goes below the smallest size, so the section heading shares it.
     assert renderer.section_size == 6
-    assert renderer.important_headline_size == 5
 
 
 def test_without_a_headline_the_first_sentence_stands_in(renderer: Renderer) -> None:
