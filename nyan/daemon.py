@@ -41,6 +41,16 @@ DEFAULT_ATTACH_THRESHOLD = 0.94
 # And how far apart in time the two may be.
 ATTACH_WINDOW_SECONDS = 6 * 3600
 
+# How long a send whose answer never arrived keeps its story from being sent
+# again. Long enough to cover the whole life of a story rather than a single
+# iteration: a short window would only postpone the duplicate, since the same
+# documents come back around on every pass. A story that really did fail to
+# post is not lost by this — it returns as soon as enough new sources have
+# joined it for the overlap with the held attempt to fall below
+# `similar_min_intersection_ratio`, and a story that never gathers those was
+# not worth a second attempt.
+DEFAULT_PENDING_SEND_TTL = 3 * 3600
+
 
 def _unit_rows(embeddings: list[list[float]]) -> NDArray[np.float32]:
     matrix = np.asarray(embeddings, dtype=np.float32)
@@ -283,6 +293,25 @@ class Daemon:
             )
             return
 
+        # An earlier send of this same story whose answer never came back. The
+        # post may well be in the channel — that is what cannot be known — so it
+        # is held rather than sent again. Checked before rendering: an answer of
+        # "already told" should not cost an LLM call.
+        pending = posted_clusters.find_pending(
+            cluster,
+            issue_name,
+            min_intersection_ratio=self.config["similar_min_intersection_ratio"],
+            current_ts=get_current_ts(),
+            ttl=self.config.get("pending_send_ttl", DEFAULT_PENDING_SEND_TTL),
+        )
+        if pending is not None:
+            logging.warning(
+                "Unconfirmed send %ds ago, holding: %s",
+                get_current_ts() - (pending.pending_since or 0),
+                cluster.cropped_title,
+            )
+            return
+
         # Looked up before rendering, not after: the post's text is written
         # lazily inside render_cluster, and the model has to know what the reader
         # already sees directly above this post.
@@ -335,13 +364,26 @@ class Daemon:
         if self.sends_docs_to_discussion:
             self.client.update_discussion_mapping(issue_name)
 
+        # On record before Telegram is asked, and persisted right away: what
+        # has to survive is the send whose answer never comes back, including
+        # the one that takes the process down with it.
+        posted_clusters.mark_pending(cluster, issue_name, get_current_ts())
+        if posted_clusters_path:
+            posted_clusters.save(posted_clusters_path)
+        if mongo_config_path:
+            posted_clusters.save_one_to_mongo(mongo_config_path, cluster)
+
         message = self.client.send_post(post, issue_name, reply_to=reply_to)
         if message is None:
+            # Whether the post exists is exactly what is unknown here, so the
+            # attempt stays on record and the next iteration reads it.
+            logging.warning(
+                "No answer for %s, holding the story back", cluster.cropped_title
+            )
             return
 
         cluster.create_time = get_current_ts()
-        cluster.messages.append(message)
-        posted_clusters.add(cluster)
+        posted_clusters.confirm_pending(cluster, message)
 
         logging.info("Sent as message %d, saving", message.message_id)
         if posted_clusters_path:

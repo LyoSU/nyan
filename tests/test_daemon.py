@@ -491,3 +491,90 @@ def test_a_document_from_another_hour_is_not_offered(monkeypatch: Any) -> None:
 
     assert attached == 0
     assert seen == []
+
+
+class _LosesTheAnswerClient(_FakeClient):
+    """Telegram takes the post; the answer never comes back.
+
+    What the daemon sees — `None` — is what it sees when nothing was published
+    at all, and the two are indistinguishable from here. This is the client of
+    the night of 26-08-2026, when 39955 and 39956 carried the same story.
+    """
+
+    def send_post(
+        self, post: Any, issue_name: str, reply_to: int | None = None
+    ) -> MessageId | None:
+        self.sent += 1
+        return None
+
+
+def test_a_post_whose_answer_was_lost_is_not_sent_a_second_time(
+    monkeypatch: Any,
+) -> None:
+    """The story goes out once even when the confirmation does not arrive.
+
+    Nothing was saved for a send that returned `None`, so the next iteration met
+    the same documents as a story never told and published them again. The post
+    the reader already had was invisible to every check: `find_similar` and the
+    judge both read `messages`, which an unconfirmed post has none of.
+    """
+    daemon = _daemon()
+    daemon.renderer = _FakeRenderer()  # type: ignore[assignment]
+    daemon.client = _LosesTheAnswerClient()  # type: ignore[assignment]
+    _patch_judge(monkeypatch, UNRELATED)
+    posted = Clusters()
+
+    daemon.send_cluster(_cluster([1.0, 0.0]), "main", posted, None, None)
+    daemon.send_cluster(_cluster([1.0, 0.0]), "main", posted, None, None)
+
+    client: Any = daemon.client
+    assert client.sent == 1, "the story went out once"
+
+
+def test_an_unconfirmed_send_survives_the_process_that_made_it() -> None:
+    """The attempt is on record in storage, not only in the running daemon.
+
+    An exception on the way out — a read timeout is the one that happens —
+    reaches `run`, which does not catch it, and the process ends. Held in
+    memory alone the attempt would die with it, and the daemon that comes back
+    up would meet the story as one never told.
+    """
+    cluster = _cluster([1.0, 0.0])
+    posted = Clusters()
+    posted.mark_pending(cluster, "main", get_current_ts())
+
+    after_restart = Clusters()
+    after_restart.add(Cluster.fromdict(cluster.asdict()))
+
+    assert (
+        after_restart.find_pending(
+            _cluster([1.0, 0.0]),
+            "main",
+            min_intersection_ratio=0.15,
+            current_ts=get_current_ts(),
+            ttl=3600,
+        )
+        is not None
+    )
+
+
+def test_a_story_held_long_enough_is_published_after_all(monkeypatch: Any) -> None:
+    """Holding is not losing.
+
+    A send that really did fail leaves the same record as one that quietly
+    succeeded, so the hold has to end: past the window the story is published,
+    on the reading that a duplicate hours later costs less than a story the
+    feed never carried.
+    """
+    daemon = _daemon(pending_send_ttl=3600)
+    daemon.renderer = _FakeRenderer()  # type: ignore[assignment]
+    daemon.client = _FakeClient()  # type: ignore[assignment]
+    _patch_judge(monkeypatch, UNRELATED)
+    held = _cluster([1.0, 0.0])
+    posted = Clusters()
+    posted.mark_pending(held, "main", get_current_ts() - 7200)
+
+    daemon.send_cluster(_cluster([1.0, 0.0]), "main", posted, None, None)
+
+    client: Any = daemon.client
+    assert client.sent == 1

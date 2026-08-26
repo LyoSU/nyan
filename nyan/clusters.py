@@ -219,6 +219,16 @@ class Cluster:
         self.create_time: int | None = None
         self.messages: list[MessageId] = list()
 
+        # When this cluster was handed to Telegram, for as long as it is unknown
+        # whether Telegram took it. Written before the send and cleared by the
+        # answer, so a send whose answer never arrives leaves the attempt on
+        # record: `messages` cannot, since the message id is exactly what was
+        # lost. Every duplicate the feed has published came from this gap.
+        self.pending_since: int | None = None
+        # And which feed it was going to, since the same story can legitimately
+        # be published once per issue.
+        self.pending_issue: str = ""
+
         # Headline of the post this one is published as a reply to, when the
         # daemon found a close enough neighbour. The reader sees that post
         # directly above this one, so the text is written knowing what has
@@ -722,6 +732,8 @@ class Cluster:
             "generation": analysis.get("generation"),
             "is_important": self.is_important,
             "create_time": self.create_time,
+            "pending_since": self.pending_since,
+            "pending_issue": self.pending_issue,
             "reply_to_headline": self.reply_to_headline,
             "reply_to_text": self.reply_to_text,
             "embedding": self.embedding_mean,
@@ -780,6 +792,8 @@ class Cluster:
 
         cluster.is_important = d.get("is_important", False)
         cluster.create_time = d.get("create_time")
+        cluster.pending_since = d.get("pending_since")
+        cluster.pending_issue = d.get("pending_issue") or ""
         # Absent in clusters stored before replies were passed to the model,
         # and the text in those stored before the model saw more than a title.
         cluster.reply_to_headline = d.get("reply_to_headline") or ""
@@ -831,6 +845,65 @@ class Clusters:
         if intersection_ratio < min_intersection_ratio:
             return None
         return old_cluster
+
+    def find_pending(
+        self,
+        cluster: Cluster,
+        issue_name: str,
+        min_intersection_ratio: float,
+        current_ts: int,
+        ttl: int,
+    ) -> Cluster | None:
+        """A send of this same story that Telegram never confirmed.
+
+        Recognized the way `find_similar` recognizes a story it has already
+        published — by how many of the documents it stands on are the same —
+        because that is the one thing about a story that does not change
+        between two iterations. The cluster's `hash` does: it is taken over the
+        set of channels, so a single late-arriving source rewrites it.
+
+        Only an attempt younger than `ttl` counts. Past that the attempt is
+        treated as the failure it looked like, and the story goes out.
+        """
+        if not cluster.urls or ttl <= 0:
+            return None
+        best: Cluster | None = None
+        best_count = 0
+        for pending in self.clid2cluster.values():
+            if pending.messages or pending.pending_since is None:
+                continue
+            if pending.pending_issue != issue_name:
+                continue
+            if current_ts - pending.pending_since > ttl:
+                continue
+            known = {normalize_url(url) for url in pending.urls}
+            count = sum(1 for url in cluster.urls if normalize_url(url) in known)
+            if count > best_count:
+                best, best_count = pending, count
+        if best is None:
+            return None
+        if best_count / len(cluster.urls) < min_intersection_ratio:
+            return None
+        return best
+
+    def mark_pending(self, cluster: Cluster, issue_name: str, current_ts: int) -> None:
+        """Put the attempt on record before Telegram is asked.
+
+        Before rather than after, which is the whole point: what has to survive
+        is the case where the answer never comes back.
+        """
+        cluster.pending_since = current_ts
+        cluster.pending_issue = issue_name
+        if cluster.create_time is None:
+            cluster.create_time = current_ts
+        self.add(cluster)
+
+    def confirm_pending(self, cluster: Cluster, message: MessageId) -> None:
+        """Telegram answered: the attempt becomes a published post."""
+        cluster.pending_since = None
+        cluster.pending_issue = ""
+        cluster.messages.append(message)
+        self.add(cluster)
 
     def published_documents(self) -> dict[str, int]:
         """Which post each already published document belongs to.
@@ -931,6 +1004,19 @@ class Clusters:
             for line in r:
                 clusters.add(Cluster.deserialize(line))
         return clusters
+
+    def save_one_to_mongo(self, mongo_config_path: str, cluster: Cluster) -> None:
+        """Persist a single cluster, for when the rest have not changed.
+
+        `save_to_mongo` rewrites every cluster of the last day, which is the
+        right thing at the end of an iteration and the wrong thing twice per
+        post: recording an attempt before sending it must not cost a write per
+        story already published today.
+        """
+        if cluster.clid is None:
+            return
+        collection = get_clusters_collection(mongo_config_path)
+        collection.replace_one({"clid": cluster.clid}, cluster.asdict(), upsert=True)
 
     def save_to_mongo(self, mongo_config_path: str, only_new: bool = True) -> int:
         collection = get_clusters_collection(mongo_config_path)
