@@ -22,7 +22,9 @@ the model marks up what matters in the sentence it just wrote, and no code has
 to match a separately-returned phrase back into the headline.
 """
 
+import html
 import re
+from collections.abc import Collection
 
 from nyan.rich import RichText, bold, italic, link
 
@@ -31,6 +33,23 @@ from nyan.rich import RichText, bold, italic, link
 # wins and an unpaired delimiter simply never matches. DOTALL because a span
 # may wrap across a newline the model put in.
 _MARKUP = re.compile(r"\*\*(.+?)\*\*|__(.+?)__", re.DOTALL)
+
+# The third construct, for one place only: a digest lede. When a single event
+# carries the whole period, the digest opens with a sentence or two about it,
+# and the posts that sentence draws on have to be reachable from it — the
+# alternative is the same facts again as link rows underneath, which is the
+# duplication a lede is meant to avoid. Same idea as the emphasis span picking
+# the link anchor: the model marks the phrase in the sentence it is writing.
+# Which URLs are real is not this module's business; `nyan.summary` strips the
+# ones the model was never given before the text gets here.
+_LINK = re.compile(r"\[([^\[\]]+?)\]\((https?://[^\s()]+)\)")
+
+# Both kinds in one scan, so a link and an emphasis span never overlap: the
+# earlier one in the text wins and the scan resumes after it.
+_TOKEN = re.compile(
+    _MARKUP.pattern + r"|\[(?P<link_text>[^\[\]]+?)\]\((?P<url>https?://[^\s()]+)\)",
+    re.DOTALL,
+)
 
 # Delimiters left over after the paired ones are consumed. They are the model's
 # mistakes, and a reader who sees "**" reads it as our bug, so they are dropped
@@ -60,17 +79,24 @@ def parse_markup(text: str) -> RichText:
     parts: list[RichText] = []
     emphasized = 0
     position = 0
-    for match in _MARKUP.finditer(text):
+    for match in _TOKEN.finditer(text):
         plain = text[position : match.start()]
         if plain:
             parts.append(strip_markup(plain))
-        inner, is_bold = (
-            (match.group(1), True) if match.group(1) is not None else (match.group(2), False)
-        )
-        content = strip_markup(inner)
-        if content:
-            emphasized += len(content)
-            parts.append(bold(content) if is_bold else italic(content))
+        if match.group("link_text") is not None:
+            content = strip_markup(match.group("link_text")).strip()
+            if content:
+                parts.append(link(content, match.group("url")))
+        else:
+            inner, is_bold = (
+                (match.group(1), True)
+                if match.group(1) is not None
+                else (match.group(2), False)
+            )
+            content = strip_markup(inner)
+            if content:
+                emphasized += len(content)
+                parts.append(bold(content) if is_bold else italic(content))
         position = match.end()
 
     tail = text[position:]
@@ -81,14 +107,30 @@ def parse_markup(text: str) -> RichText:
     if not parts:
         return ""
 
-    # No markup found, or so much of it that the contrast is gone: the words
-    # are what matter, so return them unadorned.
-    plain_text = strip_markup(text)
-    if emphasized == 0 or emphasized > len(plain_text) * MAX_EMPHASIS_RATIO:
-        return plain_text
-    if len(parts) == 1 and isinstance(parts[0], str):
-        return parts[0]
-    return parts
+    # So much emphasis that the contrast is gone: the words are what matter,
+    # so the emphasis goes. Links stay, since a link is navigation rather than
+    # contrast, and dropping one would lose the reader a post.
+    if emphasized > len(strip_markup(text)) * MAX_EMPHASIS_RATIO:
+        parts = [
+            part["text"]
+            if isinstance(part, dict) and part["type"] in ("bold", "italic")
+            else part
+            for part in parts
+        ]
+    return _collapse(parts)
+
+
+def _collapse(parts: list[RichText]) -> RichText:
+    """Adjacent plain strings merged; a lone string returned as itself."""
+    merged: list[RichText] = []
+    for part in parts:
+        if isinstance(part, str) and merged and isinstance(merged[-1], str):
+            merged[-1] += part
+        else:
+            merged.append(part)
+    if len(merged) == 1 and isinstance(merged[0], str):
+        return merged[0]
+    return merged
 
 
 def link_emphasis(text: str, url: str) -> RichText:
@@ -149,4 +191,53 @@ def strip_markup(text: str) -> str:
     needs the facts, and a stray `**` in one only teaches the next model to
     write more of them.
     """
-    return _STRAY_DELIMITERS.sub("", text)
+    return _STRAY_DELIMITERS.sub("", _LINK.sub(r"\1", text))
+
+
+def find_links(text: str) -> list[dict[str, str]]:
+    """Every `[text](url)` in the copy, in order, as `{"text", "url"}` pairs."""
+    return [
+        {"text": strip_markup(m.group(1)).strip(), "url": m.group(2)}
+        for m in _LINK.finditer(text)
+    ]
+
+
+def drop_links(text: str, keep: Collection[str]) -> str:
+    """`text` with every link whose URL is not in `keep` reduced to its words.
+
+    A link the model invented still carries a true phrase — the phrase is what
+    it wrote about the news — so the words stay and only the destination goes.
+    """
+    return _LINK.sub(lambda m: m.group(0) if m.group(2) in keep else m.group(1), text)
+
+
+# Inline entity types and the HTML tag Telegram's parse_mode expects for each.
+# `marked` has no HTML counterpart, so it degrades to bold: the intent was
+# emphasis, and bold is the emphasis HTML has.
+_HTML_TAGS = {"bold": "b", "italic": "i", "marked": "b"}
+
+
+def to_html(text: RichText) -> str:
+    """The same inline entities, serialized for a plain `sendMessage`.
+
+    `parse_markup` and `link_emphasis` build entity trees for rich messages,
+    and a post that goes out as ordinary HTML — the digest, which is a page of
+    lines and gains nothing from rich blocks but their padding — needs the very
+    same trees as tags. One serializer keeps the two paths from drifting: the
+    model's markup means the same thing whichever way the message is sent.
+
+    Every literal string is escaped here and nowhere else, so news copy that
+    contains `<` or `&` can never break the message.
+    """
+    if isinstance(text, str):
+        return html.escape(text, quote=False)
+    if isinstance(text, list):
+        return "".join(to_html(part) for part in text)
+    inner = to_html(text.get("text", ""))
+    kind = text.get("type")
+    if kind == "url":
+        return (
+            f'<a href="{html.escape(str(text.get("url", "")), quote=True)}">{inner}</a>'
+        )
+    tag = _HTML_TAGS.get(str(kind))
+    return f"<{tag}>{inner}</{tag}>" if tag else inner

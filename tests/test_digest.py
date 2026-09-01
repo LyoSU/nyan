@@ -12,8 +12,16 @@ from typing import Any
 import pytest
 
 from nyan import digest
-from nyan.summary import DIGEST_LIMITS, LINKS, SUBHEADING, TEXT, Summary, parse_summary
-from nyan.util import format_period_uk
+from nyan.summary import (
+    DIGEST_LIMITS,
+    HIDDEN,
+    LINKS,
+    SUBHEADING,
+    TEXT,
+    Summary,
+    parse_summary,
+)
+from nyan.util import format_dt_uk, format_period_uk, ts_to_dt
 
 
 HOUR = 3600
@@ -154,7 +162,9 @@ def test_a_digest_may_carry_a_heading_per_topic() -> None:
         blocks.append(
             {
                 "type": LINKS,
-                "links": [{"text": f"Новина {i}", "url": f"https://t.me/UAliveNews/{i}"}],
+                "links": [
+                    {"text": f"Новина {i}", "url": f"https://t.me/UAliveNews/{i}"}
+                ],
             }
         )
     summary = digest_summary(*blocks, urls=urls)
@@ -172,15 +182,9 @@ def test_a_headline_without_a_marked_phrase_is_linked_whole() -> None:
         urls={"https://t.me/UAliveNews/1"},
     )
 
-    blocks = digest.render_digest(summary, NOW - 8 * HOUR, NOW, "8 годин")
+    text = digest.render_digest(summary, NOW - 8 * HOUR, NOW, "8 годин")
 
-    assert [b["type"] for b in blocks] == ["heading", "list", "divider", "footer"]
-    item = blocks[1]["items"][0]["blocks"][0]
-    assert item["text"] == {
-        "type": "url",
-        "text": "Новина",
-        "url": "https://t.me/UAliveNews/1",
-    }
+    assert f'{digest.BULLET} <a href="https://t.me/UAliveNews/1">Новина</a>' in text
 
 
 def test_only_the_marked_phrase_of_a_headline_is_linked() -> None:
@@ -198,35 +202,138 @@ def test_only_the_marked_phrase_of_a_headline_is_linked() -> None:
         urls={"https://t.me/UAliveNews/1"},
     )
 
-    blocks = digest.render_digest(summary, NOW - 8 * HOUR, NOW, "8 годин")
+    text = digest.render_digest(summary, NOW - 8 * HOUR, NOW, "8 годин")
 
-    assert blocks[1]["items"][0]["blocks"][0]["text"] == [
-        "Рада ухвалила ",
-        {
-            "type": "url",
-            "text": "бюджет на 2027 рік",
-            "url": "https://t.me/UAliveNews/1",
-        },
-    ]
-
-
-def test_the_footer_names_the_span_the_digest_covers() -> None:
-    summary = digest_summary(
-        {"type": TEXT, "text": "Текст."}, urls=set()
+    assert (
+        'Рада ухвалила <a href="https://t.me/UAliveNews/1">бюджет на 2027 рік</a>'
+        in text
     )
 
-    blocks = digest.render_digest(summary, NOW - 8 * HOUR, NOW, "8 годин")
 
-    assert "—" in blocks[-1]["text"]
+def test_the_last_line_names_the_span_the_digest_covers() -> None:
+    summary = digest_summary({"type": TEXT, "text": "Текст."}, urls=set())
+
+    text = digest.render_digest(summary, NOW - HOUR, NOW, "1 годину")
+
+    assert text.endswith(f"<i>{digest.format_span(NOW - HOUR, NOW)}</i>")
+
+
+def test_a_span_within_one_day_names_the_date_once() -> None:
+    """ "1 вересня, 14:00 — 1 вересня, 18:00" makes a reader compare two dates."""
+    span = digest.format_span(NOW - HOUR, NOW)
+    date = format_dt_uk(ts_to_dt(NOW), with_time=False)
+
+    assert span.count(date) == 1
+    assert "–" in span and " — " not in span
+
+
+def test_a_span_across_midnight_names_both_dates() -> None:
+    span = digest.format_span(NOW - 30 * HOUR, NOW)
+
+    assert (
+        span
+        == f"{format_dt_uk(ts_to_dt(NOW - 30 * HOUR))} — {format_dt_uk(ts_to_dt(NOW))}"
+    )
 
 
 def test_a_digest_without_a_headline_names_the_period() -> None:
     summary = digest_summary({"type": TEXT, "text": "Текст."}, urls=set())
     summary.headline = ""
 
-    blocks = digest.render_digest(summary, NOW - 8 * HOUR, NOW, "8 годин")
+    text = digest.render_digest(summary, NOW - 8 * HOUR, NOW, "8 годин")
 
-    assert blocks[0]["text"] == "Головне за 8 годин"
+    assert text.startswith("<b>Головне за 8 годин</b>\n\n")
+
+
+def test_a_section_name_sits_directly_on_its_headlines() -> None:
+    """A blank line between a label and its list makes the label a stray line,
+    while a blank line between two blocks of different kinds is the paragraph
+    break the eye expects."""
+    summary = digest_summary(
+        {"type": TEXT, "text": "Лід."},
+        {"type": SUBHEADING, "text": "💰 Гроші"},
+        {
+            "type": LINKS,
+            "links": [{"text": "Новина", "url": "https://t.me/UAliveNews/1"}],
+        },
+        urls={"https://t.me/UAliveNews/1"},
+    )
+
+    text = digest.render_digest(summary, NOW - 8 * HOUR, NOW, "8 годин")
+
+    assert f"Лід.\n\n<b>💰 Гроші</b>\n{digest.BULLET} " in text
+
+
+def test_the_tail_folds_into_an_expandable_quote() -> None:
+    """Every post stays in the digest; the ones past the reading budget open on
+    a tap instead of stretching the post over three screens."""
+    summary = digest_summary(
+        {
+            "type": LINKS,
+            "links": [{"text": "Головна", "url": "https://t.me/UAliveNews/1"}],
+        },
+        {
+            "type": HIDDEN,
+            "summary": "Ще 2 новини",
+            "links": [
+                {"text": "Дрібна **перша**", "url": "https://t.me/UAliveNews/2"},
+                {"text": "Дрібна друга", "url": "https://t.me/UAliveNews/3"},
+            ],
+        },
+        urls={f"https://t.me/UAliveNews/{i}" for i in (1, 2, 3)},
+    )
+
+    text = digest.render_digest(summary, NOW - 8 * HOUR, NOW, "8 годин")
+
+    assert (
+        "<blockquote expandable><b>Ще 2 новини</b>\n"
+        f'{digest.BULLET} Дрібна <a href="https://t.me/UAliveNews/2">перша</a>\n'
+        f'{digest.BULLET} <a href="https://t.me/UAliveNews/3">Дрібна друга</a>'
+        "</blockquote>"
+    ) in text
+
+
+def test_news_copy_is_escaped_for_html() -> None:
+    summary = digest_summary(
+        {"type": SUBHEADING, "text": "Рада <i> & уряд"},
+        {
+            "type": LINKS,
+            "links": [{"text": "Курс **>42 грн**", "url": "https://t.me/UAliveNews/1"}],
+        },
+        urls={"https://t.me/UAliveNews/1"},
+    )
+    summary.headline = "A & B"
+
+    text = digest.render_digest(summary, NOW - 8 * HOUR, NOW, "8 годин")
+
+    assert "<b>A &amp; B</b>" in text
+    assert "<b>Рада &lt;i&gt; &amp; уряд</b>" in text
+    assert ">&gt;42 грн</a>" in text
+
+
+def test_an_overlong_digest_loses_whole_blocks_from_the_end(monkeypatch: Any) -> None:
+    """Telegram refuses the whole message past its limit, and a digest that is
+    not published leaves a shift unreported. Better a shorter one."""
+    urls = {f"https://t.me/UAliveNews/{i}" for i in range(3)}
+    summary = digest_summary(
+        *[
+            {"type": LINKS, "links": [{"text": "Н" * 40, "url": url}]}
+            for url in sorted(urls)
+        ],
+        urls=urls,
+    )
+    full = digest.render_digest(summary, NOW - 8 * HOUR, NOW, "8 годин")
+    monkeypatch.setattr(digest, "MAX_MESSAGE_LENGTH", digest.visible_length(full) - 1)
+
+    text, dropped = digest.fit_to_limit(summary, NOW - 8 * HOUR, NOW, "8 годин")
+
+    assert dropped == 1
+    assert digest.visible_length(text) <= digest.MAX_MESSAGE_LENGTH
+    assert "UAliveNews/0" in text and "UAliveNews/2" not in text
+
+
+def test_visible_length_counts_text_not_tags() -> None:
+    assert digest.visible_length('<a href="https://x">a &amp; b</a>') == 5
 
 
 def test_missing_posts_are_reported() -> None:
@@ -404,3 +511,49 @@ def test_a_digest_with_no_predecessor_says_nothing_about_one(monkeypatch: Any) -
     )
 
     assert "Про попередню добірку" not in calls[0]["messages"][0]["content"]
+
+
+def test_a_lede_links_the_posts_it_tells_about() -> None:
+    """Variant with a lede: one event carried the period, so it opens as a
+    sentence, and the posts behind the sentence are reachable from it rather
+    than repeated as rows underneath."""
+    summary = digest_summary(
+        {
+            "type": TEXT,
+            "text": "Загиблих у Києві [зросла до восьми](https://t.me/UAliveNews/1), "
+            "у Борисполі [четверо](https://t.me/UAliveNews/2).",
+        },
+        {
+            "type": LINKS,
+            "links": [{"text": "Інше", "url": "https://t.me/UAliveNews/3"}],
+        },
+        urls={f"https://t.me/UAliveNews/{i}" for i in (1, 2, 3)},
+    )
+    clusters = [{"url": f"https://t.me/UAliveNews/{i}"} for i in (1, 2, 3, 4)]
+
+    text = digest.render_digest(summary, NOW - 8 * HOUR, NOW, "8 годин")
+
+    assert (
+        'Загиблих у Києві <a href="https://t.me/UAliveNews/1">зросла до восьми</a>, '
+        'у Борисполі <a href="https://t.me/UAliveNews/2">четверо</a>.'
+    ) in text
+    # The lede's posts count as covered.
+    assert digest.count_missing(summary, clusters) == ["https://t.me/UAliveNews/4"]
+
+
+def test_the_previous_lede_reaches_the_next_prompt_as_a_sentence() -> None:
+    summary = digest_summary(
+        {
+            "type": TEXT,
+            "text": "Загиблих [зросла до восьми](https://t.me/UAliveNews/1).",
+        },
+        {
+            "type": LINKS,
+            "links": [{"text": "Інше **тут**", "url": "https://t.me/UAliveNews/2"}],
+        },
+        urls={"https://t.me/UAliveNews/1", "https://t.me/UAliveNews/2"},
+    )
+
+    form = digest.previous_form({"summary": summary.asdict()})
+
+    assert form["headlines"] == ["Інше тут", "Загиблих зросла до восьми."]

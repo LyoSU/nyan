@@ -201,9 +201,19 @@ def summary_blocks(
                 rich.blockquote(rich.paragraph(block.text), credit=block.author)
             )
         elif block.type == nyan_summary.HIDDEN:
-            blocks.append(
-                rich.details(block.summary, rich.paragraph(parse_markup(block.text)))
-            )
+            inside: list[Block] = []
+            if block.text:
+                inside.append(rich.paragraph(parse_markup(block.text)))
+            if block.links:
+                inside.append(
+                    rich.bullet_list(
+                        *[
+                            [rich.paragraph(link_emphasis(link["text"], link["url"]))]
+                            for link in block.links
+                        ]
+                    )
+                )
+            blocks.append(rich.details(block.summary, *inside))
         elif block.type == nyan_summary.SUBHEADING:
             blocks.append(rich.heading(block.text, size=section_size))
         elif block.type in (nyan_summary.DISPUTED, nyan_summary.ATTRIBUTED):
@@ -625,7 +635,9 @@ class Renderer:
         badges: list[str] = []
         for _, docs in groups:
             for doc in docs:
-                channel = self.channels.channels.get(normalize_channel_id(doc.channel_id))
+                channel = self.channels.channels.get(
+                    normalize_channel_id(doc.channel_id)
+                )
                 if channel is None:
                     continue
                 if channel.kind and self.channels.kind_emoji(channel.kind):

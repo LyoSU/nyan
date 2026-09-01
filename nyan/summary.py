@@ -24,7 +24,7 @@ from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from nyan.markup import strip_markup
+from nyan.markup import drop_links, find_links, strip_markup
 from nyan.util import normalize_channel_id
 
 
@@ -95,6 +95,7 @@ DIGEST_LIMITS = Limits(
     per_type={QUOTE: 2, HIDDEN: 3, DISPUTED: 1, ATTRIBUTED: 1},
     opening=(TEXT, QUOTE, LINKS, SUBHEADING),
 )
+
 
 @dataclass
 class SummaryBlock:
@@ -178,6 +179,7 @@ class Summary:
         for block in self.blocks:
             if block.type in (TEXT, SUBHEADING, HIDDEN):
                 parts.append(block.text)
+                parts.extend(link["text"] for link in block.links)
             elif block.type == LIST:
                 parts.extend(block.items)
             elif block.type == LINKS:
@@ -296,9 +298,29 @@ def _parse_block(
     if block_type in (DISPUTED, ATTRIBUTED):
         return _parse_claims(raw, block_type, context, known_channels)
 
-    if block_type in (TEXT, SUBHEADING):
+    if block_type == SUBHEADING:
         text = _clean(raw.get("text"), MAX_TEXT_LENGTH)
         return SummaryBlock(type=block_type, text=text) if text else None
+
+    if block_type == TEXT:
+        # A paragraph may link the posts it draws on — the digest lede does —
+        # under the same guard as a list: a link the model was never given is
+        # reduced to its words. For a story post nothing is allowed, so its
+        # prose can carry no links at all. The links kept are also recorded on
+        # the block, so a digest can tell which posts its lede already covers.
+        written = _clean(raw.get("text"), MAX_TEXT_LENGTH)
+        text = drop_links(written, known_urls)
+        if not text:
+            return None
+        links = find_links(text)
+        for invented in find_links(written):
+            if invented not in links:
+                logging.info(
+                    "Dropping an invented link %r from prose for '%s'",
+                    invented["url"],
+                    context,
+                )
+        return SummaryBlock(type=TEXT, text=text, links=links)
 
     if block_type == LIST:
         raw_items = raw.get("items")
@@ -324,13 +346,21 @@ def _parse_block(
     if block_type == HIDDEN:
         text = _clean(raw.get("text"), MAX_TEXT_LENGTH)
         summary = _clean(raw.get("summary"), MAX_SUMMARY_LENGTH)
-        if not text:
+        # A hidden block may fold away headlines as well as prose: in a digest
+        # that is how the tail of a busy shift stays in the post without
+        # stretching it over three screens. The same URL guard applies, since a
+        # folded invented link is still an invented link.
+        folded = _parse_links(raw, context, known_urls)
+        links = folded.links if folded else []
+        if not text and not links:
             return None
         # Without a summary the reader is asked to tap on nothing in
         # particular, so the content is better shown than hidden.
         if not summary:
-            return SummaryBlock(type=TEXT, text=text)
-        return SummaryBlock(type=HIDDEN, text=text, summary=summary)
+            if text:
+                return SummaryBlock(type=TEXT, text=text)
+            return SummaryBlock(type=LINKS, links=links)
+        return SummaryBlock(type=HIDDEN, text=text, summary=summary, links=links)
 
     logging.info("Skipping an unknown block type %r for '%s'", block_type, context)
     return None

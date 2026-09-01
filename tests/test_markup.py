@@ -7,7 +7,14 @@ the caller is a daemon rendering a post nobody is watching.
 
 import pytest
 
-from nyan.markup import link_emphasis, parse_markup, strip_markup
+from nyan.markup import (
+    drop_links,
+    find_links,
+    link_emphasis,
+    parse_markup,
+    strip_markup,
+    to_html,
+)
 
 
 URL = "https://t.me/UAliveNews/1"
@@ -121,7 +128,10 @@ def test_nested_delimiters_do_not_produce_leftovers() -> None:
 def test_only_the_marked_phrase_becomes_the_link() -> None:
     parsed = link_emphasis("Рада ухвалила **бюджет на 2027 рік**", URL)
 
-    assert parsed == ["Рада ухвалила ", {"type": "url", "text": "бюджет на 2027 рік", "url": URL}]
+    assert parsed == [
+        "Рада ухвалила ",
+        {"type": "url", "text": "бюджет на 2027 рік", "url": URL},
+    ]
 
 
 def test_the_words_around_the_phrase_stay_plain() -> None:
@@ -162,7 +172,9 @@ def test_a_phrase_covering_the_whole_headline_is_not_a_phrase() -> None:
 
 
 def test_a_phrase_covering_most_of_the_headline_loses_its_contrast() -> None:
-    parsed = link_emphasis("Рада **ухвалила бюджет на 2027 рік у першому читанні**", URL)
+    parsed = link_emphasis(
+        "Рада **ухвалила бюджет на 2027 рік у першому читанні**", URL
+    )
 
     assert anchors(parsed) == ["Рада ухвалила бюджет на 2027 рік у першому читанні"]
 
@@ -203,3 +215,53 @@ def test_an_empty_headline_produces_nothing() -> None:
 
 def test_strip_markup_keeps_the_words() -> None:
     assert strip_markup("Загинуло **троє** людей") == "Загинуло троє людей"
+
+
+def test_to_html_serializes_the_same_entities_as_tags() -> None:
+    text = to_html(link_emphasis("Курс **>42 грн** & далі", "https://t.me/x/1?a=1&b=2"))
+
+    assert text == (
+        'Курс <a href="https://t.me/x/1?a=1&amp;b=2">&gt;42 грн</a> &amp; далі'
+    )
+
+
+def test_to_html_handles_bold_italic_and_plain() -> None:
+    assert to_html(parse_markup("Без світла **1,2 млн**, __курсив__")) == (
+        "Без світла <b>1,2 млн</b>, <i>курсив</i>"
+    )
+    assert to_html("a < b") == "a &lt; b"
+    assert to_html("") == ""
+
+
+def test_a_link_in_prose_becomes_a_url_entity() -> None:
+    """The digest lede: the posts it draws on are reachable from the sentence."""
+    assert parse_markup("Загиблих [зросла до восьми](https://t.me/x/1), решта") == [
+        "Загиблих ",
+        {"type": "url", "text": "зросла до восьми", "url": "https://t.me/x/1"},
+        ", решта",
+    ]
+
+
+def test_strip_markup_keeps_the_words_of_a_link() -> None:
+    assert strip_markup("Загиблих [зросла **до** восьми](https://t.me/x/1).") == (
+        "Загиблих зросла до восьми."
+    )
+
+
+def test_links_survive_when_emphasis_is_dropped_for_covering_the_line() -> None:
+    """Emphasis is contrast and goes when there is nothing to contrast with;
+    a link is navigation and losing it loses the reader a post."""
+    assert parse_markup("**Усе жирне тут** [далі](https://t.me/x/1)") == [
+        "Усе жирне тут ",
+        {"type": "url", "text": "далі", "url": "https://t.me/x/1"},
+    ]
+
+
+def test_drop_links_reduces_unknown_ones_to_their_words() -> None:
+    text = "[Добре](https://t.me/x/1) і [зле](https://evil.example/1)"
+
+    assert drop_links(text, {"https://t.me/x/1"}) == "[Добре](https://t.me/x/1) і зле"
+    assert find_links(text) == [
+        {"text": "Добре", "url": "https://t.me/x/1"},
+        {"text": "зле", "url": "https://evil.example/1"},
+    ]

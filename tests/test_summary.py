@@ -10,8 +10,10 @@ from typing import Any
 
 from nyan.summary import (
     ATTRIBUTED,
+    DIGEST_LIMITS,
     DISPUTED,
     HIDDEN,
+    LINKS,
     LIST,
     QUOTE,
     SUBHEADING,
@@ -385,3 +387,84 @@ def test_a_channel_named_a_little_wrong_is_still_matched() -> None:
     assert summary.blocks[1].claims == [
         {"text": "подробиця", "channels": ["suspilne_zp"]}
     ]
+
+
+def test_a_hidden_block_may_fold_headlines() -> None:
+    """The tail of a busy digest: still in the post, opened on a tap."""
+    summary = parse_summary(
+        {
+            "blocks": [
+                {
+                    "type": LINKS,
+                    "links": [{"text": "Головна", "url": "https://t.me/UAliveNews/0"}],
+                },
+                {
+                    "type": HIDDEN,
+                    "summary": "Ще 2 новини",
+                    "links": [
+                        {"text": "Справжня", "url": "https://t.me/UAliveNews/1"},
+                        {"text": "Вигадана", "url": "https://t.me/UAliveNews/999"},
+                    ],
+                },
+            ]
+        },
+        allowed_urls={"https://t.me/UAliveNews/0", "https://t.me/UAliveNews/1"},
+        limits=DIGEST_LIMITS,
+    )
+
+    assert types(summary) == [LINKS, HIDDEN]
+    # The same URL guard as a visible list: folded away is not a place to hide
+    # an invented link.
+    assert [link["text"] for link in summary.blocks[1].links] == ["Справжня"]
+    assert "Справжня" in summary.as_text()
+
+
+def test_folded_headlines_without_a_summary_are_shown() -> None:
+    summary = parse_summary(
+        {
+            "blocks": [
+                {
+                    "type": HIDDEN,
+                    "links": [{"text": "Новина", "url": "https://t.me/UAliveNews/1"}],
+                }
+            ]
+        },
+        allowed_urls={"https://t.me/UAliveNews/1"},
+        limits=DIGEST_LIMITS,
+    )
+
+    assert types(summary) == [LINKS]
+
+
+def test_prose_keeps_only_links_the_model_was_given() -> None:
+    """A lede may link the posts it tells about; an invented destination goes,
+    the words it was attached to stay."""
+    summary = parse_summary(
+        blocks(
+            {
+                "type": TEXT,
+                "text": "Загиблих [зросла до восьми](https://t.me/UAliveNews/1), "
+                "уряд знайшов [70 млрд](https://evil.example/1).",
+            }
+        ),
+        allowed_urls={"https://t.me/UAliveNews/1"},
+        limits=DIGEST_LIMITS,
+    )
+
+    block = summary.blocks[0]
+    assert block.text == (
+        "Загиблих [зросла до восьми](https://t.me/UAliveNews/1), уряд знайшов 70 млрд."
+    )
+    assert block.links == [
+        {"text": "зросла до восьми", "url": "https://t.me/UAliveNews/1"}
+    ]
+
+
+def test_story_prose_carries_no_links_at_all() -> None:
+    """A story post is given no URLs, so any link in its prose is invented."""
+    summary = parse_summary(
+        blocks({"type": TEXT, "text": "Рада [ухвалила](https://t.me/x/1) бюджет."})
+    )
+
+    assert summary.blocks[0].text == "Рада ухвалила бюджет."
+    assert summary.blocks[0].links == []

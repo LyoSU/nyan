@@ -21,26 +21,35 @@ It knows what the last digest said. A long story reaches the reader as several
 posts across several shifts — the strike, then the confirmed toll — so the
 headlines of the previous digest go into the prompt. Without them every later
 stage is written as if the event had just happened.
+
+It goes out as ordinary HTML, not as a rich message. A digest is a page of
+one-line headlines under a few bold section names, and rich blocks give every
+heading, list item and divider its own padding: twenty headlines became three
+screens, which is the opposite of what a digest is for. HTML has everything
+the digest uses — bold, links, a quotation, an expandable quote for the tail
+of a busy shift — at the density of a plain message. The feed posts stay rich,
+because they use what rich buys: a slideshow, collapsed sources, a dim footer.
 """
 
 import argparse
+import html
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any
 
 from jinja2 import Template
 
-from nyan import rich
 from nyan.client import TelegramClient
 from nyan.clusters import Clusters
 from nyan.logs import setup_logging
 from nyan.mongo import get_topics_collection
 from nyan.openai import openai_completion, DEFAULT_MODEL, DEFAULT_REASONING_EFFORT
-from nyan.markup import strip_markup
-from nyan.renderer import summary_blocks
-from nyan.summary import DIGEST_LIMITS, SUBHEADING, Summary, parse_summary
+from nyan.markup import link_emphasis, parse_markup, strip_markup, to_html
+from nyan import summary as nyan_summary
+from nyan.summary import DIGEST_LIMITS, SUBHEADING, Summary, SummaryBlock, parse_summary
 from nyan.util import (
     PUBLISH_CHANNEL_URL,
     format_date_uk,
@@ -63,10 +72,15 @@ DIGEST_ISSUE = "digest"
 # username: DIGEST_CHANNEL_ID=@ShortUA.
 DIGEST_CHANNEL_ID = os.getenv("DIGEST_CHANNEL_ID") or ""
 
-# Heading size inside the digest. One step below its own headline, the same
-# relationship a section heading has inside a news post.
-DIGEST_HEADLINE_SIZE = 3
-DIGEST_SECTION_SIZE = 4
+# The marker in front of every headline. Not an HTML list, because Telegram
+# has none: a marker is what separates one wrapped headline from the next on
+# a phone, where most of them take two lines.
+BULLET = "•"
+
+# Telegram's limit on the text of one message, entities excluded. A digest of
+# forty posts stays well under it, but the check is what turns a rare overflow
+# into a shorter post rather than a 400 and a lost shift.
+MAX_MESSAGE_LENGTH = 4096
 
 # How far back the window may stretch when digests keep failing to publish.
 # Without a bound, a week of quiet shifts would eventually build a prompt too
@@ -126,14 +140,20 @@ def previous_form(record: dict[str, Any] | None) -> dict[str, Any]:
         "headlines": [
             strip_markup(link["text"])
             for block in summary.blocks
+            if block.type != nyan_summary.TEXT
             for link in block.links
+        ]
+        # A lede covers its posts in one or two sentences rather than a line
+        # each, so the sentences are what the reader saw.
+        + [
+            strip_markup(block.text)
+            for block in summary.blocks
+            if block.type == nyan_summary.TEXT and block.links
         ],
     }
 
 
-def window(
-    mongo_config_path: str, duration_hours: float, now: int
-) -> tuple[int, int]:
+def window(mongo_config_path: str, duration_hours: float, now: int) -> tuple[int, int]:
     """The half-open range of creation times this digest covers.
 
     Starts where the last published digest stopped, so nothing falls between
@@ -177,7 +197,11 @@ def collect_clusters(
         # What the post says, not what the channel said: already summarized,
         # already stripped of boilerplate, already paid for.
         summary = cluster.stored_summary
-        text = summary.as_text() if summary else (cluster.annotation_doc.patched_text or "")
+        text = (
+            summary.as_text()
+            if summary
+            else (cluster.annotation_doc.patched_text or "")
+        )
         collected.append(
             {
                 "url": f"{PUBLISH_CHANNEL_URL}/{messages[0].message_id}",
@@ -239,24 +263,115 @@ def write_digest(
     )
 
 
-def render_digest(
-    summary: Summary, start_ts: int, end_ts: int, period: str
-) -> list[rich.Block]:
+def format_span(start_ts: int, end_ts: int) -> str:
+    """Which shift the digest covers: "1 вересня, 14:00–18:00".
+
+    The span, not just a date: two digests a day share one. The date is named
+    once when both ends fall on it, since "1 вересня, 14:00 — 1 вересня, 18:00"
+    makes a reader check whether the two dates differ.
+    """
+    start, end = ts_to_dt(start_ts), ts_to_dt(end_ts)
+    if start.date() == end.date():
+        return f"{format_dt_uk(start)}–{end.strftime('%H:%M')}"
+    return f"{format_dt_uk(start)} — {format_dt_uk(end)}"
+
+
+def _headline_lines(links: list[dict[str, str]]) -> str:
+    return "\n".join(
+        f"{BULLET} {to_html(link_emphasis(link['text'], link['url']))}"
+        for link in links
+    )
+
+
+def render_block(block: SummaryBlock) -> str:
+    """One of the model's blocks as HTML, or "" for one with nothing to show."""
+    kind = block.type
+    if kind == nyan_summary.TEXT:
+        return to_html(parse_markup(block.text))
+    if kind == nyan_summary.SUBHEADING:
+        return f"<b>{html.escape(block.text, quote=False)}</b>"
+    if kind == nyan_summary.LINKS:
+        return _headline_lines(block.links)
+    if kind == nyan_summary.LIST:
+        return "\n".join(
+            f"{BULLET} {html.escape(item, quote=False)}" for item in block.items
+        )
+    if kind == nyan_summary.QUOTE:
+        text = html.escape(block.text, quote=False)
+        author = html.escape(block.author, quote=False)
+        return f"<blockquote>{text}\n— {author}</blockquote>"
+    if kind == nyan_summary.HIDDEN:
+        # Expandable: the summary line shows, the rest opens on a tap. The
+        # closest HTML has to a rich `details`, and enough for a digest whose
+        # tail is a list of headlines the reader may or may not want.
+        inside = [to_html(parse_markup(block.text))] if block.text else []
+        if block.links:
+            inside.append(_headline_lines(block.links))
+        summary = html.escape(block.summary, quote=False)
+        return "<blockquote expandable><b>{}</b>\n{}</blockquote>".format(
+            summary, "\n".join(inside)
+        )
+    # The attributed kinds never survive parsing here — a digest names no
+    # channels — and a disputed line without them is a plain sentence.
+    return to_html(parse_markup(block.text)) if block.text else ""
+
+
+def render_digest(summary: Summary, start_ts: int, end_ts: int, period: str) -> str:
+    """The whole digest as one HTML message.
+
+    Blocks are separated by a blank line, except that a section name sits
+    directly on top of its headlines: a gap there would make the name look
+    like a stray line rather than a label for what follows.
+    """
     headline = summary.headline or f"Головне за {period}"
-    blocks: list[rich.Block] = [rich.heading(headline, size=DIGEST_HEADLINE_SIZE)]
-    blocks.extend(summary_blocks(summary, section_size=DIGEST_SECTION_SIZE))
-    blocks.append(rich.divider())
-    # The span, not just the date: a reader has to know which shift this covers.
-    span = f"{format_dt_uk(ts_to_dt(start_ts))} — {format_dt_uk(ts_to_dt(end_ts))}"
-    blocks.append(rich.footer(span))
-    return blocks
+    body = ""
+    tight = False
+    for block in summary.blocks:
+        rendered = render_block(block)
+        if not rendered:
+            continue
+        if body:
+            body += "\n" if tight else "\n\n"
+        body += rendered
+        tight = block.type == nyan_summary.SUBHEADING
+    parts = [f"<b>{html.escape(headline, quote=False)}</b>", body]
+    # The span in the smallest voice HTML has. Under the text, where a reader
+    # who wants it looks and a reader who does not reads past it.
+    parts.append(f"<i>{format_span(start_ts, end_ts)}</i>")
+    return "\n\n".join(part for part in parts if part)
+
+
+_TAG = re.compile(r"<[^>]+>")
+
+
+def visible_length(text: str) -> int:
+    """How much of the HTML Telegram counts against its message limit."""
+    return len(html.unescape(_TAG.sub("", text)))
+
+
+def fit_to_limit(
+    summary: Summary, start_ts: int, end_ts: int, period: str
+) -> tuple[str, int]:
+    """The rendered digest, shortened from the end until Telegram will take it.
+
+    Whole blocks go, never half a line, so what remains is still a digest.
+    Returns the text and how many blocks were dropped; the caller logs the
+    latter, since a digest that quietly lost its last section would hide the
+    exact problem this is meant to surface.
+    """
+    kept = Summary(headline=summary.headline, blocks=list(summary.blocks))
+    dropped = 0
+    text = render_digest(kept, start_ts, end_ts, period)
+    while visible_length(text) > MAX_MESSAGE_LENGTH and kept.blocks:
+        kept.blocks.pop()
+        dropped += 1
+        text = render_digest(kept, start_ts, end_ts, period)
+    return text, dropped
 
 
 def count_missing(summary: Summary, clusters: list[dict[str, Any]]) -> list[str]:
     """Posts the model left out. Not fatal, but worth seeing in the log."""
-    listed = {
-        link["url"] for block in summary.blocks for link in block.links
-    }
+    listed = {link["url"] for block in summary.blocks for link in block.links}
     return [cluster["url"] for cluster in clusters if cluster["url"] not in listed]
 
 
@@ -324,7 +439,13 @@ def main(
     if missing:
         logging.warning("Digest left out %d of %d posts", len(missing), len(clusters))
 
-    blocks = render_digest(summary, start_ts, end_ts, period)
+    text, dropped = fit_to_limit(summary, start_ts, end_ts, period)
+    if dropped:
+        logging.warning(
+            "Digest exceeded %d characters, dropped its last %d blocks",
+            MAX_MESSAGE_LENGTH,
+            dropped,
+        )
 
     should_publish = auto
     if not auto:
@@ -343,7 +464,7 @@ def main(
                 )
                 return
             client.clone_issue(digest_issue_name, DIGEST_CHANNEL_ID, like=issue_name)
-        message = client.send_rich_message(blocks, issue_name=digest_issue_name)
+        message = client.send_message(text, issue_name=digest_issue_name)
     if message is None:
         # Nothing was published, so nothing has been digested: keeping the
         # watermark means the next run tries the same posts again.
