@@ -14,21 +14,22 @@ from nyan import summary as nyan_summary
 from nyan.channels import GROUP_ORDER, Channels
 from nyan.clusters import Cluster
 from nyan.document import Document
-from nyan.markup import link_emphasis, parse_markup
+from nyan.markup import find_links, link_emphasis, parse_markup
 from nyan.media import MEDIA_ANIMATION, MEDIA_PHOTO, MEDIA_VIDEO, MediaItem
+from nyan.restatement import (
+    LEDE_RESTATED,
+    QUOTED_RESTATED,
+    find_sentence_end,
+    restatement,
+)
 from nyan.rich import Block, RenderedPost, RichText
-from nyan.summary import Summary
+from nyan.summary import Summary, SummaryBlock
 from nyan.util import DEFAULT_TIMEZONE, normalize_channel_id, ts_to_dt
 
 
 # Used to derive a headline from the text itself when the LLM did not supply
-# one — because the call failed, or the cluster predates headlines.
-#
-# A newline counts as a sentence break: Telegram posts separate their lead from
-# the body with one, and "…— Reuters.\n«Я зателефонував…" contains no period
-# followed by a space at all. Looking only for ". " left such posts without any
-# heading, which is most of them.
-_SENTENCE_END_CHARS = ".!?"
+# one — because the call failed, or the cluster predates headlines. Where the
+# first sentence ends is `nyan.restatement.find_sentence_end`'s call.
 MAX_DERIVED_HEADLINE_LENGTH = 120
 
 # Titles for the two attributed blocks. Both are stated as a relation between
@@ -160,6 +161,61 @@ def claim_items(
         text = str(claim.get("text", "")).rstrip(".")
         items.append([rich.paragraph(rich.join([text, credit], f" {CREDIT_DASH} "))])
     return items
+
+
+def lede_index(blocks: Sequence[SummaryBlock]) -> int | None:
+    """Which block is the lede: the paragraph the reader meets under the headline.
+
+    The first block when it is prose, or the second when a quotation leads — a
+    quote lead is legitimate, and the paragraph after it is still the first
+    thing said in the post's own voice, right under the bold line. Anything
+    further down has other blocks between it and the headline, so repeating the
+    headline there is a different defect and not this function's business.
+    """
+    for index in range(min(2, len(blocks))):
+        if blocks[index].type == nyan_summary.TEXT:
+            return index
+        if blocks[index].type != nyan_summary.QUOTE:
+            return None
+    return None
+
+
+def unrestated(summary: Summary) -> Summary:
+    """`summary` without a lede sentence that says the headline again.
+
+    The headline sits in bold directly above the lede, and a lede that opens by
+    restating it — the same subject, the same verb, the same object with a
+    clause of padding — reads as the post stuttering. The prompt forbids this
+    and the model still does it, so the renderer cuts the sentence: what is left
+    of the paragraph is what the reader did not already get from the headline,
+    and if nothing is left the paragraph goes and the headline carries the post.
+
+    Only the first sentence is measured. A lede that restates and then goes on
+    keeps its continuation; a second sentence is never checked, because by then
+    the reader is past the headline.
+    """
+    if not summary.headline:
+        return summary
+    blocks = list(summary.blocks)
+    index = lede_index(blocks)
+    if index is None:
+        return summary
+    lede = blocks[index]
+    end = find_sentence_end(lede.text)
+    sentence, rest = (lede.text, "") if end is None else (lede.text[:end], lede.text[end:])
+    if restatement(summary.headline, sentence) < LEDE_RESTATED:
+        return summary
+    logging.info(
+        "Cutting a lede sentence that restates the headline %r: %r",
+        summary.headline,
+        sentence,
+    )
+    rest = rest.strip()
+    if rest:
+        blocks[index] = SummaryBlock(type=nyan_summary.TEXT, text=rest, links=find_links(rest))
+    else:
+        del blocks[index]
+    return Summary(headline=summary.headline, blocks=blocks)
 
 
 def summary_blocks(
@@ -382,6 +438,9 @@ class Renderer:
         media = self.render_media(cluster)
 
         if summary:
+            # What the reader has not already read in the bold line above: a
+            # lede that opens by saying the headline again loses that sentence.
+            summary = unrestated(summary)
             # Headline, lede, photo: the reader gets what happened before the
             # picture of it, instead of scrolling a slideshow to reach the
             # first sentence. Where the lede ends is `lede_length`'s decision,
@@ -464,39 +523,31 @@ class Renderer:
         """Return (headline, body) for the cluster's text.
 
         With an LLM headline the full text becomes the body, the way a
-        headline and a lede work in print. Without one, the first sentence
-        stands in, and the rest becomes the body so nothing is said twice.
+        headline and a lede work in print — unless the text is one short
+        sentence and the headline is that sentence in nine words, which is the
+        shape of most one-channel posts. Then the body is left out: the words
+        are the channel's and are quoted whole or not at all, so nothing is
+        cut from them, and the headline alone says what the post has to say.
+        Without an LLM headline, the first sentence stands in, and the rest
+        becomes the body so nothing is said twice.
         """
         text = (cluster.annotation_doc.patched_text or "").strip()
         headline = cluster.headline
         if headline:
+            if text and restatement(headline, text) >= QUOTED_RESTATED:
+                logging.info(
+                    "Leaving out a quoted body that is the headline %r again", headline
+                )
+                return headline, None
             return headline, text or None
         if not text:
             return None, None
 
-        split_at = self.find_sentence_end(text)
+        split_at = find_sentence_end(text)
         if split_at is None or split_at > MAX_DERIVED_HEADLINE_LENGTH:
             return None, text
         return text[:split_at].strip(), text[split_at:].strip() or None
 
-    @staticmethod
-    def find_sentence_end(text: str) -> int | None:
-        """Index just past the first sentence, or None if there is only one.
-
-        A sentence ends at .!? followed by whitespace, or at a line break —
-        Telegram posts put their lead on its own line, often with no trailing
-        punctuation at all.
-        """
-        for index, char in enumerate(text):
-            if char == "\n":
-                return index
-            if char not in _SENTENCE_END_CHARS:
-                continue
-            following = text[index + 1 : index + 2]
-            # End of text is not a split: there is no second sentence.
-            if following and following.isspace():
-                return index + 1
-        return None
 
     def render_media(self, cluster: Cluster) -> list[Block]:
         """The cluster's attachments as blocks, in the order it chose them.

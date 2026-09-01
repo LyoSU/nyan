@@ -1198,3 +1198,137 @@ def test_media_does_not_sit_directly_above_a_bulleted_list(renderer: Renderer) -
     media_at = types.index("photo")
     assert types[media_at - 1] == "list", types
     assert types[media_at + 1] != "list", types
+
+
+# ---------------------------------------------------------------- restatement
+
+
+PUTIN_HEADLINE = "Путін заперечив мобілізацію в РФ після виборів"
+PUTIN_LEDE = (
+    "Путін заперечив повідомлення про нову хвилю мобілізації в Росії після осінніх виборів."
+)
+
+
+def test_a_lede_sentence_that_says_the_headline_again_is_cut(renderer: Renderer) -> None:
+    """The headline is bold right above the first paragraph, so a paragraph that
+    opens by saying it again reads as a duplicate. The rest of the paragraph is
+    what the reader came for."""
+    cluster = make_cluster(
+        [
+            make_doc(VERIFIED, "https://t.me/rbc_news/1"),
+            make_doc(AGGREGATOR, "https://t.me/nexta_live/1"),
+        ],
+        summary=make_summary(
+            {"type": "text", "text": PUTIN_LEDE + " Він назвав це інформаційною кампанією."},
+            headline=PUTIN_HEADLINE,
+        ),
+    )
+    post = renderer.render_cluster(cluster, "main")
+
+    assert post is not None and post.blocks is not None
+    assert headline_text(post.blocks) == PUTIN_HEADLINE
+    assert find(post.blocks, "paragraph")["text"] == "Він назвав це інформаційною кампанією."
+
+
+def test_a_lede_that_is_only_the_headline_again_disappears(renderer: Renderer) -> None:
+    """With nothing left of the paragraph, the post is a headline over its quote —
+    and still a summarized post, so no channel is credited for the words."""
+    cluster = make_cluster(
+        [
+            make_doc(VERIFIED, "https://t.me/rbc_news/1"),
+            make_doc(AGGREGATOR, "https://t.me/nexta_live/1"),
+        ],
+        summary=make_summary(
+            {"type": "quote", "text": "Это чушь собачья", "author": "Володимир Путін"},
+            {"type": "text", "text": PUTIN_LEDE},
+            headline=PUTIN_HEADLINE,
+        ),
+    )
+    post = renderer.render_cluster(cluster, "main")
+
+    assert post is not None and post.blocks is not None
+    types = [b["type"] for b in post.blocks]
+    assert types[:2] == ["heading", "blockquote"]
+    assert "мобілізації" not in flatten_text(post.blocks[2:])
+    assert "—" not in flatten_text([b for b in post.blocks if b["type"] == "paragraph"])
+
+
+def test_a_lede_that_continues_the_headline_is_left_alone(renderer: Renderer) -> None:
+    lede = (
+        "Росія вдарила по Запоріжжю керованими авіабомбами, "
+        "загинула 58-річна жінка, дев'ятеро поранені."
+    )
+    cluster = make_cluster(
+        [
+            make_doc(VERIFIED, "https://t.me/rbc_news/1"),
+            make_doc(AGGREGATOR, "https://t.me/nexta_live/1"),
+        ],
+        summary=make_summary(
+            {"type": "text", "text": lede},
+            headline="Росія вдарила по Запоріжжю, є загибла",
+        ),
+    )
+    post = renderer.render_cluster(cluster, "main")
+
+    assert post is not None and post.blocks is not None
+    assert find(post.blocks, "paragraph")["text"] == lede
+
+
+def test_only_the_lede_is_checked_for_restating_the_headline(renderer: Renderer) -> None:
+    """A paragraph further down that repeats the headline is a different defect
+    (the prompt forbids it) and is out of reach of the bold line above, so it
+    is not the renderer's to cut."""
+    cluster = make_cluster(
+        [
+            make_doc(VERIFIED, "https://t.me/rbc_news/1"),
+            make_doc(AGGREGATOR, "https://t.me/nexta_live/1"),
+        ],
+        summary=make_summary(
+            {"type": "text", "text": "Кремль відреагував на публікації західних ЗМІ."},
+            {"type": "list", "items": ["Один факт", "Другий факт"]},
+            {"type": "text", "text": PUTIN_LEDE},
+            headline=PUTIN_HEADLINE,
+        ),
+    )
+    post = renderer.render_cluster(cluster, "main")
+
+    assert post is not None and post.blocks is not None
+    paragraphs = [b["text"] for b in post.blocks if b["type"] == "paragraph"]
+    assert PUTIN_LEDE in paragraphs
+
+
+def test_a_quoted_post_that_is_the_headline_again_shows_only_the_headline(
+    renderer: Renderer,
+) -> None:
+    """One channel, one sentence: the model's headline is that sentence in nine
+    words, so printing both says the news twice. The credit stays — the story
+    is still that channel's."""
+    cluster = make_cluster(
+        [
+            make_doc(
+                VERIFIED, "https://t.me/rbc_news/1", text="У Києві оголосили повітряну тривогу."
+            )
+        ],
+        headline="У Києві оголосили повітряну тривогу",
+    )
+    post = renderer.render_cluster(cluster, "main")
+
+    assert post is not None and post.blocks is not None
+    assert headline_text(post.blocks) == "У Києві оголосили повітряну тривогу"
+    paragraphs = [flatten_text(b) for b in post.blocks if b["type"] == "paragraph"]
+    assert "тривогу" not in " ".join(paragraphs)
+    assert any("RBC_NEWS" in text for text in paragraphs), "the credit must survive"
+
+
+def test_a_quoted_post_that_adds_to_the_headline_is_kept_whole(renderer: Renderer) -> None:
+    """A channel's text is quoted, not edited: a sentence that carries the reason
+    stays in full even though it also repeats the headline."""
+    text = "У Києві та області оголосили повітряну тривогу через загрозу балістики з півночі."
+    cluster = make_cluster(
+        [make_doc(VERIFIED, "https://t.me/rbc_news/1", text=text)],
+        headline="У Києві оголосили повітряну тривогу",
+    )
+    post = renderer.render_cluster(cluster, "main")
+
+    assert post is not None and post.blocks is not None
+    assert find(post.blocks, "paragraph")["text"] == text
