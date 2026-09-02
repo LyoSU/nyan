@@ -578,3 +578,41 @@ def test_a_story_held_long_enough_is_published_after_all(monkeypatch: Any) -> No
 
     client: Any = daemon.client
     assert client.sent == 1
+
+
+def _record_pings(monkeypatch: Any) -> list[list[int]]:
+    pings: list[list[int]] = []
+    monkeypatch.setattr("nyan.daemon.notify_published", lambda clids: pings.append(clids))
+    return pings
+
+
+def test_a_confirmed_post_announces_its_story_to_the_site(monkeypatch: Any) -> None:
+    """The site drops its caches for the story and submits it to IndexNow.
+
+    One ping per post, naming the story by its clid, as soon as Telegram has
+    confirmed the message.
+    """
+    daemon = _daemon()
+    daemon.renderer = _FakeRenderer()  # type: ignore[assignment]
+    daemon.client = _FakeClient()  # type: ignore[assignment]
+    _patch_judge(monkeypatch, UNRELATED)
+    pings = _record_pings(monkeypatch)
+    cluster = _cluster([1.0, 0.02])
+
+    daemon.send_cluster(cluster, "main", Clusters(), None, None)
+
+    assert cluster.clid is not None
+    assert pings == [[cluster.clid]]
+
+
+def test_an_unanswered_send_tells_the_site_nothing(monkeypatch: Any) -> None:
+    """Whether the post exists is unknown, so there is nothing to announce yet."""
+    daemon = _daemon()
+    daemon.renderer = _FakeRenderer()  # type: ignore[assignment]
+    daemon.client = _LosesTheAnswerClient()  # type: ignore[assignment]
+    _patch_judge(monkeypatch, UNRELATED)
+    pings = _record_pings(monkeypatch)
+
+    daemon.send_cluster(_cluster([1.0, 0.02]), "main", Clusters(), None, None)
+
+    assert pings == []

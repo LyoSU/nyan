@@ -15,6 +15,7 @@ from nyan.clusters import Clusters, Cluster
 from nyan.clusterer import Clusterer
 from nyan.channels import Channels
 from nyan.logs import log_new_iteration
+from nyan.publish import notify_published
 from nyan.ranker import Ranker
 from nyan.relation import SAME, Relation, judge_relation, nearest_clusters
 from nyan.renderer import Renderer
@@ -390,6 +391,11 @@ class Daemon:
             posted_clusters.save(posted_clusters_path)
         if mongo_config_path:
             posted_clusters.save_to_mongo(mongo_config_path)
+
+        # After the save, not before: the site answers by reading the story
+        # from Mongo, and a ping ahead of the record would find nothing.
+        assert cluster.clid is not None
+        notify_published([cluster.clid])
 
         self.send_docs_to_discussion(cluster.docs, message, refresh_mapping=True)
 
