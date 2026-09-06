@@ -551,6 +551,22 @@ def test_the_system_half_is_the_same_tokens_on_every_call(monkeypatch) -> None: 
     assert second.summary
 
     assert calls[0]["messages"][0]["content"] == calls[1]["messages"][0]["content"]
+    # And both calls ask for the worker that already holds those tokens: the
+    # daemon analyses several stories at once, and a prefix on another worker
+    # is a prefix read again from scratch.
+    assert calls[0]["prompt_cache_key"] == calls[1]["prompt_cache_key"] == "summary"
+
+
+def test_a_one_channel_story_is_cached_apart_from_a_summarised_one(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Two prompts, two prefixes: one key each, never one key for both."""
+    cluster = Cluster()
+    cluster.add(_make_doc("https://t.me/a/1", channel_id="channel_a"))
+    cluster.saved_annotation_doc = cluster.docs[0]
+    calls = _patch_llm(monkeypatch, '{"headline": "Заголовок"}')
+
+    assert cluster.headline
+
+    assert calls[0]["prompt_cache_key"] == "headline"
 
 
 def test_a_post_cannot_close_the_fence_and_keep_talking(monkeypatch) -> None:  # type: ignore[no-untyped-def]

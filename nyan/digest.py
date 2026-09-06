@@ -38,12 +38,10 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any
-
-from jinja2 import Template
+from typing import Any, cast
 
 from nyan.client import TelegramClient
-from nyan.clusters import Clusters
+from nyan.clusters import Clusters, render_prompt_files
 from nyan.logs import setup_logging
 from nyan.mongo import get_topics_collection
 from nyan.openai import openai_completion, DEFAULT_MODEL, DEFAULT_REASONING_EFFORT
@@ -222,30 +220,33 @@ def write_digest(
     today: str = "",
     previous: dict[str, Any] | None = None,
 ) -> Summary:
-    with open(prompt_path) as f:
-        template = Template(f.read())
     # The date the digest is written on. Without it the model cannot tell that
     # "до кінця року" and "до кінця 2026 року" name the same deadline, and
     # writes both — the sort of line a reader spots immediately.
     today = today or format_date_uk(ts_to_dt(get_current_ts()))
-    prompt = (
-        template.render(
-            clusters=clusters,
-            period=period,
-            today=today,
-            # Always a mapping: the template asks for `previous.headlines`, and
-            # an undefined name would raise instead of skipping the section.
-            previous=previous or {},
-        ).strip()
-        + "\n"
+    # Rules and material as two messages, the same split the per-story prompts
+    # use. The texts below are our own summaries, but they were written from
+    # posts other people wrote, so they arrive as the user half and fenced —
+    # and the rules, which are the whole of the system half, stay one prefix.
+    system_path = Path(prompt_path)
+    messages = render_prompt_files(
+        system_path,
+        system_path.with_name(f"{system_path.stem}_input.txt"),
+        clusters=clusters,
+        period=period,
+        today=today,
+        # Always a mapping: the template asks for `previous.headlines`, and
+        # an undefined name would raise instead of skipping the section.
+        previous=previous or {},
     )
 
     try:
         content = openai_completion(
-            messages=[{"role": "user", "content": prompt}],
+            messages=cast(list[dict[str, Any]], messages),
             model_name=model_name or DEFAULT_MODEL,
             response_format={"type": "json_object"},
             reasoning_effort=DEFAULT_REASONING_EFFORT,
+            prompt_cache_key="digest",
         )
         content = content[content.find("{") : content.rfind("}") + 1]
         raw = json.loads(content)

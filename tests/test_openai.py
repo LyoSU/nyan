@@ -164,3 +164,75 @@ def test_batch_completion_bounds_its_thread_pool(fake_client) -> None:  # type: 
 def test_empty_batch_starts_no_pool(fake_client) -> None:  # type: ignore[no-untyped-def]
     fake_client()
     assert llm.openai_batch_completion([]) == []
+
+
+# --------------------------------------------------------------- prompt caching
+#
+# A provider reuses a prompt's prefix only if the request lands on the worker
+# that already holds it. The key below says which prompt this is, so the calls
+# that share a system message ask for the same worker.
+
+
+def test_names_the_prompt_when_asked_to(fake_client) -> None:  # type: ignore[no-untyped-def]
+    completions = fake_client()
+
+    openai_completion(_messages(), prompt_cache_key="summary")
+
+    assert completions.calls[0]["prompt_cache_key"] == "summary"
+
+
+def test_says_nothing_about_caching_by_default(fake_client) -> None:  # type: ignore[no-untyped-def]
+    completions = fake_client()
+
+    openai_completion(_messages())
+
+    assert "prompt_cache_key" not in completions.calls[0]
+
+
+def test_a_gateway_that_dislikes_the_cache_key_still_gets_the_call(fake_client) -> None:  # type: ignore[no-untyped-def]
+    """The key is a routing hint. Losing it costs money, losing the post costs a post."""
+    error = Exception("Unrecognized request argument supplied: prompt_cache_key")
+    completions = fake_client(errors=[error])
+
+    assert openai_completion(_messages(), prompt_cache_key="summary") == "ok"
+    assert "prompt_cache_key" not in completions.calls[1]
+
+
+def test_an_unphrased_complaint_about_the_key_drops_it_too(fake_client) -> None:  # type: ignore[no-untyped-def]
+    """No regex knows every gateway's wording; naming the hint is enough."""
+    error = Exception("400: prompt_cache_key is not allowed here")
+    completions = fake_client(errors=[error])
+
+    assert openai_completion(_messages(), prompt_cache_key="summary") == "ok"
+    assert "prompt_cache_key" not in completions.calls[1]
+
+
+def test_usage_says_how_much_of_the_prompt_the_cache_paid_for(caplog) -> None:  # type: ignore[no-untyped-def]
+    """A prefix that stopped being cached is invisible without this line."""
+    completion = SimpleNamespace(
+        usage=SimpleNamespace(
+            prompt_tokens=6000,
+            completion_tokens=400,
+            prompt_tokens_details=SimpleNamespace(cached_tokens=5120),
+        )
+    )
+    with caplog.at_level("INFO"):
+        llm.log_usage(completion, "model")
+
+    assert "cached=5120 (85%)" in caplog.text
+
+
+def test_usage_reports_a_gateway_that_counts_no_cache(caplog) -> None:  # type: ignore[no-untyped-def]
+    completion = SimpleNamespace(
+        usage=SimpleNamespace(prompt_tokens=6000, completion_tokens=400)
+    )
+    with caplog.at_level("INFO"):
+        llm.log_usage(completion, "model")
+
+    # Unreported is not zero: claiming a cold cache here would send someone
+    # hunting for a broken prefix that is fine.
+    assert "cached=unreported" in caplog.text
+
+
+def test_usage_survives_a_response_that_carries_none(caplog) -> None:  # type: ignore[no-untyped-def]
+    llm.log_usage(SimpleNamespace(), "model")

@@ -192,3 +192,21 @@ def test_the_candidates_reach_the_prompt(monkeypatch: Any) -> None:
     prompt = "\n".join(str(m["content"]) for m in calls[0]["messages"])
     assert "Нова подія сталася зранку." in prompt
     assert "Стара подія була вчора." in prompt
+
+
+def test_the_rules_stay_one_prefix_across_judgements(monkeypatch: Any) -> None:
+    """The judge runs once per post, so its rules are worth caching.
+
+    The system half carries no variables, and the cache key names the prompt so
+    that every judgement asks for the worker already holding those tokens.
+    """
+    calls = _patch_llm(monkeypatch, json.dumps({"match": 1, "verdict": "same"}))
+    first = _cluster([1.0, 0.0])
+    second = _cluster([0.9, 0.4], message_id=2, age_seconds=7200)
+
+    judge_relation(first, [_cluster([0.99, 0.14], message_id=1, age_seconds=3600)])
+    judge_relation(second, [_cluster([0.98, 0.2], message_id=3, age_seconds=5400)])
+
+    assert calls[0]["messages"][0] == calls[1]["messages"][0]
+    assert calls[0]["messages"][0]["role"] == "system"
+    assert calls[0]["prompt_cache_key"] == "relation"

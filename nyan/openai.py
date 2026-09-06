@@ -126,6 +126,17 @@ _UNSUPPORTED_LIST_RE = re.compile(r"does not support parameters:\s*\[([^\]]*)\]"
 _UNSUPPORTED_SINGLE_RE = re.compile(
     r"[Uu]nsupported parameter:\s*'([^']+)'|'([^']+)' is not supported with this model"
 )
+# And a gateway that never heard of the parameter at all rejects the key:
+#   Unrecognized request argument supplied: prompt_cache_key
+_UNRECOGNIZED_RE = re.compile(
+    r"[Uu]nrecognized (?:request argument supplied|keys?):\s*\[?'?\"?([A-Za-z_][A-Za-z_0-9]*)"
+)
+
+# Parameters that only steer caching or routing. They never change the answer,
+# so a gateway that dislikes one must cost a dropped hint, not a lost post:
+# any error that so much as names one is enough to send the call again without
+# it, without waiting for a phrasing the regexes above happen to know.
+HINT_PARAMS = frozenset(("prompt_cache_key",))
 
 
 def get_client() -> OpenAI:
@@ -151,7 +162,47 @@ def parse_unsupported_params(error: str) -> set[str]:
         }
     for groups in _UNSUPPORTED_SINGLE_RE.findall(error):
         names |= {name for name in groups if name}
+    names |= set(_UNRECOGNIZED_RE.findall(error))
     return names
+
+
+def log_usage(completion: Any, model_name: str) -> None:
+    """What the request actually cost, and how much of it the cache paid for.
+
+    Without this line a broken prefix is invisible: the calls succeed, the
+    posts read the same, and only the bill knows. `cached_tokens` is the
+    provider's own count of the prefix it did not have to re-read, so a system
+    prompt that stopped being a stable prefix shows up here as a share that
+    fell to zero. Absent on gateways that do not report it, and never worth an
+    exception of its own.
+    """
+    usage = getattr(completion, "usage", None)
+    if usage is None:
+        return
+    prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
+    details = getattr(usage, "prompt_tokens_details", None)
+    if isinstance(details, dict):
+        cached = details.get("cached_tokens")
+    else:
+        cached = getattr(details, "cached_tokens", None)
+    completion_tokens = getattr(usage, "completion_tokens", 0) or 0
+    if cached is None:
+        logging.info(
+            "LLM usage: model=%s, prompt=%d, completion=%d, cached=unreported",
+            model_name,
+            prompt_tokens,
+            completion_tokens,
+        )
+        return
+    share = cached / prompt_tokens if prompt_tokens else 0.0
+    logging.info(
+        "LLM usage: model=%s, prompt=%d, completion=%d, cached=%d (%.0f%%)",
+        model_name,
+        prompt_tokens,
+        completion_tokens,
+        cached,
+        share * 100,
+    )
 
 
 def openai_completion(
@@ -160,6 +211,7 @@ def openai_completion(
     model_name: str = DEFAULT_MODEL,
     response_format: dict[str, str] | None = None,
     reasoning_effort: str | None = None,
+    prompt_cache_key: str | None = None,
 ) -> str:
     assert decoding_args.n == 1
 
@@ -172,6 +224,15 @@ def openai_completion(
         params["response_format"] = response_format
     if reasoning_effort is not None:
         params["reasoning_effort"] = reasoning_effort
+    # Which prompt this is, so every call that shares a system message is
+    # routed to the machine that already holds that prefix. Providers hash the
+    # head of the prompt to pick a worker; under the daemon's concurrency that
+    # hash alone spreads identical prefixes across workers, and a prefix on the
+    # wrong worker is a prefix that gets read again. Not a cache key in the
+    # sense of naming what to reuse — the prompt still decides that — only a
+    # hint about where to look for it.
+    if prompt_cache_key is not None:
+        params["prompt_cache_key"] = prompt_cache_key
 
     known_unsupported = _unsupported_params.get(model_name, set())
     for name in known_unsupported & set(params):
@@ -197,6 +258,7 @@ def openai_completion(
                 model=model_name,
                 **params,
             )
+            log_usage(completion, model_name)
             content = completion.choices[0].message.content
             return cast(str, content).strip() if content else ""
         except Exception as e:
@@ -237,7 +299,8 @@ def rewrite_params(params: dict[str, Any], error: str, model_name: str) -> bool:
         logging.warning("Renaming max_tokens to max_completion_tokens, retrying")
         return True
 
-    unsupported = parse_unsupported_params(error) & set(params)
+    named_hints = {name for name in HINT_PARAMS & set(params) if name in error}
+    unsupported = (parse_unsupported_params(error) | named_hints) & set(params)
     if unsupported:
         _unsupported_params.setdefault(model_name, set()).update(unsupported)
         for name in unsupported:
@@ -257,6 +320,7 @@ def openai_batch_completion(
     decoding_args: OpenAIDecodingArguments = DEFAULT_ARGS,
     model_name: str = DEFAULT_MODEL,
     max_workers: int = 8,
+    prompt_cache_key: str | None = None,
 ) -> list[str]:
     if not batch:
         return []
@@ -266,6 +330,9 @@ def openai_batch_completion(
         return list(
             pool.starmap(
                 openai_completion,
-                [(messages, decoding_args, model_name) for messages in batch],
+                [
+                    (messages, decoding_args, model_name, None, None, prompt_cache_key)
+                    for messages in batch
+                ],
             )
         )

@@ -121,6 +121,7 @@ def judge_relation(
             messages=messages,
             response_format={"type": "json_object"},
             reasoning_effort=reasoning_effort,
+            prompt_cache_key="relation",
         )
         parsed = json.loads(content[content.find("{") : content.rfind("}") + 1])
     except Exception:

@@ -63,15 +63,29 @@ def render_prompt(name: str, **context: Any) -> list[dict[str, str]]:
     variables at all, so it is the same tokens on every call and the whole of
     it is one cacheable prefix.
     """
+    prompts = BASE_DIR / "prompts"
+    return render_prompt_files(
+        prompts / f"{name}.txt", prompts / f"{name}_input.txt", **context
+    )
+
+
+def render_prompt_files(
+    system_path: Path, user_path: Path, **context: Any
+) -> list[dict[str, str]]:
+    """The same pair, for a caller that names its files rather than a prompt.
+
+    Only the user half is a template. That is the whole arrangement: the system
+    half is read as it is written, so it cannot pick up a variable by accident
+    and stop being the same bytes on every call.
+    """
     env = Environment(keep_trailing_newline=True)
     env.filters["clean_boundary"] = clean_boundary
-    system = (BASE_DIR / "prompts" / f"{name}.txt").read_text()
-    user = env.from_string(
-        (BASE_DIR / "prompts" / f"{name}_input.txt").read_text()
-    ).render(**context)
     return [
-        {"role": "system", "content": system},
-        {"role": "user", "content": user},
+        {"role": "system", "content": system_path.read_text()},
+        {
+            "role": "user",
+            "content": env.from_string(user_path.read_text()).render(**context),
+        },
     ]
 
 
@@ -540,6 +554,9 @@ class Cluster:
                 messages=cast(list[dict[str, Any]], messages),
                 response_format={"type": "json_object"},
                 reasoning_effort=DEFAULT_REASONING_EFFORT,
+                # Every call for this prompt shares a system message, so they
+                # all want the same worker: the one holding that prefix.
+                prompt_cache_key=prompt_name,
             )
             content = content[content.find("{") : content.rfind("}") + 1]
             parsed_content: dict[str, Any] = json.loads(content)
