@@ -128,7 +128,9 @@ class Daemon:
         # Before clustering rather than after: a document that joins a published
         # post here is held with that post by the assignments handed down below,
         # instead of being free to start a piece of its own all over again.
-        attached = self.attach_loose_documents(annotated_docs, posted_clusters)
+        attached = self.attach_loose_documents(
+            annotated_docs, posted_clusters, mongo_config_path
+        )
         logging.info("%d documents joined a post they had missed", attached)
 
         new_clusters: list[Cluster] = self.clusterer(
@@ -496,7 +498,10 @@ class Daemon:
         self.client.update_post(message, post)
 
     def attach_loose_documents(
-        self, docs: list[Document], posted_clusters: Clusters
+        self,
+        docs: list[Document],
+        posted_clusters: Clusters,
+        mongo_config_path: str | None = None,
     ) -> int:
         """Put documents that carried a published story into the post that told it.
 
@@ -512,6 +517,14 @@ class Daemon:
         The floor is far above the one used between clusters because a single
         document carries far less evidence than a cluster of them: at 0.86 this
         would be thousands of questions a day rather than forty.
+
+        Each pair is asked about once and the answer is kept. A "yes" keeps
+        itself: the document joins the post and is a published document from
+        then on. A "no" used to keep nothing, so the same question went to the
+        model on every iteration until the document aged out of
+        `documents_offset` a day later — some forty documents a day, asked
+        about thirty to fifty times an hour each, which came to 90% of
+        everything this feed sent the model.
         """
         threshold = float(self.config.get("attach_threshold", DEFAULT_ATTACH_THRESHOLD))
         max_time_updated = self.config["max_time_updated"]
@@ -554,14 +567,22 @@ class Daemon:
 
         attached = 0
         touched: dict[int, Cluster] = dict()
+        refused: dict[int, Cluster] = dict()
         for index, doc in enumerate(loose):
             best = int(similarity[index].argmax())
             if similarity[index][best] < threshold:
                 continue
             candidate = published[best]
+            # Already asked, and the answer was no. Neither text has changed
+            # since, so the model would be paid to write it out again.
+            if candidate.refuses(doc):
+                continue
             story = Cluster()
             story.add(doc)
             if judge_relation(story, [candidate]).verdict != SAME:
+                candidate.refuse(doc)
+                if candidate.clid is not None:
+                    refused[candidate.clid] = candidate
                 continue
             candidate.add(doc)
             attached += 1
@@ -575,6 +596,13 @@ class Daemon:
 
         if attached:
             posted_clusters.invalidate_caches()
+        # Written here rather than left to the save at the end of the iteration:
+        # that one skips clusters whose newest document is over a day old, and a
+        # refusal that never reached storage is a question asked all over again
+        # the next time the container restarts.
+        if mongo_config_path:
+            for cluster in refused.values():
+                posted_clusters.save_one_to_mongo(mongo_config_path, cluster)
         for cluster in touched.values():
             for message in cluster.messages:
                 self.refresh_post(cluster, message.issue, max_time_updated)

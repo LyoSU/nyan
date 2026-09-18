@@ -442,6 +442,68 @@ def test_a_lone_document_the_judge_refuses_stays_out(monkeypatch: Any) -> None:
     assert len(parent.docs) == 1
 
 
+def test_a_refused_document_is_never_asked_about_twice(monkeypatch: Any) -> None:
+    """The same pair went to the model on every iteration for a whole day.
+
+    A document that sits close to a post it does not belong to is offered again
+    on the next pass, and the next, until it ages out of `documents_offset` —
+    with the same two texts, so the request is byte for byte the one already
+    answered. Over two days of production that was 29,178 of 32,179 requests.
+    """
+    daemon = _daemon(attach_threshold=0.94)
+    daemon.renderer = _FakeRenderer()  # type: ignore[assignment]
+    daemon.client = _FakeClient()  # type: ignore[assignment]
+    parent = _cluster([1.0, 0.0], message_id=11, headline="Вибухи", age_seconds=1800)
+    seen = _patch_judge(monkeypatch, UNRELATED)
+    doc = _loose_doc([1.0, 0.02])
+
+    assert daemon.attach_loose_documents([doc], _posted(parent)) == 0
+    assert daemon.attach_loose_documents([doc], _posted(parent)) == 0
+
+    assert len(seen) == 1, "the answer was already known on the second pass"
+    assert len(parent.docs) == 1
+
+
+def test_a_refusal_outlives_the_process(monkeypatch: Any) -> None:
+    """Containers restart, so an answer held in memory is an answer paid for again."""
+    daemon = _daemon(attach_threshold=0.94)
+    daemon.renderer = _FakeRenderer()  # type: ignore[assignment]
+    daemon.client = _FakeClient()  # type: ignore[assignment]
+    parent = _cluster([1.0, 0.0], message_id=11, headline="Вибухи", age_seconds=1800)
+    seen = _patch_judge(monkeypatch, UNRELATED)
+    doc = _loose_doc([1.0, 0.02])
+
+    assert daemon.attach_loose_documents([doc], _posted(parent)) == 0
+    reloaded = Cluster.deserialize(parent.serialize())
+
+    assert daemon.attach_loose_documents([doc], _posted(reloaded)) == 0
+    assert len(seen) == 1
+
+
+def test_a_document_refused_by_one_post_is_still_offered_to_another(
+    monkeypatch: Any,
+) -> None:
+    """The refusal is about a pair, not about the document.
+
+    A post published after the refusal may be the one the document belongs to,
+    and nothing that was asked before covers it.
+    """
+    daemon = _daemon(attach_threshold=0.94)
+    daemon.renderer = _FakeRenderer()  # type: ignore[assignment]
+    daemon.client = _FakeClient()  # type: ignore[assignment]
+    refuser = _cluster([1.0, 0.0], message_id=11, headline="Вибухи", age_seconds=1800)
+    doc = _loose_doc([1.0, 0.02])
+    _patch_judge(monkeypatch, UNRELATED)
+    assert daemon.attach_loose_documents([doc], _posted(refuser)) == 0
+
+    later = _cluster([1.0, 0.02], message_id=12, headline="Вибухи вдруге", age_seconds=600)
+    seen = _patch_judge(monkeypatch, SAME)
+
+    assert daemon.attach_loose_documents([doc], _posted(refuser, later)) == 1
+    assert len(seen) == 1
+    assert later.has(doc)
+
+
 def test_a_document_far_from_every_post_is_never_asked_about(monkeypatch: Any) -> None:
     """The floor is far above the one used between clusters.
 

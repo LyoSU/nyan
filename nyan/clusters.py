@@ -267,6 +267,15 @@ class Cluster:
         self.embedding_mean: list[float] | None = None
         self.embedding_count: int = 0
 
+        # Loose documents this post was offered and the judge sent away. The
+        # answer for such a pair cannot change — both texts are fixed by the
+        # time they are compared — but nothing used to remember it, so a
+        # document that sat close to a post it did not belong to was asked
+        # about again on every iteration for as long as it stayed inside
+        # `documents_offset`. Over two days that was 29,178 of the feed's
+        # 32,179 requests to the model, byte for byte the same prompt.
+        self.refused_docs: set[str] = set()
+
     def add(self, doc: Document) -> None:
         self.docs.append(doc)
         url_normalized = normalize_url(doc.url)
@@ -292,6 +301,14 @@ class Cluster:
 
     def has(self, doc: Document) -> bool:
         return normalize_url(doc.url) in self.url2doc
+
+    def refuse(self, doc: Document) -> None:
+        """Put on record that this document was offered here and does not fit."""
+        self.refused_docs.add(normalize_url(doc.url))
+
+    def refuses(self, doc: Document) -> bool:
+        """Whether this document has already been offered here and refused."""
+        return normalize_url(doc.url) in self.refused_docs
 
     def changed(self) -> bool:
         return self.hash != self.saved_hash
@@ -755,6 +772,10 @@ class Cluster:
             "reply_to_text": self.reply_to_text,
             "embedding": self.embedding_mean,
             "embedding_count": self.embedding_count,
+            # Sorted rather than a bare set dump: the dict is compared against
+            # what storage holds, and an order that changes per process would
+            # make every cluster look modified on every iteration.
+            "refused_docs": sorted(self.refused_docs),
         }
 
     @classmethod
@@ -815,6 +836,11 @@ class Cluster:
         # and the text in those stored before the model saw more than a title.
         cluster.reply_to_headline = d.get("reply_to_headline") or ""
         cluster.reply_to_text = d.get("reply_to_text") or ""
+        # Absent in clusters stored before refusals were remembered; those pay
+        # for one more question each and then carry the answer like the rest.
+        cluster.refused_docs = {
+            normalize_url(url) for url in (d.get("refused_docs") or ())
+        }
 
         return cluster
 
