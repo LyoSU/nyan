@@ -120,6 +120,14 @@ class Document(Serializable):
     #: failure that made a published post's photos come and go.
     story_relevance: float = 1.0
 
+    #: What Jev answered about this post, collected in the shadow and read by
+    #: nothing that decides anything — see `nyan/jev.py`. Empty when the
+    #: deployment has no key, the request failed, or the post was annotated
+    #: before the shadow existed. Not part of CURRENT_VERSION, for the same
+    #: reason `badges` is not: re-embedding a week of posts to fill a field
+    #: nobody acts on would buy nothing.
+    jev: dict[str, Any] = field(default_factory=dict)
+
     version: int = CURRENT_VERSION
 
     def is_reannotation_needed(

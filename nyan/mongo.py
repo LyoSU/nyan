@@ -107,3 +107,15 @@ def get_channel_stats_collection(mongo_config_path: str) -> Collection[dict[str,
     return get_collection(
         mongo_config_path, "channel_stats_collection_name", "channel_stats"
     )
+
+
+def get_relation_shadow_collection(mongo_config_path: str) -> Collection[dict[str, Any]]:
+    """Jev's verdict beside the LLM judge's, one document per question asked.
+
+    Written by `JevRelationShadow` and read by nothing that decides anything:
+    it is the week of evidence for or against replacing the judge, and can be
+    dropped once that is settled.
+    """
+    return get_collection(
+        mongo_config_path, "relation_shadow_collection_name", "relation_shadow"
+    )

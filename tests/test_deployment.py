@@ -79,6 +79,8 @@ def test_the_configs_the_code_reads_are_committed() -> None:
     for name in (
         "annotator_config",
         "clusterer_config",
+        "jev_questions",
+        "jev_relation_questions",
         "daemon_config",
         "ranker_config",
         "renderer_config",

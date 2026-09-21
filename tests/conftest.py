@@ -15,6 +15,17 @@ from nyan.clusters import Clusters
 from nyan.util import read_jsonl
 
 
+@pytest.fixture(autouse=True)
+def no_jev_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test reaches TypeSafe, even on a machine that has the key exported.
+
+    The shipped annotator config turns the Jev shadow on, and the snapshot test
+    builds the annotator from it: with a key in the shell it would spend money
+    and make the snapshot depend on a remote model.
+    """
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+
+
 def get_channels_info_path() -> str:
     # Use test-specific channels.json (matches the snapshot test data)
     # if it exists, otherwise fall back to production channels.json

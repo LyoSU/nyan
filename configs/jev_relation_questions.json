@@ -1,0 +1,28 @@
+{
+  "same_event": {
+    "type": "noul",
+    "instructions": "Do `published` and `new` report the same specific event (the same incident, decision or episode)?",
+    "criteria": {
+      "true": "the same incident, decision or episode, possibly with more details or different wording",
+      "false": "different events, even if the topic, place, war or type of event match; a different strike, a different day, a statement by a different person"
+    },
+    "_note": "Три атомарні noul замість одного choice same/follow_up/unrelated, як радить TypeSafe: одне складне питання давало 78% і надто часто follow_up. Разом з вердиктом у коді (nyan/jev.py: relation_verdict) — 90–93% на відкладених половинах 160 прод-пар проти сліпої розмітки за правилами relation.txt; прод-LLM на тих самих — 85–87%. Англійською, бо кирилиця в критеріях у 4–5 разів дорожча, а на точність мова критеріїв не впливала."
+  },
+  "caused_by": {
+    "type": "noul",
+    "instructions": "Did the event in `new` happen as a direct consequence of the event in `published`?",
+    "criteria": {
+      "true": "without the published event this one would not have happened: arrest after a shooting, verdict after an arrest, signing after a vote, a reaction that names the published event",
+      "false": "only a shared topic, country, process or war; the next attack; an independent statement"
+    },
+    "_note": "Слабке місце: 8 з 37 продовжень Jev вважав не пов'язаними — такий пост вийде окремо, а не реплаєм."
+  },
+  "facts_changed": {
+    "type": "noul",
+    "instructions": "Compared with `published`, does `new` materially change the facts of the same event?",
+    "criteria": {
+      "true": "death or injury toll changed, officially confirmed or denied, decision reversed",
+      "false": "no material change, or it is a different event"
+    }
+  }
+}

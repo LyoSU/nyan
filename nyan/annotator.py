@@ -15,6 +15,7 @@ from nyan.classifier import ClassifierHead
 from nyan.embedder import Embedder
 from nyan.text import TextProcessor
 from nyan.image import ImageProcessor
+from nyan.jev import JevShadow
 from nyan.rubrics import count_own_posts, RubricDetector
 from nyan.tokenizer import Tokenizer
 from nyan.util import normalize_channel_id
@@ -59,6 +60,10 @@ class Annotator:
         # section can be reported, and it is the case that needs reporting.
         self.rubric_detector = RubricDetector(config.get("rubric_detector", {}))
 
+        self.jev_shadow = None
+        if "jev_shadow" in config:
+            self.jev_shadow = JevShadow(config["jev_shadow"])
+
         boilerplate_config: dict[str, Any] = config.get("boilerplate", {})
         self.boilerplate_min_docs = boilerplate_config.get(
             "min_docs", DEFAULT_BOILERPLATE_MIN_DOCS
@@ -100,6 +105,13 @@ class Annotator:
             for step in post_pipeline:
                 doc = step(doc)
             processed_docs.append(doc)
+
+        # Last, and batched rather than a step per document: it is the one
+        # network call in the pipeline, and it runs its requests in parallel
+        # under a time budget of its own. Its answers change nothing above.
+        if self.jev_shadow is not None:
+            processed_docs = self.jev_shadow(processed_docs)
+
         logging.info("Annotated %d documents", len(processed_docs))
         return processed_docs
 

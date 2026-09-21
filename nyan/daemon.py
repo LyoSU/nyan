@@ -17,6 +17,8 @@ from nyan.channels import Channels
 from nyan.logs import log_new_iteration
 from nyan.publish import notify_published
 from nyan.ranker import Ranker
+from nyan.jev import JevRelationShadow
+from nyan.mongo import get_relation_shadow_collection
 from nyan.relation import (
     FOLLOW_UP,
     SAME,
@@ -88,6 +90,11 @@ def _unit_rows(embeddings: list[list[float]]) -> NDArray[np.float32]:
 
 
 class Daemon:
+    #: Declared here as well as set in `__init__`, so a daemon assembled without
+    #: it — as the tests do, to exercise one method — simply has no shadow.
+    relation_shadow: JevRelationShadow | None = None
+    mongo_config_path: str | None = None
+
     def __init__(
         self,
         client_config_path: str,
@@ -108,6 +115,11 @@ class Daemon:
         assert os.path.exists(daemon_config_path)
         with open(daemon_config_path) as r:
             self.config: dict[str, Any] = json.load(r)
+
+        if "jev_relation_shadow" in self.config:
+            self.relation_shadow = JevRelationShadow(self.config["jev_relation_shadow"])
+        # Where the relation shadow writes is set per iteration by `__call__`,
+        # because the path arrives with the call rather than the constructor.
 
     def run(
         self,
@@ -132,6 +144,7 @@ class Daemon:
             return
 
         log_new_iteration()
+        self.mongo_config_path = mongo_config_path
         clusters_offset = self.config["clusters_offset"]
         posted_clusters = self.load_posted_clusters(
             mongo_config_path, posted_clusters_path, clusters_offset
@@ -549,7 +562,7 @@ class Daemon:
         if pending is not None:
             return _cluster_of(early), None
 
-        relation = judge_relation(late_cluster, [posted_cluster])
+        relation = self.judge(late_cluster, [posted_cluster], "late")
         if relation.verdict != FOLLOW_UP:
             return _cluster_of(fresh), None
         logging.info(
@@ -710,7 +723,7 @@ class Daemon:
                 continue
             story = Cluster()
             story.add(doc)
-            if judge_relation(story, [candidate]).verdict != SAME:
+            if self.judge(story, [candidate], "attach").verdict != SAME:
                 candidate.refuse(doc)
                 if candidate.clid is not None:
                     refused[candidate.clid] = candidate
@@ -761,4 +774,26 @@ class Daemon:
             posted_clusters.get_embedded_clusters(get_current_ts(), issue_name),
             threshold=float(self.config["related_threshold"]),
         )
-        return judge_relation(cluster, candidates)
+        return self.judge(cluster, candidates, "publish")
+
+    def judge(self, story: Cluster, candidates: list[Cluster], site: str) -> Relation:
+        """The LLM judge's verdict, which is the one acted on, with Jev's recorded beside it.
+
+        `site` names which of the three questions this is — the publish
+        boundary, late documents under a post, a loose document joining one —
+        because they differ in what a wrong answer costs, and the comparison
+        has to be read per site to mean anything.
+
+        The shadow never raises into the daemon: a failure to ask or to write
+        leaves the LLM's verdict standing and costs one log line.
+        """
+        relation = judge_relation(story, candidates)
+        if self.relation_shadow is None or not self.relation_shadow.enabled:
+            return relation
+        try:
+            record = self.relation_shadow(story, candidates, relation, site)
+            if record is not None and self.mongo_config_path:
+                get_relation_shadow_collection(self.mongo_config_path).insert_one(record)
+        except Exception:
+            logging.exception("Jev relation shadow failed for '%s'", story.cropped_title)
+        return relation

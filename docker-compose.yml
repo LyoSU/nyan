@@ -109,6 +109,8 @@ services:
       - PUBLISH_TOKEN=${PUBLISH_TOKEN:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      # Лише для тіньового Jev в анотаторі (nyan/jev.py): без ключа крок вимкнений.
+      - TYPESAFE_API_KEY=${TYPESAFE_API_KEY:-}
       - MONGO_HOST=${MONGO_HOST:-}
       - MONGO_PORT=${MONGO_PORT:-27017}
       - MONGO_DATABASE=${MONGO_DATABASE:-main}

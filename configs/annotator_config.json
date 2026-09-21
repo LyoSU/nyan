@@ -71,6 +71,13 @@
         "path": "models/lid.176.bin",
         "min_probability": 0.5
     },
+    "jev_shadow": {
+        "questions_path": "configs/jev_questions.json",
+        "workers": 8,
+        "timeout": 10,
+        "budget_seconds": 60,
+        "max_text": 1500
+    },
     "cat_detector": {
         "path": "models/multilingual_e5_base_cat_detect.joblib",
         "embedding_key": "multilingual_e5_base",
