@@ -93,7 +93,10 @@ class Ranker:
             if not cluster_issues:
                 # Logged without the title on purpose: rendering one picks an
                 # annotation document, which is work this filter does not need.
-                logging.info(
+                # Debug, not info: this is the normal path for every local or
+                # economy cluster, once per cluster per iteration — ~1k lines a
+                # minute that buried everything else in the log.
+                logging.debug(
                     "No configured issue among %s, falling back to '%s'",
                     cluster.issues,
                     FALLBACK_ISSUE,

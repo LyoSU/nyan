@@ -203,6 +203,31 @@ def test_redaction_survives_deferred_formatting() -> None:
     assert "SECRET_TOKEN_HERE" not in record.getMessage()
 
 
+def test_redaction_catches_the_url_object_httpx_really_passes() -> None:
+    """httpx logs `request.url`, an httpx.URL, not a str."""
+    import httpx
+
+    record = logging.LogRecord(
+        "httpx", logging.INFO, __file__, 0,
+        'HTTP Request: %s %s "%s %d %s"',
+        (
+            "POST",
+            httpx.URL("https://api.telegram.org/bot123456:SECRET_TOKEN_HERE/editMessageText"),
+            "HTTP/1.1",
+            200,
+            "OK",
+        ),
+        None,
+    )
+
+    RedactSecrets().filter(record)
+    line = record.getMessage()
+
+    assert "SECRET_TOKEN_HERE" not in line
+    assert "editMessageText" in line
+    assert "200 OK" in line
+
+
 def test_redaction_leaves_ordinary_lines_alone() -> None:
     record = _record("13 clusters after the first filter")
 

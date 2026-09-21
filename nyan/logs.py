@@ -91,13 +91,23 @@ class RedactSecrets(logging.Filter):
         if isinstance(record.msg, str):
             record.msg = _BOT_TOKEN.sub(_REDACTED, record.msg)
         # httpx passes the url as an argument, so the token is not in `msg` yet
-        # at the time this runs.
+        # at the time this runs. And not as a string either: it is an httpx.URL,
+        # which only becomes text inside getMessage(). Checking str args alone
+        # let every real request line through with the token intact.
         if isinstance(record.args, tuple):
-            record.args = tuple(
-                _BOT_TOKEN.sub(_REDACTED, arg) if isinstance(arg, str) else arg
-                for arg in record.args
-            )
+            record.args = tuple(_redact_arg(arg) for arg in record.args)
         return True
+
+
+def _redact_arg(arg: object) -> object:
+    if isinstance(arg, str):
+        return _BOT_TOKEN.sub(_REDACTED, arg)
+    # Numbers must stay numbers for %d; anything else that renders with a token
+    # in it is replaced by its redacted text, which %s formats the same way.
+    if arg is None or isinstance(arg, (int, float)):
+        return arg
+    text = str(arg)
+    return _BOT_TOKEN.sub(_REDACTED, text) if _BOT_TOKEN.search(text) else arg
 
 
 def _paint(text: str, colour: str, colorize: bool) -> str:
