@@ -38,9 +38,12 @@ import logging
 import os
 import re
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any, cast
 
-from nyan.client import TelegramClient
+from httpx import ConnectError, ConnectTimeout
+
+from nyan.client import MessageId, TelegramClient
 from nyan.clusters import Clusters, render_prompt_files
 from nyan.logs import setup_logging
 from nyan.mongo import get_topics_collection
@@ -465,25 +468,62 @@ def main(
                 )
                 return
             client.clone_issue(digest_issue_name, DIGEST_CHANNEL_ID, like=issue_name)
-        message = client.send_message(text, issue_name=digest_issue_name)
-    if message is None:
-        # Nothing was published, so nothing has been digested: keeping the
-        # watermark means the next run tries the same posts again.
-        logging.error("Digest was not published, watermark left in place")
-        return
+        message_id = publish(
+            mongo_config_path,
+            lambda: client.send_message(text, issue_name=digest_issue_name),
+            {
+                "clusters": clusters,
+                "summary": summary.asdict(),
+                "published_from": start_ts,
+                "published_until": end_ts,
+            },
+        )
+    if message_id is not None:
+        logging.info("Digest published as message %d", message_id)
 
+
+def publish(
+    mongo_config_path: str,
+    send: Callable[[], MessageId | None],
+    record: dict[str, Any],
+) -> int | None:
+    """Send the digest with its record already written, the way the feed does.
+
+    The record goes in before Telegram is asked, and it carries
+    `published_until`, so the watermark has already moved when the request
+    leaves. What has to survive is the answer that never comes back: a read
+    timeout after Telegram accepted the message would otherwise leave the
+    window where it was, and the next slot would post the same shift again.
+
+    Taken back only when the digest certainly did not go out — Telegram said
+    no, or the connection never opened. An ambiguous failure keeps it: a shift
+    missing from the digests is a smaller harm than the same digest twice, and
+    its posts are in the channel either way.
+    """
     collection = get_topics_collection(mongo_config_path)
-    collection.insert_one(
-        {
-            "clusters": clusters,
-            "summary": summary.asdict(),
-            "published_from": start_ts,
-            "published_until": end_ts,
-            "message_id": message.message_id,
-        }
+    record_id = collection.insert_one(
+        {**record, "message_id": None, "pending": True}
+    ).inserted_id
+    try:
+        message = send()
+    except (ConnectError, ConnectTimeout):
+        collection.delete_one({"_id": record_id})
+        raise
+    except Exception:
+        logging.error(
+            "No answer to the digest, which may have been published: "
+            "watermark kept at the end of this window so it is not sent twice"
+        )
+        raise
+    if message is None:
+        collection.delete_one({"_id": record_id})
+        logging.error("Digest was not published, watermark left in place")
+        return None
+    collection.update_one(
+        {"_id": record_id},
+        {"$set": {"message_id": message.message_id}, "$unset": {"pending": ""}},
     )
-    logging.info("Digest published as message %d", message.message_id)
-
+    return message.message_id
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

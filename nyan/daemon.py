@@ -17,7 +17,13 @@ from nyan.channels import Channels
 from nyan.logs import log_new_iteration
 from nyan.publish import notify_published
 from nyan.ranker import Ranker
-from nyan.relation import SAME, Relation, judge_relation, nearest_clusters
+from nyan.relation import (
+    FOLLOW_UP,
+    SAME,
+    Relation,
+    judge_relation,
+    nearest_clusters,
+)
 from nyan.renderer import Renderer
 from nyan.document import (
     read_documents_file,
@@ -43,14 +49,36 @@ DEFAULT_ATTACH_THRESHOLD = 0.94
 ATTACH_WINDOW_SECONDS = 6 * 3600
 
 # How long a send whose answer never arrived keeps its story from being sent
-# again. Long enough to cover the whole life of a story rather than a single
-# iteration: a short window would only postpone the duplicate, since the same
-# documents come back around on every pass. A story that really did fail to
-# post is not lost by this — it returns as soon as enough new sources have
-# joined it for the overlap with the held attempt to fall below
-# `similar_min_intersection_ratio`, and a story that never gathers those was
-# not worth a second attempt.
+# again. Long enough to cover most of a story's life rather than a single
+# iteration, since the same documents come back around on every pass. Within
+# it, a story that really did fail returns early only once enough new sources
+# have joined it for the overlap with the held attempt to fall below
+# `similar_min_intersection_ratio`. Past it, `find_pending` stops holding the
+# story and it is published anyway: a possible duplicate hours later is
+# preferred to a story that never ran.
 DEFAULT_PENDING_SEND_TTL = 3 * 3600
+
+# How long after a post went out a document has to appear before it may be
+# news the post does not carry. The clusterer holds a published post's
+# documents together, so a development hours later — the toll confirmed, the
+# payment made — lands in the same cluster as the post and is recognized by
+# its URLs as the post itself. Earlier than this it is the first wave still
+# arriving, and folding it in is right.
+DEFAULT_FOLLOW_UP_GAP = 3600
+
+# How long those late documents are held out of the post while they are too
+# few to stand as a story of their own. A development is reported by several
+# channels within the hour; held, they can gather into something the judge is
+# asked about, where taken in one at a time they never would. Past this they
+# are folded in, as everything was before.
+DEFAULT_FOLLOW_UP_HOLD = 3600
+
+
+def _cluster_of(docs: list[Document]) -> Cluster:
+    cluster = Cluster()
+    for doc in docs:
+        cluster.add(doc)
+    return cluster
 
 
 def _unit_rows(embeddings: list[list[float]]) -> NDArray[np.float32]:
@@ -287,13 +315,25 @@ class Daemon:
             min_intersection_ratio=self.config["similar_min_intersection_ratio"],
         )
         if posted_cluster:
+            absorbed, follow_up = self.split_off_follow_up(
+                cluster, posted_cluster, posted_clusters, issue_name
+            )
             self.update_posted_cluster(
-                cluster,
+                absorbed,
                 posted_cluster,
                 posted_clusters,
                 issue_name,
                 max_time_updated,
             )
+            if follow_up is not None:
+                self.publish(
+                    follow_up,
+                    issue_name,
+                    posted_clusters,
+                    posted_clusters_path,
+                    mongo_config_path,
+                    parent=posted_cluster,
+                )
             return
 
         # An earlier send of this same story whose answer never came back. The
@@ -344,6 +384,25 @@ class Daemon:
         # Everything else stands under the post it belongs to, if there is one:
         # a development of it, or the same story told where this issue's readers
         # cannot see it.
+        self.publish(
+            cluster,
+            issue_name,
+            posted_clusters,
+            posted_clusters_path,
+            mongo_config_path,
+            parent=parent,
+        )
+
+    def publish(
+        self,
+        cluster: Cluster,
+        issue_name: str,
+        posted_clusters: Clusters,
+        posted_clusters_path: str | None,
+        mongo_config_path: str | None,
+        parent: Cluster | None = None,
+    ) -> None:
+        """Send a story as a new message, under `parent`'s post if it has one."""
         reply_to = None
         if parent is not None:
             message = parent.get_issue_message(issue_name)
@@ -430,6 +489,77 @@ class Daemon:
             self.client.send_discussion_message(discussion_text, discussion_message)
             sleep(sleep_time)
 
+    def split_off_follow_up(
+        self,
+        cluster: Cluster,
+        posted_cluster: Cluster,
+        posted_clusters: Clusters,
+        issue_name: str,
+    ) -> tuple[Cluster, Cluster | None]:
+        """What of `cluster` the post takes in, and what goes out on its own.
+
+        `find_similar` recognizes a post by its URLs, and the clusterer keeps a
+        post's documents together — so a development reported hours later
+        arrives glued to the post it follows and never reaches the judge in
+        `find_relation`. Folded in, it was lost: past the editing window nothing
+        is sent, and inside it the text stays as written until coverage grows a
+        whole generation.
+
+        So documents that appeared well after the post went out are asked
+        about, as a story of their own against the post, once they are enough
+        sources to be published as one. The judge is the same as on the
+        publish boundary and runs once per batch: a `same` batch is taken in and
+        is not new to the post again. Every other answer, a failed call
+        included, takes them in as before.
+
+        Documents another post already carries are neither taken in nor asked
+        about: they belong to that post, typically a follow-up split off here
+        earlier and now clustered beside its parent.
+        """
+        published = posted_clusters.urls2messages[issue_name]
+        fresh = [
+            doc
+            for doc in cluster.docs
+            if not posted_cluster.has(doc) and normalize_url(doc.url) not in published
+        ]
+        since = (posted_cluster.create_time or posted_cluster.pub_time_percentile) + int(
+            self.config.get("follow_up_gap", DEFAULT_FOLLOW_UP_GAP)
+        )
+        late = [doc for doc in fresh if doc.pub_time >= since]
+        if not late:
+            return _cluster_of(fresh), None
+
+        late_cluster = _cluster_of(late)
+        early = [doc for doc in fresh if doc.pub_time < since]
+        if not self.ranker.stands_alone(late_cluster, issue_name):
+            hold = int(self.config.get("follow_up_hold", DEFAULT_FOLLOW_UP_HOLD))
+            now = get_current_ts()
+            ripe = [doc for doc in late if now - doc.pub_time >= hold]
+            return _cluster_of(early + ripe), None
+
+        # A follow-up already sent without an answer: held like any other, and
+        # without asking the judge again on every pass while it is.
+        pending = posted_clusters.find_pending(
+            late_cluster,
+            issue_name,
+            min_intersection_ratio=self.config["similar_min_intersection_ratio"],
+            current_ts=get_current_ts(),
+            ttl=self.config.get("pending_send_ttl", DEFAULT_PENDING_SEND_TTL),
+        )
+        if pending is not None:
+            return _cluster_of(early), None
+
+        relation = judge_relation(late_cluster, [posted_cluster])
+        if relation.verdict != FOLLOW_UP:
+            return _cluster_of(fresh), None
+        logging.info(
+            "%d late docs follow up cluster %s: %s",
+            len(late),
+            posted_cluster.clid,
+            late_cluster.cropped_title,
+        )
+        return _cluster_of(early), late_cluster
+
     def update_posted_cluster(
         self,
         cluster: Cluster,
@@ -495,7 +625,8 @@ class Daemon:
             message.issue,
             posted_cluster.cropped_title,
         )
-        self.client.update_post(message, post)
+        if self.client.update_post(message, post):
+            posted_cluster.saved_hash = posted_cluster.hash
 
     def attach_loose_documents(
         self,

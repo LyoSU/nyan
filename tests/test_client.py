@@ -550,3 +550,100 @@ def test_the_fallback_does_not_fire_when_nothing_was_uploaded(
 
     resent = json.loads(calls[1][1]["rich_message"])["blocks"]
     assert not resent
+
+
+# ------------------------------------------------------------- rich updates
+
+
+def rich_message(message_id: int = 1) -> MessageId:
+    return MessageId(message_id=message_id, issue="main", post_format=FORMAT_RICH)
+
+
+def test_an_update_drops_the_video_the_send_had_to_drop(
+    client: TelegramClient,
+) -> None:
+    """The rejected video is still in the cluster, so the edit renders it again.
+
+    Without the retry Telegram refused the whole edit, text included, every
+    time the post changed.
+    """
+    calls = record_calls(client, [video_invalid_error(), FakeResponse()])
+
+    updated = client.update_post(rich_message(), RenderedPost(blocks=post_with_a_video()))
+
+    assert updated
+    assert len(calls) == 2
+    assert calls[1][0].endswith("/editMessageText")
+    resent = json.loads(calls[1][1]["rich_message"])["blocks"]
+    assert [block["type"] for block in resent] == ["heading", "photo"]
+
+
+def test_an_update_uploads_a_mov_like_a_send_does(
+    client: TelegramClient, monkeypatch: Any
+) -> None:
+    monkeypatch.setattr("nyan.client.fetch_media", lambda url, limit: b"bytes")
+    calls = record_calls(client, [FakeResponse()])
+
+    client.update_post(
+        rich_message(), RenderedPost(blocks=[rich_video("https://cdn/clip.mov")])
+    )
+
+    sent = json.loads(calls[0][1]["rich_message"])["blocks"]
+    assert sent[0]["video"]["media"].startswith("attach://")
+    assert calls[0][2]
+
+
+def test_an_uploaded_video_is_remembered_under_its_source_url(
+    client: TelegramClient, monkeypatch: Any
+) -> None:
+    """The next render puts the CDN URL back, so that is the key it needs.
+
+    Stored under `attach://video0`, the file_id never matched, and every edit
+    sent the .mov URL Telegram refuses by its extension.
+    """
+    monkeypatch.setattr("nyan.client.fetch_media", lambda url, limit: b"bytes")
+    record_calls(
+        client,
+        [
+            FakeResponse(
+                200,
+                {
+                    "result": {
+                        "message_id": 1,
+                        "blocks": [{"video": {"file_id": "vid", "width": 640}}],
+                    }
+                },
+            )
+        ],
+    )
+
+    message = client.send_rich_message([rich_video("https://cdn/clip.mov")], "main")
+
+    assert message is not None
+    assert message.file_ids() == {"https://cdn/clip.mov": "vid"}
+
+
+def test_a_rejected_update_is_reported(client: TelegramClient) -> None:
+    """The daemon keeps the post `changed` on False, so the edit is retried."""
+    record_calls(
+        client, [FakeResponse(400, {"description": "Bad Request: message not found"})]
+    )
+
+    assert not client.update_post(rich_message(), rich_post())
+
+
+def test_an_edit_that_changes_nothing_counts_as_done(client: TelegramClient) -> None:
+    record_calls(
+        client,
+        [
+            FakeResponse(
+                400,
+                {
+                    "description": "Bad Request: message is not modified: specified "
+                    "new message content and reply markup are exactly the same"
+                },
+            )
+        ],
+    )
+
+    assert client.update_post(rich_message(), RenderedPost(text="Текст"))

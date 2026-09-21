@@ -3,7 +3,7 @@ import json
 import logging
 import re
 from typing import Any
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, fields, replace
 
 from httpx import Timeout, Limits, HTTPTransport, Client, Response
@@ -42,6 +42,10 @@ MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
 # name -> (filename, content, mime), the shape httpx wants for multipart.
 UploadedFiles = dict[str, tuple[str, bytes, str]]
+
+# One rich request with its uploads — a send or an edit — so the workarounds for
+# what Telegram refuses are written once for both.
+RichCall = Callable[[Sequence[Block], UploadedFiles], Response]
 
 
 @dataclass
@@ -190,7 +194,12 @@ class TelegramClient:
             message.post_format = FORMAT_LEGACY
         return message
 
-    def update_post(self, message: MessageId, post: RenderedPost) -> None:
+    def update_post(self, message: MessageId, post: RenderedPost) -> bool:
+        """Rewrite a published message. True once the channel shows `post`.
+
+        The answer is what the caller records as the post's state: a rejected
+        edit that was stored as done would never be tried again.
+        """
         assert not message.from_discussion
         issue = self.issues[message.issue]
         if post.is_rich:
@@ -198,13 +207,22 @@ class TelegramClient:
             # Rewritten before sending, so the edit references files Telegram
             # already holds. A URL from an earlier crawl may no longer resolve,
             # and then the edit takes the whole post's media down with it.
-            urls = self._use_known_files(post.blocks, message)
-            response = self._edit_rich(message.message_id, post.blocks, issue=issue)
+            self._use_known_files(post.blocks, message)
+            # The same rescue a send gets: an unplayable video uploaded, a
+            # block Telegram refuses dropped. Without it an edit resent every
+            # URL the first send had to work around, and Telegram rejected the
+            # whole update, text included.
+            blocks, response = self._deliver_rich(
+                post.blocks,
+                lambda blocks, files: self._edit_rich(
+                    message.message_id, blocks, issue=issue, files=files
+                ),
+            )
             if response.status_code == 200:
                 # Attachments an update added arrive with a file_id of their own,
                 # and the next edit has to be able to reference those too.
-                self._record_media(message, response, urls)
-                return
+                self._record_media(message, response, self._source_urls(blocks, message))
+                return True
         elif message.has_caption:
             assert post.text is not None
             response = self._edit_caption(message.message_id, post.text, issue=issue)
@@ -212,8 +230,8 @@ class TelegramClient:
             assert post.text is not None
             response = self._edit_text(message.message_id, post.text, issue=issue)
 
-        if response.status_code == 200:
-            return
+        if response.status_code == 200 or self._is_not_modified(response):
+            return True
 
         if self._is_caption_only(response):
             # A message sent as media carries a caption, not text, and cannot be
@@ -227,7 +245,7 @@ class TelegramClient:
                 "caption from now on",
                 message.message_id,
             )
-            return
+            return False
 
         logging.error(
             "Update of %s failed (%d): %s",
@@ -235,23 +253,27 @@ class TelegramClient:
             response.status_code,
             response.text,
         )
+        return False
 
     @staticmethod
-    def _use_known_files(blocks: Sequence[Block], message: MessageId) -> list[str]:
-        """Swap every attachment we have a file_id for, in place.
+    def _source_urls(blocks: Sequence[Block], message: MessageId) -> list[str]:
+        """The URL behind every attachment actually sent, in send order.
 
-        Returns the URLs in send order — including the ones left as URLs, which
-        is how the response's file_ids get paired back to them.
+        What went out may be a file_id or an `attach://` upload; what the next
+        render produces is the source URL, so that is what the file_id Telegram
+        returns has to be remembered under.
         """
+        by_file_id = {file_id: url for url, file_id in message.file_ids().items()}
+        return [by_file_id.get(url, url) for url in media_urls(blocks)]
+
+    @staticmethod
+    def _use_known_files(blocks: Sequence[Block], message: MessageId) -> None:
+        """Swap every attachment we have a file_id for, in place."""
         known = message.file_ids()
-        urls: list[str] = []
         for payload in media_payloads(blocks):
-            url = str(payload["media"])
-            urls.append(url)
-            file_id = known.get(url)
+            file_id = known.get(str(payload["media"]))
             if file_id:
                 payload["media"] = file_id
-        return urls
 
     @staticmethod
     def _record_media(
@@ -269,6 +291,13 @@ class TelegramClient:
         media = attach_urls(extract_sent_media(result), list(urls))
         if media:
             message.media = media
+
+    @staticmethod
+    def _is_not_modified(response: Response) -> bool:
+        """Telegram's answer to an edit that changes nothing: already shown."""
+        if response.status_code != 400:
+            return False
+        return "message is not modified" in response.json().get("description", "")
 
     @staticmethod
     def _is_caption_only(response: Response) -> bool:
@@ -357,8 +386,7 @@ class TelegramClient:
         self,
         blocks: Sequence[Block],
         response: Response,
-        issue: "IssueConfig",
-        reply_to: int | None,
+        call: RichCall,
         files: UploadedFiles | None = None,
     ) -> tuple[list[Block], Response]:
         """Send the post again without the attachments Telegram refused.
@@ -405,9 +433,7 @@ class TelegramClient:
         kept_files = {
             name: blob for name, blob in (files or {}).items() if name in still_attached
         }
-        return kept, self._send_rich(
-            kept, issue=issue, reply_to=reply_to, files=kept_files
-        )
+        return kept, call(kept, kept_files)
 
     def send_rich_message(
         self,
@@ -419,26 +445,12 @@ class TelegramClient:
             logging.warning(ISSUE_WARNING, issue_name)
             return None
         issue = self.issues[issue_name]
-        files, uploaded = self._upload_unplayable_videos(blocks)
-        response = self._send_rich(blocks, issue=issue, reply_to=reply_to, files=files)
-
-        if response.status_code != 200 and uploaded:
-            # attach:// is the Bot API's own way of referencing an upload, but
-            # it is unverified against sendRichMessage specifically. If it is
-            # not taken, the post falls back to what it would have been without
-            # any of this — the plain URL — rather than to nothing.
-            logging.warning(
-                "Upload refused (%s), sending the original urls instead",
-                response.text[:200],
-            )
-            self._restore_uploaded_urls(blocks, uploaded)
-            files = {}
-            response = self._send_rich(blocks, issue=issue, reply_to=reply_to)
-
-        if response.status_code != 200:
-            blocks, response = self._retry_without_rejected_media(
-                blocks, response, issue, reply_to, files
-            )
+        blocks, response = self._deliver_rich(
+            blocks,
+            lambda blocks, files: self._send_rich(
+                blocks, issue=issue, reply_to=reply_to, files=files
+            ),
+        )
 
         if response.status_code != 200:
             logging.error(
@@ -454,8 +466,45 @@ class TelegramClient:
         message = MessageId(
             message_id=message_id, issue=issue_name, from_discussion=False
         )
-        self._record_media(message, response, self._use_known_files(blocks, message))
+        self._record_media(message, response, self._source_urls(blocks, message))
         return message
+
+    def _deliver_rich(
+        self, blocks: Sequence[Block], call: RichCall
+    ) -> tuple[list[Block], Response]:
+        """Send or edit a rich post, working around what Telegram will not take.
+
+        Shared by `send_rich_message` and `update_post`, because an edit meets
+        the same attachments the send did: the .mov a send had to upload, the
+        video it had to drop, are still in the cluster the edit renders.
+
+        Returns the blocks the final request carried, with every upload pointed
+        back at its source URL, so the answer can be paired to what the next
+        render will produce.
+        """
+        files, uploaded = self._upload_unplayable_videos(blocks)
+        response = call(blocks, files)
+
+        if response.status_code != 200 and uploaded:
+            # attach:// is the Bot API's own way of referencing an upload, but
+            # it is unverified against the rich methods specifically. If it is
+            # not taken, the post falls back to what it would have been without
+            # any of this — the plain URL — rather than to nothing.
+            logging.warning(
+                "Upload refused (%s), sending the original urls instead",
+                response.text[:200],
+            )
+            self._restore_uploaded_urls(blocks, uploaded)
+            files, uploaded = {}, {}
+            response = call(blocks, files)
+
+        sent = list(blocks)
+        if response.status_code != 200:
+            sent, response = self._retry_without_rejected_media(
+                blocks, response, call, files
+            )
+        self._restore_uploaded_urls(sent, uploaded)
+        return sent, response
 
     def send_message(
         self,
@@ -611,7 +660,11 @@ class TelegramClient:
         return self._post(url_template.format(issue.bot_token), params, files)
 
     def _edit_rich(
-        self, message_id: int, blocks: Sequence[Block], issue: IssueConfig
+        self,
+        message_id: int,
+        blocks: Sequence[Block],
+        issue: IssueConfig,
+        files: UploadedFiles | None = None,
     ) -> Response:
         url_template = self.host + "/bot{}/editMessageText"
         params = {
@@ -619,7 +672,7 @@ class TelegramClient:
             "message_id": message_id,
             "rich_message": json.dumps({"blocks": list(blocks)}, ensure_ascii=False),
         }
-        return self._post(url_template.format(issue.bot_token), params)
+        return self._post(url_template.format(issue.bot_token), params, files)
 
     def _send_text(
         self,

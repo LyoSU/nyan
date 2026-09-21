@@ -65,9 +65,15 @@ def independent_sources(cluster: Cluster) -> float:
     Deduplicated by owner rather than by channel. A channel that posted a story
     twice was already one source, which the plain `len(unique_channels)` got
     right; a network of clones under one `master` was ten, which it did not.
+
+    `monitor_only` channels are left out, as they are from `quotable_docs`:
+    a sanctioned outlet stays on the cluster so the site can show it carried
+    the story, but it is not what gets a story into the feed.
     """
     by_owner: dict[str, Document] = {}
     for doc in cluster.docs:
+        if doc.monitor_only:
+            continue
         by_owner.setdefault(doc.master or doc.channel_id, doc)
     return sum(source_weight(doc) for doc in by_owner.values())
 
@@ -80,6 +86,17 @@ class Ranker:
         assert any(
             issue["issue_name"] == FALLBACK_ISSUE for issue in self.config["issues"]
         ), f"No '{FALLBACK_ISSUE}' issue configured for clusters to fall back to"
+
+    def stands_alone(self, cluster: Cluster, issue_name: str) -> bool:
+        """Whether this many sources would publish a story in this issue.
+
+        The source gate of `__call__` on its own, for a part of a cluster the
+        daemon considers publishing separately: what could not have reached the
+        feed as a story cannot be split off from one either.
+        """
+        by_name = {issue["issue_name"]: issue for issue in self.config["issues"]}
+        issue = by_name.get(issue_name, by_name[FALLBACK_ISSUE])
+        return bool(independent_sources(cluster) >= issue["min_channels"])
 
     def __call__(self, all_clusters: list[Cluster]) -> dict[str, list[Cluster]]:
         configured = {issue["issue_name"] for issue in self.config["issues"]}

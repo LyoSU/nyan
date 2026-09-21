@@ -157,8 +157,9 @@ class _FakeClient:
     def send_discussion_message(self, text: str, message: Any) -> None:
         self.discussion_messages.append(text)
 
-    def update_post(self, message: MessageId, post: Any) -> None:
+    def update_post(self, message: MessageId, post: Any) -> bool:
         self.updated.append(message.message_id)
+        return True
 
 
 def test_the_post_is_written_knowing_what_it_stands_under(monkeypatch: Any) -> None:
@@ -678,3 +679,190 @@ def test_an_unanswered_send_tells_the_site_nothing(monkeypatch: Any) -> None:
     daemon.send_cluster(_cluster([1.0, 0.02]), "main", Clusters(), None, None)
 
     assert pings == []
+
+
+class _RefusingClient(_FakeClient):
+    def update_post(self, message: MessageId, post: Any) -> bool:
+        self.updated.append(message.message_id)
+        return False
+
+
+def _grown_post() -> Cluster:
+    """A published post that has just taken in a channel it did not show."""
+    posted = _cluster([1.0, 0.0], message_id=11)
+    posted.saved_hash = posted.hash
+    newcomer = _cluster([1.0, 0.0], message_id=12).docs[0]
+    newcomer.channel_id = "othernews"
+    posted.add(newcomer)
+    return posted
+
+
+def test_a_rejected_edit_is_tried_again_on_the_next_pass() -> None:
+    """Stored as done, a refused edit left the post stale for good: the next
+    pass read the new hash back, saw nothing changed, and never edited again."""
+    daemon = _daemon()
+    daemon.renderer = _FakeRenderer()  # type: ignore[assignment]
+    daemon.client = _RefusingClient()  # type: ignore[assignment]
+    posted = _grown_post()
+    shown = posted.saved_hash
+
+    daemon.refresh_post(posted, "main", 3600)
+
+    assert posted.changed()
+    assert posted.asdict()["hash"] == shown
+
+
+def test_a_confirmed_edit_is_what_gets_stored() -> None:
+    daemon = _daemon()
+    daemon.renderer = _FakeRenderer()  # type: ignore[assignment]
+    daemon.client = _FakeClient()  # type: ignore[assignment]
+    posted = _grown_post()
+
+    daemon.refresh_post(posted, "main", 3600)
+
+    assert not posted.changed()
+    assert posted.asdict()["hash"] == posted.hash
+
+
+def test_a_new_post_is_stored_as_shown() -> None:
+    daemon = _daemon()
+    daemon.renderer = _FakeRenderer()  # type: ignore[assignment]
+    daemon.client = _FakeClient()  # type: ignore[assignment]
+    cluster = _cluster([1.0, 0.0])
+
+    daemon.send_cluster(cluster, "main", Clusters(), None, None)
+
+    assert cluster.messages
+    assert not cluster.changed()
+
+
+# ------------------------------------------ developments glued to their post
+
+
+class _TwoSourceRanker:
+    """Two channels are a story; one is not."""
+
+    def stands_alone(self, cluster: Cluster, issue_name: str) -> bool:
+        return len({doc.channel_id for doc in cluster.docs}) >= 2
+
+
+def _doc(channel_id: str, post_id: int, age_seconds: int) -> Document:
+    now = get_current_ts()
+    return Document(
+        url=f"https://t.me/{channel_id}/{post_id}",
+        channel_id=channel_id,
+        post_id=post_id,
+        views=100,
+        pub_time=now - age_seconds,
+        fetch_time=now,
+        text="Оплату підтвердили",
+        patched_text="Оплату підтвердили",
+        groups={"main": "blue"},
+        issue="main",
+        language="uk",
+        embedding=[1.0, 0.0],
+    )
+
+
+def _glued(*late: Document) -> tuple[Daemon, Cluster, Clusters, Cluster]:
+    """A post four hours old, and the clusterer's cluster holding it plus `late`.
+
+    The shape `hold_published_together` produces: the post's own document is
+    in the cluster, so `find_similar` recognizes the post by it.
+    """
+    daemon = _daemon()
+    daemon.renderer = _FakeRenderer()  # type: ignore[assignment]
+    daemon.client = _FakeClient()  # type: ignore[assignment]
+    daemon.ranker = _TwoSourceRanker()  # type: ignore[assignment]
+    post = _cluster([1.0, 0.0], message_id=11, headline="Обіцяли виплату", age_seconds=4 * 3600)
+    post.create_time = get_current_ts() - 4 * 3600 + 60
+    posted = _posted(post)
+    incoming = Cluster()
+    incoming.add(post.docs[0])
+    for doc in late:
+        incoming.add(doc)
+    return daemon, post, posted, incoming
+
+
+def test_a_development_glued_to_its_post_goes_out_as_a_reply(monkeypatch: Any) -> None:
+    """Hours later, the payment made: news the post does not carry.
+
+    Recognized as the post by its URLs, it used to be folded in — and past the
+    editing window that meant it was never told at all.
+    """
+    seen = _patch_judge(monkeypatch, FOLLOW_UP)
+    late = [_doc("a", 1, 600), _doc("b", 1, 600)]
+    daemon, post, posted, incoming = _glued(*late)
+
+    daemon.send_cluster(incoming, "main", posted, None, None)
+
+    client: Any = daemon.client
+    assert [list(candidates) for candidates in seen] == [[post]]
+    assert client.sent == 1
+    assert client.reply_to == 11
+    assert not any(post.has(doc) for doc in late)
+
+
+def test_a_late_wave_of_the_same_event_is_folded_in_once(monkeypatch: Any) -> None:
+    seen = _patch_judge(monkeypatch, SAME)
+    late = [_doc("a", 1, 600), _doc("b", 1, 600)]
+    daemon, post, posted, incoming = _glued(*late)
+
+    daemon.send_cluster(incoming, "main", posted, None, None)
+    daemon.send_cluster(incoming, "main", posted, None, None)
+
+    client: Any = daemon.client
+    assert len(seen) == 1
+    assert client.sent == 0
+    assert all(post.has(doc) for doc in late)
+
+
+def test_one_late_channel_is_held_while_others_may_join(monkeypatch: Any) -> None:
+    """Taken in one at a time, a development would never be enough to ask about."""
+    seen = _patch_judge(monkeypatch, FOLLOW_UP)
+    young = _doc("a", 1, 600)
+    daemon, post, posted, incoming = _glued(young)
+
+    daemon.send_cluster(incoming, "main", posted, None, None)
+
+    assert not seen
+    assert not post.has(young)
+
+
+def test_a_late_channel_no_one_joined_is_folded_in(monkeypatch: Any) -> None:
+    seen = _patch_judge(monkeypatch, FOLLOW_UP)
+    ripe = _doc("a", 1, 2 * 3600)
+    daemon, post, posted, incoming = _glued(ripe)
+
+    daemon.send_cluster(incoming, "main", posted, None, None)
+
+    assert not seen
+    assert post.has(ripe)
+
+
+def test_the_first_wave_is_folded_in_without_asking(monkeypatch: Any) -> None:
+    seen = _patch_judge(monkeypatch, FOLLOW_UP)
+    early = [_doc("a", 1, 4 * 3600 - 600), _doc("b", 1, 4 * 3600 - 600)]
+    daemon, post, posted, incoming = _glued(*early)
+
+    daemon.send_cluster(incoming, "main", posted, None, None)
+
+    assert not seen
+    assert all(post.has(doc) for doc in early)
+
+
+def test_a_follow_up_clustered_beside_its_parent_stays_its_own(
+    monkeypatch: Any,
+) -> None:
+    """Once sent, its documents belong to it, not to the post it follows."""
+    seen = _patch_judge(monkeypatch, FOLLOW_UP)
+    late = [_doc("a", 1, 600), _doc("b", 1, 600)]
+    daemon, post, posted, incoming = _glued(*late)
+    daemon.send_cluster(incoming, "main", posted, None, None)
+
+    daemon.send_cluster(incoming, "main", posted, None, None)
+
+    client: Any = daemon.client
+    assert len(seen) == 1
+    assert client.sent == 1
+    assert not any(post.has(doc) for doc in late)

@@ -144,6 +144,23 @@ def test_four_newsrooms_still_publish(tmp_path: Any) -> None:
     assert ranked["main"] == [cluster]
 
 
+def test_a_monitored_channel_does_not_make_up_the_count(tmp_path: Any) -> None:
+    """Three newsrooms and Страна are three sources, not four.
+
+    `monitor_only` channels are kept out of quotes and out of the view
+    threshold; letting them count toward `min_channels` would let a
+    sanctioned outlet be the one that pushes a story into the feed.
+    """
+    config_path = _write_config(tmp_path, [_issue("main", min_channels=4)])
+    cluster = _cluster(["up", "suspilne", "babel", "stranaua"], issue="main", group="blue")
+    for doc in cluster.docs:
+        doc.monitor_only = doc.channel_id == "stranaua"
+
+    ranked = Ranker(config_path)([cluster])
+
+    assert not ranked["main"]
+
+
 def test_enough_anonymous_channels_still_publish(tmp_path: Any) -> None:
     """Discounted is not silenced: when the whole anonymous segment carries a
     story, that is itself a finding worth publishing."""
@@ -177,3 +194,16 @@ def test_the_production_config_configures_every_issue_it_ranks() -> None:
 
     names = [issue["issue_name"] for issue in ranker.config["issues"]]
     assert "main" in names
+
+
+def test_stands_alone_is_the_source_gate_of_the_issue(tmp_path: Any) -> None:
+    config_path = _write_config(
+        tmp_path, [_issue("main", min_channels=4), _issue("tech", min_channels=2)]
+    )
+    ranker = Ranker(config_path)
+    two = _cluster(["up", "babel"], issue="main", group="blue")
+
+    assert ranker.stands_alone(two, "tech")
+    assert not ranker.stands_alone(two, "main")
+    # An issue with no entry is held to the fallback's bar, as `__call__` does.
+    assert not ranker.stands_alone(two, "economy")

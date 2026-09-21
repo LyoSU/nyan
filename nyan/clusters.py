@@ -276,11 +276,31 @@ class Cluster:
         # 32,179 requests to the model, byte for byte the same prompt.
         self.refused_docs: set[str] = set()
 
+    # Everything cached off the member list. A posted cluster is mutated more
+    # than once in one iteration — a loose document attached, then the
+    # clusterer's own additions folded in — and a value frozen after the first
+    # would render the post and store its hash without the second.
+    _MEMBER_CACHES = (
+        "fetch_time",
+        "pub_time_percentile",
+        "media",
+        "images",
+        "videos",
+        "cropped_title",
+        "hash",
+    )
+
     def add(self, doc: Document) -> None:
         self.docs.append(doc)
         url_normalized = normalize_url(doc.url)
         self.url2doc[url_normalized] = doc
         self._fold_embedding(doc.embedding)
+        self.invalidate()
+
+    def invalidate(self) -> None:
+        """Drop what was computed from the members, after they changed."""
+        for name in self._MEMBER_CACHES:
+            self.__dict__.pop(name, None)
 
     def _fold_embedding(self, embedding: Sequence[float] | None) -> None:
         if not embedding:
@@ -312,6 +332,18 @@ class Cluster:
 
     def changed(self) -> bool:
         return self.hash != self.saved_hash
+
+    @property
+    def shown_hash(self) -> str:
+        """The hash of what the channel shows, which is what gets stored.
+
+        For a published post that is the hash of its last confirmed send or
+        edit, not of the members it holds now: an edit Telegram rejected must
+        still look `changed` to the next pass, or it is never tried again.
+        """
+        if self.messages and self.saved_hash is not None:
+            return self.saved_hash
+        return self.hash
 
     @property
     def pub_time(self) -> int:
@@ -760,7 +792,7 @@ class Cluster:
             "messages": [m.asdict() for m in self.messages],
             "annotation_doc": annotation_doc,
             "first_doc": first_doc,
-            "hash": self.hash,
+            "hash": self.shown_hash,
             "headline": analysis.get("headline"),
             "summary": analysis.get("summary"),
             "generation": analysis.get("generation"),
@@ -946,6 +978,8 @@ class Clusters:
         cluster.pending_since = None
         cluster.pending_issue = ""
         cluster.messages.append(message)
+        # What the channel now shows; `changed` is measured against it.
+        cluster.saved_hash = cluster.hash
         self.add(cluster)
 
     def published_documents(self) -> dict[str, int]:
@@ -1027,6 +1061,7 @@ class Clusters:
                     and normalize_url(cluster.saved_annotation_doc.url) == url
                 ):
                     cluster.saved_annotation_doc = new_doc
+                cluster.invalidate()
                 updates_count += 1
         if updates_count > 0:
             self.invalidate_caches()

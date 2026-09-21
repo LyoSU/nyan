@@ -7,5 +7,7 @@
     "clusters_offset": 259200,
     "similar_min_intersection_ratio": 0.15,
     "send_docs_to_discussion": false,
-    "pending_send_ttl": 10800
+    "pending_send_ttl": 10800,
+    "follow_up_gap": 3600,
+    "follow_up_hold": 3600
 }

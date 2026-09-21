@@ -7,7 +7,10 @@ text the model writes.
 """
 
 import json
+from types import SimpleNamespace
 from typing import Any
+
+import httpx
 
 import pytest
 
@@ -40,8 +43,20 @@ class FakeCollection:
             return None
         return max(found, key=lambda r: r["published_until"])
 
-    def insert_one(self, record: dict[str, Any]) -> None:
+    def insert_one(self, record: dict[str, Any]) -> Any:
+        record = {**record, "_id": len(self.records) + 1}
         self.records.append(record)
+        return SimpleNamespace(inserted_id=record["_id"])
+
+    def delete_one(self, query: dict[str, Any]) -> None:
+        self.records = [r for r in self.records if r.get("_id") != query["_id"]]
+
+    def update_one(self, query: dict[str, Any], update: dict[str, Any]) -> None:
+        for r in self.records:
+            if r.get("_id") == query["_id"]:
+                r.update(update.get("$set", {}))
+                for key in update.get("$unset", {}):
+                    r.pop(key, None)
 
 
 @pytest.fixture
@@ -637,3 +652,59 @@ def test_every_digest_call_names_the_same_cache_key(monkeypatch: Any) -> None:
     )
 
     assert calls[0]["prompt_cache_key"] == "digest"
+
+
+WINDOW_RECORD = {"published_from": NOW - 8 * HOUR, "published_until": NOW}
+
+
+def test_a_published_digest_records_its_message(collection: FakeCollection) -> None:
+    message_id = digest.publish(
+        "mongo.json", lambda: SimpleNamespace(message_id=42), dict(WINDOW_RECORD)
+    )
+
+    assert message_id == 42
+    [record] = collection.records
+    assert record["message_id"] == 42
+    assert "pending" not in record
+
+
+def test_a_digest_whose_answer_was_lost_is_not_sent_again(
+    collection: FakeCollection,
+) -> None:
+    """Telegram may have accepted it before the read timed out.
+
+    The feed learned this with `mark_pending`; the digest has the same hole,
+    and a shift posted twice is worse than one missing from the digests.
+    """
+
+    def send() -> None:
+        raise httpx.ReadTimeout("no answer")
+
+    with pytest.raises(httpx.ReadTimeout):
+        digest.publish("mongo.json", send, dict(WINDOW_RECORD))
+
+    assert digest.read_watermark("mongo.json") == NOW
+
+
+def test_a_digest_telegram_refused_leaves_the_window_open(
+    collection: FakeCollection,
+) -> None:
+    collection.records.append({"published_until": NOW - 8 * HOUR})
+
+    assert digest.publish("mongo.json", lambda: None, dict(WINDOW_RECORD)) is None
+
+    assert digest.read_watermark("mongo.json") == NOW - 8 * HOUR
+
+
+def test_a_digest_that_never_reached_telegram_leaves_the_window_open(
+    collection: FakeCollection,
+) -> None:
+    collection.records.append({"published_until": NOW - 8 * HOUR})
+
+    def send() -> None:
+        raise httpx.ConnectError("refused")
+
+    with pytest.raises(httpx.ConnectError):
+        digest.publish("mongo.json", send, dict(WINDOW_RECORD))
+
+    assert digest.read_watermark("mongo.json") == NOW - 8 * HOUR

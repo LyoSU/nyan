@@ -714,3 +714,38 @@ def test_a_post_stops_accepting_updates_once_it_is_old() -> None:
 
     assert cluster.accepts_updates(600, now=1500)
     assert not cluster.accepts_updates(600, now=1600)
+
+
+def test_a_cluster_mutated_twice_in_one_pass_hashes_every_member() -> None:
+    """A loose document attached, then the clusterer's additions folded in.
+
+    The first refresh reads `hash`; if it stayed cached, the second `add`
+    would reach neither the rendered post nor the hash stored for it, and the
+    next pass would see nothing left to edit.
+    """
+    cluster = Cluster()
+    cluster.add(_make_doc("https://t.me/a/1", channel_id="a", pub_time=10))
+    cluster.add(_make_doc("https://t.me/b/1", channel_id="b", pub_time=20))
+    after_first = cluster.hash
+    percentile_first = cluster.pub_time_percentile
+
+    cluster.add(_make_doc("https://t.me/c/1", channel_id="c", pub_time=1))
+
+    assert cluster.hash != after_first
+    assert cluster.pub_time_percentile != percentile_first
+
+
+def test_a_replaced_member_is_seen_by_the_cached_fields() -> None:
+    cluster = Cluster()
+    cluster.add(_make_doc("https://t.me/a/1", channel_id="a"))
+    clusters = Clusters()
+    clusters.clid2cluster[1] = cluster
+    cluster.clid = 1
+    assert cluster.fetch_time == 0
+
+    replacement = _make_doc("https://t.me/a/1", channel_id="a")
+    replacement.views = 2
+    replacement.fetch_time = 500
+    clusters.update_documents([replacement])
+
+    assert cluster.fetch_time == 500
