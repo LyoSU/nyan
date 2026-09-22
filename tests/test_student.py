@@ -1,5 +1,4 @@
 import json
-import os
 
 import pytest
 
@@ -55,7 +54,7 @@ def test_every_post_with_text_gets_a_category_and_the_other_heads() -> None:
         assert labelled.category_scores[labelled.category] == max(labelled.category_scores.values())
         assert sum(labelled.category_scores.values()) == pytest.approx(1.0, abs=1e-4)
         assert {"topic", "scope", "region", "significance_mean", "urgent"} <= set(labelled.student)
-        assert labelled.student["model"] == os.path.basename(str(student_config()["path"]))
+        assert labelled.student["model"] == student.name
 
 
 @needs_model

@@ -59,7 +59,9 @@ class Student:
         self.choices: dict[str, list[Any]] = meta["choices"]
         self.binary: list[str] = meta["binary"]
         self.outputs: list[str] = list(self.choices) + self.binary
-        self.name = os.path.basename(os.path.normpath(config.path))
+        # Which training run, from the export; the directory name stays the same
+        # across retrains, so it cannot tell a v1 answer from a v3 one in Mongo.
+        self.name: str = meta.get("name") or os.path.basename(os.path.normpath(config.path))
 
         options = ort.SessionOptions()
         options.intra_op_num_threads = config.threads
