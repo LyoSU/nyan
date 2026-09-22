@@ -78,6 +78,10 @@
         "budget_seconds": 60,
         "max_text": 1500
     },
+    "student": {
+        "path": "models/student_e5_multi",
+        "not_news_threshold": 0.7
+    },
     "cat_detector": {
         "path": "models/multilingual_e5_base_cat_detect.joblib",
         "embedding_key": "multilingual_e5_base",

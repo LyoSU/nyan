@@ -1,3 +1,4 @@
+import json
 import os
 
 import pytest
@@ -114,8 +115,20 @@ def channels(channels_info_path) -> Channels:
 
 
 @pytest.fixture
-def annotator(annotator_config_path, channels) -> Annotator:
-    return Annotator(annotator_config_path, channels)
+def annotator(annotator_config_path, channels, tmp_path) -> Annotator:
+    """The shipped annotator, minus the student model.
+
+    The snapshot was taken with the older category head, and CI has no student
+    model to download, so there it falls back to that head anyway. Removing the
+    section here makes a machine that does have the model take the same path,
+    instead of the snapshot passing in CI and failing on every laptop.
+    """
+    with open(annotator_config_path) as r:
+        config = json.load(r)
+    config.pop("student", None)
+    path = tmp_path / "annotator_config.json"
+    path.write_text(json.dumps(config))
+    return Annotator(str(path), channels)
 
 
 @pytest.fixture

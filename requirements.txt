@@ -22,6 +22,9 @@ torch >= 2.2
 # every post with a photo pays for it.
 torchvision >= 0.17
 pyonmttok >= 1.37
+# The distilled classifier, nyan/student.py. The CPU build only: the model is
+# int8 in its embeddings and small enough that a GPU would buy nothing.
+onnxruntime >= 1.20
 natasha >= 1.6
 pillow >= 10.4
 # Perceptual hashing, for recognising one photograph across the channels that

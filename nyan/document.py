@@ -127,6 +127,12 @@ class Document(Serializable):
     #: reason `badges` is not: re-embedding a week of posts to fill a field
     #: nobody acts on would buy nothing.
     jev: dict[str, Any] = field(default_factory=dict)
+    #: The distilled classifier's other answers — topic, scope, region, role,
+    #: significance and the yes/no scores — beside the category it set; see
+    #: `nyan/student.py`. Empty when the host has no student model and the
+    #: category came from the older head. Outside CURRENT_VERSION like `jev`:
+    #: nothing reads it yet.
+    student: dict[str, Any] = field(default_factory=dict)
 
     version: int = CURRENT_VERSION
 

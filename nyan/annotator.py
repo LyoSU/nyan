@@ -17,6 +17,7 @@ from nyan.text import TextProcessor
 from nyan.image import ImageProcessor
 from nyan.jev import JevShadow
 from nyan.rubrics import count_own_posts, RubricDetector
+from nyan.student import Student
 from nyan.tokenizer import Tokenizer
 from nyan.util import normalize_channel_id
 
@@ -54,6 +55,13 @@ class Annotator:
         self.cat_detector = None
         if "cat_detector" in config:
             self.cat_detector = ClassifierHead(config["cat_detector"])
+
+        # Ahead of `cat_detector` when both are there, and the reason the older
+        # head is still loaded: `Student.load` gives None on a host without the
+        # model, and the category then comes from where it always did.
+        self.student = None
+        if "student" in config:
+            self.student = Student.load(config["student"])
 
         # Built even when the section is absent, unlike the detectors above: a
         # missing model file cannot be worked around, but a missing rubric
@@ -95,6 +103,11 @@ class Annotator:
         if self.embedder is not None:
             docs = self.calc_embeddings(docs)
             logging.info("Embeddings calculated for %d documents", len(docs))
+
+        # Batched, like the embeddings, and before the rubric check for the same
+        # reason the older head is: the rubric overrides whatever it picked.
+        if self.student is not None:
+            docs = self.student(docs)
 
         # The rubric check runs after the model, and overrides it: the model has
         # no way to know that a funeral notice is routine rather than news, so
@@ -255,7 +268,7 @@ class Annotator:
         return doc
 
     def predict_category(self, doc: Document) -> Document:
-        if not self.cat_detector:
+        if not self.cat_detector or self.student is not None:
             return doc
         if not doc.patched_text:
             return doc
