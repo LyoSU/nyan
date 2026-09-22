@@ -33,5 +33,6 @@
             "higher_views_percentile": 15,
             "higher_trigger_age_minutes": 20
         }
-    ]
+    ],
+    "shadow": {}
 }

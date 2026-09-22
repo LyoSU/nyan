@@ -119,3 +119,12 @@ def get_relation_shadow_collection(mongo_config_path: str) -> Collection[dict[st
     return get_collection(
         mongo_config_path, "relation_shadow_collection_name", "relation_shadow"
     )
+
+
+def get_rank_shadow_collection(mongo_config_path: str) -> Collection[dict[str, Any]]:
+    """Stories the student-aware ranker would have published or held, one per change.
+
+    Written by `RankShadow` and read by `scripts/rank_shadow.py`; decides
+    nothing, and can be dropped once the signals are either in the ranker or out.
+    """
+    return get_collection(mongo_config_path, "rank_shadow_collection_name", "rank_shadow")

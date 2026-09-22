@@ -2,6 +2,7 @@ import json
 import logging
 import os
 from collections import defaultdict
+from typing import Any
 
 from nyan.channels import normalize_group
 from nyan.clusters import Cluster
@@ -87,6 +88,18 @@ class Ranker:
             issue["issue_name"] == FALLBACK_ISSUE for issue in self.config["issues"]
         ), f"No '{FALLBACK_ISSUE}' issue configured for clusters to fall back to"
 
+    def required_sources(self, cluster: Cluster, issue_config: dict[str, Any]) -> float:
+        """How many newsrooms this cluster needs. A hook for `RankShadow`."""
+        return float(issue_config["min_channels"])
+
+    def is_breaking(self, cluster: Cluster) -> bool:
+        """Whether a young cluster may pass on the ordinary views border.
+
+        Always False here, so a young cluster has to clear the higher one. A
+        hook for `RankShadow`, which lets urgent stories through sooner.
+        """
+        return False
+
     def stands_alone(self, cluster: Cluster, issue_name: str) -> bool:
         """Whether this many sources would publish a story in this issue.
 
@@ -126,13 +139,14 @@ class Ranker:
         final_clusters = defaultdict(list)
         for issue_config in self.config["issues"]:
             issue_name = issue_config["issue_name"]
-            min_channels = issue_config["min_channels"]
             max_age_minutes = issue_config["max_age_minutes"]
 
             clusters = issues[issue_name]
             filtered_clusters = []
             for cluster in clusters:
-                is_big_cluster = independent_sources(cluster) >= min_channels
+                is_big_cluster = independent_sources(cluster) >= self.required_sources(
+                    cluster, issue_config
+                )
                 has_lang_doc = required_language is None or any(
                     doc.language == required_language for doc in cluster.docs
                 )
@@ -221,7 +235,7 @@ class Ranker:
             views_per_hour = int(cluster.views_per_hour * coefs[cluster.group])
             cropped_title = cluster.cropped_title
             age = cluster.age
-            if age > hta and views_per_hour >= border_views_per_hour:
+            if (age > hta or self.is_breaking(cluster)) and views_per_hour >= border_views_per_hour:
                 filtered_clusters.append(cluster)
                 log_cluster("added", views_per_hour, cropped_title)
             elif age < hta and views_per_hour >= higher_border_views_per_hour:

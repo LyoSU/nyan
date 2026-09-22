@@ -18,7 +18,8 @@ from nyan.logs import log_new_iteration
 from nyan.publish import notify_published
 from nyan.ranker import Ranker
 from nyan.jev import JevRelationShadow
-from nyan.mongo import get_relation_shadow_collection
+from nyan.mongo import get_rank_shadow_collection, get_relation_shadow_collection
+from nyan.rank_shadow import RankShadow, log_records
 from nyan.relation import (
     FOLLOW_UP,
     SAME,
@@ -93,6 +94,7 @@ class Daemon:
     #: Declared here as well as set in `__init__`, so a daemon assembled without
     #: it — as the tests do, to exercise one method — simply has no shadow.
     relation_shadow: JevRelationShadow | None = None
+    rank_shadow: RankShadow | None = None
     mongo_config_path: str | None = None
 
     def __init__(
@@ -111,6 +113,8 @@ class Daemon:
         self.clusterer = Clusterer(clusterer_config_path)
         self.renderer = Renderer(renderer_config_path, self.channels)
         self.ranker = Ranker(ranker_config_path)
+        if "shadow" in self.ranker.config:
+            self.rank_shadow = RankShadow(ranker_config_path, self.ranker.config["shadow"])
 
         assert os.path.exists(daemon_config_path)
         with open(daemon_config_path) as r:
@@ -182,6 +186,7 @@ class Daemon:
         ranked_clusters: dict[str, list[Cluster]] = self.ranker(new_clusters)
         num_clusters = sum(len(cl) for cl in ranked_clusters.values())
         logging.info("%d clusters in all issues after filtering", num_clusters)
+        self.shadow_rank(new_clusters, ranked_clusters, mongo_config_path)
 
         for issue, clusters in self.drop_unpostable_issues(ranked_clusters).items():
             for cluster in clusters:
@@ -288,6 +293,27 @@ class Daemon:
         logging.info("%d docs before clustering", len(final_docs))
 
         return final_docs
+
+    def shadow_rank(
+        self,
+        clusters: list[Cluster],
+        ranked: dict[str, list[Cluster]],
+        mongo_config_path: str | None,
+    ) -> None:
+        """What the student-aware ranker would have done differently, recorded.
+
+        Never raises into the daemon, and changes nothing it goes on to send:
+        see `RankShadow.compare`.
+        """
+        if self.rank_shadow is None:
+            return
+        try:
+            records = self.rank_shadow.compare(clusters, ranked)
+            log_records(records)
+            if records and mongo_config_path:
+                get_rank_shadow_collection(mongo_config_path).insert_many(records)
+        except Exception:
+            logging.exception("Rank shadow failed")
 
     def drop_unpostable_issues(
         self, ranked_clusters: dict[str, list[Cluster]]
