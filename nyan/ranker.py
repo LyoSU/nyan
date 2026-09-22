@@ -143,23 +143,31 @@ class Ranker:
 
             clusters = issues[issue_name]
             filtered_clusters = []
+            # What the configured gate alone lets through. The same list as
+            # `filtered_clusters` here; a subclass that moves the gate still
+            # measures the views border and the cap on this one, so that the
+            # stories its gate adds or removes do not shift the bar for all the
+            # others — that would be a second change, and not the one it means.
+            reference = []
             for cluster in clusters:
-                is_big_cluster = independent_sources(cluster) >= self.required_sources(
-                    cluster, issue_config
-                )
+                sources = independent_sources(cluster)
                 has_lang_doc = required_language is None or any(
                     doc.language == required_language for doc in cluster.docs
                 )
                 is_fresh = cluster.age < max_age_minutes * 60
-                if is_big_cluster and has_lang_doc and is_fresh:
+                if not (has_lang_doc and is_fresh):
+                    continue
+                if sources >= self.required_sources(cluster, issue_config):
                     filtered_clusters.append(cluster)
+                if sources >= issue_config["min_channels"]:
+                    reference.append(cluster)
             clusters = filtered_clusters
 
             logging.info(
                 "Issue %s: %d clusters after the first filter", issue_name, len(clusters)
             )
 
-            if len(clusters) <= MIN_CLUSTERS_TO_FILTER:
+            if len(reference) <= MIN_CLUSTERS_TO_FILTER:
                 final_clusters[issue_name].extend(clusters)
                 for cluster in clusters:
                     logging.info(
@@ -175,9 +183,11 @@ class Ranker:
                 issue_config["views_percentile"],
                 issue_config["higher_views_percentile"],
                 issue_config["higher_trigger_age_minutes"],
+                reference,
             )
             clusters.sort(key=lambda c: c.pub_time_percentile)
-            clusters = clusters[-MAX_CLUSTERS_PER_ISSUE:]
+            added = len({id(c) for c in filtered_clusters} - {id(c) for c in reference})
+            clusters = clusters[-(MAX_CLUSTERS_PER_ISSUE + added) :]
             final_clusters[issue_name].extend(clusters)
         return final_clusters
 
@@ -207,13 +217,20 @@ class Ranker:
         views_percentile: int,
         higher_views_percentile: int,
         higher_trigger_age_minutes: int,
+        reference: list[Cluster] | None = None,
     ) -> list[Cluster]:
+        """`clusters` that clear the views border, measured on `reference`.
+
+        `reference` defaults to `clusters` themselves; see `__call__` for when
+        they differ.
+        """
+        measured = clusters if reference is None else reference
         coefs: dict[str, float] = defaultdict(lambda: 1.0)
         if issue_name == "main":
-            coefs = self.calc_group_coefs(clusters)
+            coefs = self.calc_group_coefs(measured)
 
         all_views_per_hour = sorted(
-            int(cluster.views_per_hour * coefs[cluster.group]) for cluster in clusters
+            int(cluster.views_per_hour * coefs[cluster.group]) for cluster in measured
         )
         n = len(all_views_per_hour)
 

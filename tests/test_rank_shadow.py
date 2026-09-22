@@ -8,12 +8,12 @@ from nyan.ranker import Ranker
 from nyan.util import get_current_ts
 
 
-def config(tmp_path: Any, min_channels: int = 6) -> str:
+def config(tmp_path: Any, min_channels: int = 6, views_percentile: int = 0) -> str:
     issue = {
         "issue_name": "main",
         "min_channels": min_channels,
         "max_age_minutes": 360,
-        "views_percentile": 0,
+        "views_percentile": views_percentile,
         "higher_views_percentile": 0,
         "higher_trigger_age_minutes": 10,
     }
@@ -27,6 +27,8 @@ def cluster(
     significance: float | None = None,
     urgent: float = 0.0,
     age: int = 3600,
+    views: int = 100,
+    name: str = "c",
 ) -> Cluster:
     result = Cluster()
     now = get_current_ts()
@@ -36,10 +38,10 @@ def cluster(
             student = {"significance_mean": significance, "urgent": urgent}
         result.add(
             Document(
-                url=f"https://t.me/c{i}/{i}",
-                channel_id=f"c{i}",
+                url=f"https://t.me/{name}{i}/{i}",
+                channel_id=f"{name}{i}",
                 post_id=i,
-                views=100,
+                views=views,
                 pub_time=now - age,
                 fetch_time=now,
                 text="Текст",
@@ -118,3 +120,21 @@ def test_a_disagreement_is_recorded_once(tmp_path: Any) -> None:
 
     assert len(shadow.compare([story], ranked)) == 1
     assert shadow.compare([story], ranked) == []
+
+
+def test_the_stories_it_adds_do_not_raise_the_bar_for_the_rest(tmp_path: Any) -> None:
+    """The views border is a percentile, so more candidates move it.
+
+    Measured over the shadow's own, larger list, the loud major stories it lets
+    in pushed quieter stories the real ranker publishes below the border, and
+    the shadow "held" them — the Zelensky-at-the-UN post on the first evening
+    in production — for no reason of its own.
+    """
+    path = config(tmp_path, views_percentile=50)
+    ordinary = [cluster(6, views=100 * (k + 1), name=f"o{k}_") for k in range(4)]
+    loud = [cluster(3, significance=4.5, views=10_000, name=f"l{k}_") for k in range(4)]
+
+    records = compare(path, ordinary + loud)
+
+    assert {r["change"] for r in records} == {"publish"}
+    assert all(r["reasons"] == ["major"] for r in records)
