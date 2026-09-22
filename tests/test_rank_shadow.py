@@ -138,3 +138,20 @@ def test_the_stories_it_adds_do_not_raise_the_bar_for_the_rest(tmp_path: Any) ->
 
     assert {r["change"] for r in records} == {"publish"}
     assert all(r["reasons"] == ["major"] for r in records)
+
+
+def test_the_stories_it_adds_do_not_free_a_place_under_the_cap(tmp_path: Any) -> None:
+    """The cap keeps the newest stories; the shadow's own must not move it.
+
+    Widened by the stories it added, the cap let one more old ordinary story
+    through whenever an added one was then dropped by the views border — two
+    long-posted stories the first evening, "published" for no reason at all.
+    """
+    path = config(tmp_path, views_percentile=10)
+    ordinary = [cluster(6, views=1000 + k, name=f"o{k}_") for k in range(13)]
+    quiet = [cluster(3, significance=4.5, views=1, name=f"q{k}_") for k in range(2)]
+    loud = cluster(3, significance=4.5, views=10_000, name="loud_")
+
+    records = compare(path, ordinary + quiet + [loud])
+
+    assert [(r["change"], r["reasons"]) for r in records] == [("publish", ["major"])]

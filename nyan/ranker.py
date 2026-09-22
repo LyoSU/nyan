@@ -186,8 +186,26 @@ class Ranker:
                 reference,
             )
             clusters.sort(key=lambda c: c.pub_time_percentile)
-            added = len({id(c) for c in filtered_clusters} - {id(c) for c in reference})
-            clusters = clusters[-(MAX_CLUSTERS_PER_ISSUE + added) :]
+            # The cap is taken over the stories the configured gate would pass,
+            # and the ones a subclass adds come on top: widening it by their
+            # number instead let an old story in whenever an added one did not
+            # clear the border.
+            in_reference = {id(c) for c in reference}
+            if in_reference == {id(c) for c in filtered_clusters}:
+                clusters = clusters[-MAX_CLUSTERS_PER_ISSUE:]
+            else:
+                capped = self.filter_by_views(
+                    reference,
+                    issue_name,
+                    issue_config["views_percentile"],
+                    issue_config["higher_views_percentile"],
+                    issue_config["higher_trigger_age_minutes"],
+                )
+                capped.sort(key=lambda c: c.pub_time_percentile)
+                window = {id(c) for c in capped[-MAX_CLUSTERS_PER_ISSUE:]}
+                clusters = [
+                    c for c in clusters if id(c) in window or id(c) not in in_reference
+                ]
             final_clusters[issue_name].extend(clusters)
         return final_clusters
 
