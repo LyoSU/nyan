@@ -45,6 +45,7 @@ ap.add_argument("--out", default="data/relation_replay.jsonl")
 ap.add_argument("--mongo", default="configs/mongo_config.json")
 ap.add_argument("--dry", action="store_true", help="only count what would be asked")
 ap.add_argument("--clids", type=int, nargs="*", default=[], help="stories to ask about whatever else is sampled")
+ap.add_argument("--repeat", type=int, default=1, help="ask each story this many times: the judge is not deterministic")
 args = ap.parse_args()
 
 usage: Counter[str] = Counter()
@@ -104,6 +105,9 @@ chosen = suspect + rest[: args.others]
 chosen += [case for case in cases if case[0].clid in args.clids and case not in chosen]
 print(f"{len(cases)} stories had candidates; asking about {len(suspect)} with a close headline and {min(args.others, len(rest))} others", flush=True)
 
+# Part of the cache key: an answer to another version of the rules is not an answer.
+with open(os.path.join(os.path.dirname(relation.__file__), "prompts", "relation.txt"), "rb") as rules:
+    PROMPT = hashlib.sha256(rules.read()).hexdigest()[:12]
 cache: dict[str, dict[str, Any]] = {}
 lock = threading.Lock()
 if os.path.exists(args.out):
@@ -113,15 +117,15 @@ if os.path.exists(args.out):
             cache[row["key"]] = row
 
 
-def ask(way: str, story: Cluster, candidates: list[Cluster]) -> dict[str, Any]:
+def ask(way: str, story: Cluster, candidates: list[Cluster], rep: int = 0) -> dict[str, Any]:
     key = hashlib.sha256(
-        json.dumps([way, story.clid, [c.clid for c in candidates], os.getenv("LLM_MODEL")]).encode()
+        json.dumps([way, story.clid, [c.clid for c in candidates], os.getenv("LLM_MODEL"), PROMPT, rep]).encode()
     ).hexdigest()[:20]
     if key in cache:
         return cache[key]
     verdict = relation.judge_relation(story, candidates)
     row = {
-        "key": key, "way": way, "clid": story.clid,
+        "key": key, "way": way, "clid": story.clid, "rep": rep, "prompt": PROMPT,
         "verdict": verdict.verdict,
         "match": verdict.cluster.clid if verdict.cluster else None,
     }
@@ -144,7 +148,8 @@ for way in ("old", "pub"):
         relation._as_published = relation._as_material
     try:
         with ThreadPoolExecutor(8) as pool:
-            answers[way] = list(pool.map(lambda case, way=way: ask(way, *case), chosen))
+            asked = [(case, rep) for rep in range(args.repeat) for case in chosen]
+            answers[way] = list(pool.map(lambda job, way=way: ask(way, job[0][0], job[0][1], job[1]), asked))[: len(chosen)]
     finally:
         relation._as_published = original
 
@@ -163,4 +168,11 @@ for (story, candidates), old, new in zip(chosen, answers["old"], answers["pub"])
         f"{'':>10} vs [{target.clid}] {ts_to_dt(target.create_time or 0):%d.%m %H:%M} {target.stored_headline}"
     )
 print("\n(old, pub) verdicts:", dict(flips))
+if args.repeat > 1:
+    print("\nhow often each story was judged the same event, of", args.repeat)
+    for story, _ in chosen:
+        same = {way: sum(r["verdict"] == "same" for r in cache.values()
+                         if r["clid"] == story.clid and r["way"] == way and r.get("prompt") == PROMPT)
+                for way in ("old", "pub")}
+        print(f"  [{story.clid}] old {same['old']} pub {same['pub']} | {story.stored_headline}")
 print(f"{usage['calls']} calls, {usage['in']} in / {usage['out']} out tokens")
