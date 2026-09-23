@@ -37,6 +37,10 @@ MEDIA_ANIMATION = "animation"
 
 MEDIA_TYPES = (MEDIA_PHOTO, MEDIA_VIDEO, MEDIA_ANIMATION)
 
+# Fields of a Message that hold another message whole. What they carry belongs
+# to that message: a reply answers with the post it replies to inside it.
+OTHER_MESSAGES = ("reply_to_message", "pinned_message", "external_reply")
+
 # What Telegram will fetch from a URL as a video. It goes by the extension in
 # the link rather than by what the file turns out to contain, so a .mov is
 # refused unseen — even though the channels' clips are invariably H.264 and AAC
@@ -617,11 +621,14 @@ def _walk_media(node: Any) -> list[tuple[str, Any]]:
     A walk rather than a fixed set of paths: the same extraction has to work for
     sendPhoto, sendVideo, sendMediaGroup and for a rich message, whose media sit
     inside a block tree. Only the keys that name a media type are followed, so a
-    video's own `thumbnail` is not mistaken for a second attachment.
+    video's own `thumbnail` is not mistaken for a second attachment, and the
+    messages embedded in this one are not followed at all.
     """
     found: list[tuple[str, Any]] = []
     if isinstance(node, dict):
         for key, value in node.items():
+            if key in OTHER_MESSAGES:
+                continue
             if key in MEDIA_TYPES:
                 found.append((key, value))
                 continue

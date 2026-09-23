@@ -84,6 +84,28 @@ def test_media_nested_in_a_block_tree_is_found() -> None:
     assert [item.file_id for item in media] == ["full"]
 
 
+def test_the_post_a_reply_answers_is_not_read_as_its_own_media() -> None:
+    """A reply comes back carrying the message it answers, attachments and all.
+
+    Read as ours, the parent's three files took the first three places, the
+    reply's own URLs were paired with them, and every later edit put the
+    parent's video where the reply had a photo — "can't use file of type Video
+    as Photo", on every pass, for as long as the post could still be edited.
+    """
+    media = extract_sent_media(
+        {
+            "message_id": 7,
+            "reply_to_message": {
+                "message_id": 5,
+                "rich_message": {"blocks": [{"type": "video", "video": {"file_id": "parent"}}]},
+            },
+            "rich_message": {"blocks": [{"type": "photo", "photo": photo_sizes()}]},
+        }
+    )
+
+    assert [(item.type, item.file_id) for item in media] == [(MEDIA_PHOTO, "full")]
+
+
 def test_a_response_without_media_yields_nothing() -> None:
     assert extract_sent_media({"message_id": 5, "text": "Текст"}) == []
 

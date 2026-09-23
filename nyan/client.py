@@ -268,12 +268,17 @@ class TelegramClient:
 
     @staticmethod
     def _use_known_files(blocks: Sequence[Block], message: MessageId) -> None:
-        """Swap every attachment we have a file_id for, in place."""
-        known = message.file_ids()
+        """Swap every attachment we have a file_id for, in place.
+
+        Only for a file of the block's own type. Telegram refuses anything else
+        and the whole edit with it, so a record that pairs a URL with the wrong
+        file leaves the URL in place rather than stopping every update.
+        """
+        known = {item.url: item for item in message.media if item.url}
         for payload in media_payloads(blocks):
-            file_id = known.get(str(payload["media"]))
-            if file_id:
-                payload["media"] = file_id
+            item = known.get(str(payload["media"]))
+            if item and item.type == payload.get("type", item.type):
+                payload["media"] = item.file_id
 
     @staticmethod
     def _record_media(

@@ -292,6 +292,28 @@ def test_a_rich_update_sends_the_file_id_instead_of_the_url(
     assert json.loads(params["rich_message"])["blocks"][0]["photo"]["media"] == "known"
 
 
+def test_a_known_file_of_another_type_is_not_put_in_its_place(
+    client: TelegramClient,
+) -> None:
+    """Telegram refuses a video's file_id in a photo block, and the whole edit with it.
+
+    A record that pairs a URL with the wrong file is no reason to lose the
+    update: the URL goes out as it would have without any record at all.
+    """
+    calls = record_calls(client, [FakeResponse()])
+    message = MessageId(
+        message_id=1,
+        issue="main",
+        post_format=FORMAT_RICH,
+        media=[SentMedia(type=MEDIA_VIDEO, file_id="clip", url="a.jpg")],
+    )
+
+    client.update_post(message, RenderedPost(blocks=[rich_photo("a.jpg")]))
+
+    _, params, _ = calls[0]
+    assert json.loads(params["rich_message"])["blocks"][0]["photo"]["media"] == "a.jpg"
+
+
 def test_media_an_update_adds_gets_its_file_id_stored(client: TelegramClient) -> None:
     """A cluster grows, a second photo joins the post, and the next edit has to
     be able to reference that one too."""
