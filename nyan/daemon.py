@@ -19,7 +19,7 @@ from nyan.publish import notify_published
 from nyan.ranker import Ranker
 from nyan.jev import JevRelationShadow
 from nyan.mongo import get_rank_shadow_collection, get_relation_shadow_collection
-from nyan.rank_shadow import RankShadow, log_records
+from nyan.rank_shadow import SEEN_TTL, RankShadow, log_records
 from nyan.relation import (
     FOLLOW_UP,
     SAME,
@@ -308,6 +308,14 @@ class Daemon:
         if self.rank_shadow is None:
             return
         try:
+            if mongo_config_path and not self.rank_shadow.restored:
+                # Once per start: what an earlier process recorded is recorded.
+                self.rank_shadow.remember(
+                    get_rank_shadow_collection(mongo_config_path).find(
+                        {"ts": {"$gte": get_current_ts() - SEEN_TTL}},
+                        {"first_url": 1, "issue": 1, "change": 1, "ts": 1},
+                    )
+                )
             records = self.rank_shadow.compare(clusters, ranked)
             log_records(records)
             if records and mongo_config_path:

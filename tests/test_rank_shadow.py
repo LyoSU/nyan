@@ -2,6 +2,7 @@ import json
 from typing import Any
 
 from nyan.clusters import Cluster
+from nyan.daemon import Daemon
 from nyan.document import Document
 from nyan.rank_shadow import RankShadow
 from nyan.ranker import Ranker
@@ -120,6 +121,57 @@ def test_a_disagreement_is_recorded_once(tmp_path: Any) -> None:
 
     assert len(shadow.compare([story], ranked)) == 1
     assert shadow.compare([story], ranked) == []
+
+
+def test_a_restart_does_not_record_a_disagreement_again(tmp_path: Any) -> None:
+    """What was recorded is in storage, and the process that recorded it is gone.
+
+    Three deploys in one morning restarted the sender three times, and each
+    restart recorded the same stories again.
+    """
+    path = config(tmp_path)
+    story = cluster(3, significance=4.5)
+    ranked = Ranker(path)([story])
+    stored = RankShadow(path, {}).compare([story], ranked)
+
+    restarted = RankShadow(path, {})
+    restarted.remember(stored)
+
+    assert restarted.restored
+    assert restarted.compare([story], ranked) == []
+
+
+class StoredRecords:
+    """The part of a Mongo collection the daemon uses to keep shadow records."""
+
+    def __init__(self, records: list[dict[str, Any]]) -> None:
+        self.records = list(records)
+        self.reads = 0
+
+    def find(self, query: dict[str, Any], projection: dict[str, int]) -> list[dict[str, Any]]:
+        self.reads += 1
+        return [r for r in self.records if r["ts"] >= query["ts"]["$gte"]]
+
+    def insert_many(self, records: list[dict[str, Any]]) -> None:
+        self.records.extend(records)
+
+
+def test_the_daemon_reads_what_is_stored_once_per_start(tmp_path: Any, monkeypatch: Any) -> None:
+    path = config(tmp_path)
+    old, new = cluster(3, significance=4.5, name="old"), cluster(3, significance=4.5, name="new")
+    stored = StoredRecords(RankShadow(path, {}).compare([old], Ranker(path)([old])))
+    monkeypatch.setattr("nyan.daemon.get_rank_shadow_collection", lambda _: stored)
+    daemon = object.__new__(Daemon)
+    daemon.rank_shadow = RankShadow(path, {})
+
+    for _ in range(2):
+        daemon.shadow_rank([old, new], Ranker(path)([old, new]), "mongo_config.json")
+
+    assert stored.reads == 1
+    assert sorted(r["first_url"] for r in stored.records) == [
+        new.docs[0].url,
+        old.docs[0].url,
+    ]
 
 
 def test_the_stories_it_adds_do_not_raise_the_bar_for_the_rest(tmp_path: Any) -> None:

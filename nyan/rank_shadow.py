@@ -22,6 +22,7 @@ better — stories out sooner, nothing important missed, no noise let in.
 
 import logging
 import statistics
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -90,6 +91,20 @@ class RankShadow(Ranker):
         #: cluster again several times a second; a disagreement is news once.
         #: Forgotten after `SEEN_TTL`, past which no cluster is still ranked.
         self.seen: dict[tuple[str, str, str], int] = {}
+        #: Whether `seen` has been filled from what is already stored. The
+        #: daemon does it once, on its first ranking after a start.
+        self.restored = False
+
+    def remember(self, records: Iterable[dict[str, Any]]) -> None:
+        """Take records made before this process started as already made.
+
+        `seen` lives in memory, and every deploy restarts the daemon: three
+        deploys in one morning recorded the same stories three times.
+        """
+        for record in records:
+            key = (record["first_url"], record["issue"], record["change"])
+            self.seen[key] = max(self.seen.get(key, 0), int(record["ts"]))
+        self.restored = True
 
     def usable(self, cluster: Cluster) -> Signals | None:
         found = signals(cluster)
