@@ -194,6 +194,43 @@ def test_the_candidates_reach_the_prompt(monkeypatch: Any) -> None:
     assert "Стара подія була вчора." in prompt
 
 
+def test_a_published_candidate_is_shown_as_its_readers_saw_it(monkeypatch: Any) -> None:
+    """The post's headline and prose, not the one channel it was annotated from.
+
+    That channel wrote only about the meeting; the post led with the attack the
+    president warned of there, and a second story with that warning alone was
+    judged a different event against the channel's text and published again.
+    """
+    story = _cluster([1.0, 0.0], text="Є дані розвідки, що Росія готує нову масовану атаку.")
+    published = _cluster(
+        [0.99, 0.14],
+        message_id=1,
+        age_seconds=3600,
+        text="Зеленський зустрівся з прем'єром Британії та обговорив підготовку до зими.",
+    )
+    published.saved_analysis = {
+        "headline": "Зеленський заявив про підготовку РФ до нової масованої атаки",
+        "summary": {
+            "blocks": [{"type": "text", "text": "Розвідка має інформацію про нову атаку."}]
+        },
+        "generation": "0-",
+    }
+    unwritten = _cluster(
+        [0.98, 0.2], message_id=2, age_seconds=5400, text="Пост лишився словами каналу."
+    )
+    calls = _patch_llm(monkeypatch, json.dumps({"match": 1, "verdict": "same"}))
+
+    judge_relation(story, [published, unwritten])
+
+    prompt = "\n".join(str(m["content"]) for m in calls[0]["messages"])
+    assert "Зеленський заявив про підготовку РФ до нової масованої атаки" in prompt
+    assert "Розвідка має інформацію про нову атаку." in prompt
+    assert "обговорив підготовку до зими" not in prompt
+    assert "Пост лишився словами каналу." in prompt
+    # The story itself has no post yet: it is judged on its own text.
+    assert "Є дані розвідки" in prompt
+
+
 def test_the_rules_stay_one_prefix_across_judgements(monkeypatch: Any) -> None:
     """The judge runs once per post, so its rules are worth caching.
 

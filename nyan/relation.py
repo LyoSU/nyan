@@ -112,7 +112,7 @@ def judge_relation(
         "relation",
         story=_as_material(cluster),
         candidates=[
-            _as_material(candidate, number)
+            _as_published(candidate, number)
             for number, candidate in enumerate(candidates, start=1)
         ],
     )
@@ -155,6 +155,26 @@ def _as_material(cluster: Cluster, number: int = 0) -> dict[str, str]:
         "time": ts_to_dt(cluster.pub_time_percentile).strftime("%d.%m.%Y, %H:%M"),
         "text": clean_boundary(cluster.annotation_doc.patched_text),
     }
+
+
+def _as_published(cluster: Cluster, number: int) -> dict[str, str]:
+    """A post already out, as its readers saw it: the headline and the prose.
+
+    One channel's text stood in for it before, and that channel's text can
+    miss exactly what the post led with. A meeting with the British prime
+    minister went out under "Zelensky: Russia is preparing a new massive
+    attack", but the judge was shown the one channel that wrote only about the
+    meeting — and the next story, the same statement from another channel, was
+    judged a different event and published a second time.
+
+    Stored, never generated: asking a published post for its headline would pay
+    to rewrite it. A post left in its channel's own words has no prose of its
+    own, and that text is what its readers saw.
+    """
+    material = _as_material(cluster, number)
+    prose = cluster.stored_summary.as_text() or material["text"]
+    material["text"] = "\n".join(part for part in (cluster.stored_headline, prose) if part)
+    return material
 
 
 def _unit(embedding: Sequence[float]) -> np.ndarray | None:  # type: ignore[type-arg]
