@@ -34,5 +34,8 @@
             "higher_trigger_age_minutes": 20
         }
     ],
-    "shadow": {}
+    "shadow": {
+        "major": 2.85,
+        "minor": 1.3
+    }
 }
