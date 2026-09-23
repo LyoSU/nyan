@@ -389,17 +389,23 @@ def test_every_configured_issue_survives_the_check() -> None:
     assert daemon.drop_unpostable_issues(ranked) == ranked
 
 
-def _loose_doc(embedding: list[float], age_seconds: int = 600, post_id: int = 500) -> Document:
+def _loose_doc(
+    embedding: list[float],
+    age_seconds: int = 600,
+    post_id: int = 500,
+    text: str = "Текст іншого каналу",
+    channel_id: str = "other",
+) -> Document:
     now = get_current_ts()
     return Document(
-        url=f"https://t.me/other/{post_id}",
-        channel_id="other",
+        url=f"https://t.me/{channel_id}/{post_id}",
+        channel_id=channel_id,
         post_id=post_id,
         views=100,
         pub_time=now - age_seconds,
         fetch_time=now,
-        text="Текст",
-        patched_text="Текст",
+        text=text,
+        patched_text=text,
         groups={"main": "blue"},
         issue="main",
         language="uk",
@@ -479,6 +485,43 @@ def test_a_refusal_outlives_the_process(monkeypatch: Any) -> None:
 
     assert daemon.attach_loose_documents([doc], _posted(reloaded)) == 0
     assert len(seen) == 1
+
+
+def test_a_copy_of_a_refused_text_is_not_asked_about_again(monkeypatch: Any) -> None:
+    """Channels repost each other word for word, and each copy is a document.
+
+    Nine copies of "Від ранку триває ліквідація наслідків" were offered to one
+    post within a minute, and the judge was paid nine times for one answer —
+    then again for every copy that arrived after a restart.
+    """
+    daemon = _daemon(attach_threshold=0.94)
+    daemon.renderer = _FakeRenderer()  # type: ignore[assignment]
+    daemon.client = _FakeClient()  # type: ignore[assignment]
+    parent = _cluster([1.0, 0.0], message_id=11, headline="Вибухи", age_seconds=1800)
+    seen = _patch_judge(monkeypatch, FOLLOW_UP)
+    copies = [
+        _loose_doc([1.0, 0.02], post_id=i, channel_id=f"repost{i}", text="Від ранку триває")
+        for i in range(3)
+    ]
+
+    assert daemon.attach_loose_documents(copies[:2], _posted(parent)) == 0
+    reloaded = Cluster.deserialize(parent.serialize())
+    assert daemon.attach_loose_documents(copies[2:], _posted(reloaded)) == 0
+
+    assert len(seen) == 1
+
+
+def test_a_copy_of_words_the_post_carries_joins_without_asking(monkeypatch: Any) -> None:
+    daemon = _daemon(attach_threshold=0.94)
+    daemon.renderer = _FakeRenderer()  # type: ignore[assignment]
+    daemon.client = _FakeClient()  # type: ignore[assignment]
+    parent = _cluster([1.0, 0.0], message_id=11, headline="Вибухи", age_seconds=1800)
+    seen = _patch_judge(monkeypatch, UNRELATED)
+    copy = _loose_doc([1.0, 0.02], text=parent.docs[0].patched_text or "")
+
+    assert daemon.attach_loose_documents([copy], _posted(parent)) == 1
+    assert seen == []
+    assert parent.has(copy)
 
 
 def test_a_document_refused_by_one_post_is_still_offered_to_another(

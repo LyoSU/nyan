@@ -48,6 +48,19 @@ def clean_boundary(text: str | None) -> str:
     return text
 
 
+def judged_text_key(doc: Document) -> str | None:
+    """A digest of the words the relation judge reads for this document.
+
+    Channels copy each other word for word, and each copy is a document of its
+    own: nine of them offered to one post in one minute were nine identical
+    questions. None for a document with no words, which has nothing to match.
+    """
+    text = clean_boundary(doc.patched_text).strip()
+    if not text:
+        return None
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
+
+
 def render_prompt(name: str, **context: Any) -> list[dict[str, str]]:
     """The rules as a system message, this story's material as a user one.
 
@@ -275,6 +288,9 @@ class Cluster:
         # `documents_offset`. Over two days that was 29,178 of the feed's
         # 32,179 requests to the model, byte for byte the same prompt.
         self.refused_docs: set[str] = set()
+        # The same, by what the refused documents said: a copy of a refused
+        # text from another channel is refused without asking again.
+        self.refused_texts: set[str] = set()
 
     # Everything cached off the member list. A posted cluster is mutated more
     # than once in one iteration — a loose document attached, then the
@@ -325,10 +341,21 @@ class Cluster:
     def refuse(self, doc: Document) -> None:
         """Put on record that this document was offered here and does not fit."""
         self.refused_docs.add(normalize_url(doc.url))
+        key = judged_text_key(doc)
+        if key:
+            self.refused_texts.add(key)
 
     def refuses(self, doc: Document) -> bool:
-        """Whether this document has already been offered here and refused."""
-        return normalize_url(doc.url) in self.refused_docs
+        """Whether this document, or a copy of its words, was offered here and refused."""
+        if normalize_url(doc.url) in self.refused_docs:
+            return True
+        key = judged_text_key(doc)
+        return key is not None and key in self.refused_texts
+
+    def holds_text_of(self, doc: Document) -> bool:
+        """Whether a member already says, word for word, what this document says."""
+        key = judged_text_key(doc)
+        return key is not None and any(judged_text_key(member) == key for member in self.docs)
 
     def changed(self) -> bool:
         return self.hash != self.saved_hash
@@ -808,6 +835,7 @@ class Cluster:
             # what storage holds, and an order that changes per process would
             # make every cluster look modified on every iteration.
             "refused_docs": sorted(self.refused_docs),
+            "refused_texts": sorted(self.refused_texts),
         }
 
     @classmethod
@@ -873,6 +901,7 @@ class Cluster:
         cluster.refused_docs = {
             normalize_url(url) for url in (d.get("refused_docs") or ())
         }
+        cluster.refused_texts = set(d.get("refused_texts") or ())
 
         return cluster
 

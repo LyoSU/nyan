@@ -752,12 +752,18 @@ class Daemon:
                 continue
             candidate = published[best]
             # Already asked, and the answer was no. Neither text has changed
-            # since, so the model would be paid to write it out again.
+            # since, so the model would be paid to write it out again. The
+            # same holds for another channel's word-for-word copy of it.
             if candidate.refuses(doc):
                 continue
             story = Cluster()
             story.add(doc)
-            if self.judge(story, [candidate], "attach").verdict != SAME:
+            # A copy of words the post already carries needs no question: the
+            # post has told the reader exactly this.
+            if (
+                not candidate.holds_text_of(doc)
+                and self.judge(story, [candidate], "attach").verdict != SAME
+            ):
                 candidate.refuse(doc)
                 if candidate.clid is not None:
                     refused[candidate.clid] = candidate
