@@ -59,6 +59,9 @@ services:
 
   # Crawler сервіс
   nyan-crawler:
+    # Resource caps from 7-day peaks in Coroot (memory = peak x1.5), 2026-09-24:
+    # hetzner-auction had none, so one leak or CPU hog hit every bot on the host.
+    cpu_shares: 256  # batch work yields CPU to the bots
     build: .
     container_name: nyan-crawler  
     volumes:
@@ -86,6 +89,8 @@ services:
 
   # Sender сервіс  
   nyan-sender:
+    mem_limit: 9g  # peak 6.0 GB, grows ~0.7 GB/day
+    cpu_shares: 256  # batch work yields CPU to the bots
     build: .
     container_name: nyan-sender
     volumes:
