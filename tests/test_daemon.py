@@ -185,6 +185,22 @@ def test_the_post_is_written_knowing_what_it_stands_under(monkeypatch: Any) -> N
     assert client.reply_to == 11
 
 
+def test_a_follow_up_remembers_which_story_it_answers(monkeypatch: Any) -> None:
+    daemon = _daemon()
+    daemon.renderer = _FakeRenderer()  # type: ignore[assignment]
+    daemon.client = _FakeClient()  # type: ignore[assignment]
+    parent = _cluster(
+        [1.0, 0.0], message_id=11, headline="Росія вдарила по Запоріжжю", age_seconds=3600
+    )
+    parent.clid = 64099
+    child = _cluster([1.0, 0.02])
+    _patch_judge(monkeypatch, FOLLOW_UP)
+
+    daemon.send_cluster(child, "main", _posted(parent), None, None)
+
+    assert child.reply_to_clid == 64099
+
+
 def test_a_post_with_no_neighbour_stands_under_nothing(monkeypatch: Any) -> None:
     daemon = _daemon()
     daemon.renderer = _FakeRenderer()  # type: ignore[assignment]

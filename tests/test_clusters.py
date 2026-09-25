@@ -791,3 +791,20 @@ def test_a_rewrite_updates_a_grown_figure_instead_of_disputing_it(monkeypatch) -
     cluster.add(_make_doc("https://t.me/source_c/1", channel_id="channel_c"))
     assert cluster.summary
     assert "Цифра, яка з часом зросла, не протилежна опублікованій" in prompt_text(calls[1])
+
+
+def test_the_story_a_follow_up_answers_survives_storage() -> None:
+    """The site strings a follow-up and its parent into one thread by this id."""
+    cluster = _make_multi_channel_cluster()
+    cluster.reply_to_clid = 64111
+
+    restored = Cluster.deserialize(cluster.serialize())
+
+    assert restored.reply_to_clid == 64111
+
+
+def test_a_cluster_stored_before_threads_answers_nothing() -> None:
+    record = _make_multi_channel_cluster().asdict()
+    del record["reply_to_clid"]
+
+    assert Cluster.fromdict(record).reply_to_clid is None

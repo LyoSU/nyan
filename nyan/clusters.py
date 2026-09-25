@@ -281,6 +281,11 @@ class Cluster:
         # fit it — the reasons, the numbers — looked like news to a model that
         # saw nothing else, and the reply re-told the whole story.
         self.reply_to_text: str = ""
+        # And which story that post was, by id. The headline and text are there
+        # for the model; this is there for the site, which strings a follow-up
+        # and the post it answers into one thread. Only the Telegram reply
+        # recorded the link before, and the site cannot read a reply.
+        self.reply_to_clid: int | None = None
 
         self.saved_annotation_doc: Document | None = None
         self.saved_first_doc: Document | None = None
@@ -844,6 +849,7 @@ class Cluster:
             "pending_issue": self.pending_issue,
             "reply_to_headline": self.reply_to_headline,
             "reply_to_text": self.reply_to_text,
+            "reply_to_clid": self.reply_to_clid,
             "embedding": self.embedding_mean,
             "embedding_count": self.embedding_count,
             # Sorted rather than a bare set dump: the dict is compared against
@@ -911,6 +917,8 @@ class Cluster:
         # and the text in those stored before the model saw more than a title.
         cluster.reply_to_headline = d.get("reply_to_headline") or ""
         cluster.reply_to_text = d.get("reply_to_text") or ""
+        # Absent in clusters published before the link was kept.
+        cluster.reply_to_clid = d.get("reply_to_clid")
         # Absent in clusters stored before refusals were remembered; those pay
         # for one more question each and then carry the answer like the rest.
         cluster.refused_docs = {

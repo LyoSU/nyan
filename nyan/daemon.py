@@ -452,6 +452,10 @@ class Daemon:
         """Send a story as a new message, under `parent`'s post if it has one."""
         reply_to = None
         if parent is not None:
+            # Kept whether or not the parent has a message in this issue: the
+            # story is a follow-up either way, and the thread on the site is not
+            # tied to which feed happened to carry the parent.
+            cluster.reply_to_clid = parent.clid
             message = parent.get_issue_message(issue_name)
             if message is not None:
                 reply_to = message.message_id
