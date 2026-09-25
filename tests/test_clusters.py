@@ -749,3 +749,45 @@ def test_a_replaced_member_is_seen_by_the_cached_fields() -> None:
     clusters.update_documents([replacement])
 
     assert cluster.fetch_time == 500
+
+
+# A figure that grows over a morning and a figure two channels disagree on look
+# the same to a model that cannot see when each post went out. Stories were
+# publishing yesterday's toll as a dispute with today's.
+
+
+def test_the_model_is_told_when_each_source_posted(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    cluster = Cluster()
+    # 10:52 and 11:30 Kyiv time on 25 September 2026.
+    cluster.add(
+        _make_doc("https://t.me/source_a/1", channel_id="channel_a", pub_time=1790322720)
+    )
+    cluster.add(
+        _make_doc("https://t.me/source_b/1", channel_id="channel_b", pub_time=1790325000)
+    )
+    cluster.saved_annotation_doc = cluster.docs[0]
+    calls = _patch_llm(monkeypatch)
+
+    assert cluster.summary
+    prompt = prompt_text(calls[0])
+    assert "Час: 10:52, 25.09" in prompt
+    assert "Час: 11:30, 25.09" in prompt
+
+
+def test_a_growing_toll_is_described_as_an_update_not_a_dispute(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    cluster = _make_multi_channel_cluster()
+    calls = _patch_llm(monkeypatch)
+
+    assert cluster.summary
+    rules = str(calls[0]["messages"][0]["content"])
+    assert "Цифра, що змінилася з часом, теж не розходження" in rules
+
+
+def test_a_rewrite_updates_a_grown_figure_instead_of_disputing_it(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    cluster = _make_multi_channel_cluster()
+    calls = _patch_llm(monkeypatch)
+
+    assert cluster.summary
+    cluster.add(_make_doc("https://t.me/source_c/1", channel_id="channel_c"))
+    assert cluster.summary
+    assert "Цифра, яка з часом зросла, не протилежна опублікованій" in prompt_text(calls[1])

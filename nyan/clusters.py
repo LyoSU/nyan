@@ -82,6 +82,20 @@ def render_prompt(name: str, **context: Any) -> list[dict[str, str]]:
     )
 
 
+def post_time(timestamp: int | None) -> str:
+    """When a source post went out, Kyiv time, as a prompt shows it: "14:05, 25.09".
+
+    The model needs this to tell a figure that grew from a figure in dispute. A
+    toll that rises from nine to fourteen to nineteen over a morning is one story
+    being updated; two channels giving nine and nineteen in the same hour is a
+    disagreement. Without the times both look like the second, and the post
+    fills its disputed block with yesterday's numbers.
+    """
+    if not timestamp:
+        return "невідомо"
+    return ts_to_dt(timestamp).strftime("%H:%M, %d.%m")
+
+
 def render_prompt_files(
     system_path: Path, user_path: Path, **context: Any
 ) -> list[dict[str, str]]:
@@ -93,6 +107,7 @@ def render_prompt_files(
     """
     env = Environment(keep_trailing_newline=True)
     env.filters["clean_boundary"] = clean_boundary
+    env.filters["post_time"] = post_time
     return [
         {"role": "system", "content": system_path.read_text()},
         {
