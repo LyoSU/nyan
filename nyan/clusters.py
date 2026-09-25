@@ -27,6 +27,10 @@ from nyan.util import format_date_uk, get_current_ts, normalize_url, ts_to_dt
 
 
 BASE_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
+# How many earlier versions of a post the cluster remembers. A story is
+# rewritten at most once per step of the coverage ladder, so ten covers a story
+# that grew from two channels to over a hundred.
+MAX_REVISIONS = 10
 T = TypeVar("T")
 
 # The tags that fence off crawled text inside the user message. Stripped from
@@ -670,11 +674,29 @@ class Cluster:
                 )
                 if summary:
                     analysis["summary"] = summary.asdict()
+            if saved is not None and analysis["headline"]:
+                # The version being replaced was in the channel and on the site,
+                # so the page can say the post changed and when. Only a note of
+                # it, not its text: every cluster read for the feed would carry
+                # the text of every version.
+                previous = {
+                    "time": saved.get("updated_time") or self.create_time,
+                    "headline": saved.get("headline"),
+                    "generation": saved.get("generation"),
+                }
+                history = list(saved.get("revisions") or []) + [previous]
+                analysis["revisions"] = history[-MAX_REVISIONS:]
+                analysis["updated_time"] = get_current_ts()
         except Exception:
             # A cluster with no summary still makes a post — the renderer falls
             # back to the chosen channel's own text — so a failed call degrades
             # one post instead of the whole iteration.
             logging.exception("LLM analysis failed for '%s'", self.cropped_title)
+
+        if saved is not None and "revisions" not in analysis:
+            # A rewrite that failed still must not forget the ones before it.
+            analysis["revisions"] = list(saved.get("revisions") or [])
+            analysis["updated_time"] = saved.get("updated_time")
 
         self.saved_analysis = analysis
         if len(_ANALYSIS_CACHE) >= _ANALYSIS_CACHE_MAX_SIZE:
@@ -843,6 +865,8 @@ class Cluster:
             "headline": analysis.get("headline"),
             "summary": analysis.get("summary"),
             "generation": analysis.get("generation"),
+            "updated_time": analysis.get("updated_time"),
+            "revisions": analysis.get("revisions") or [],
             "is_important": self.is_important,
             "create_time": self.create_time,
             "pending_since": self.pending_since,
@@ -898,6 +922,9 @@ class Cluster:
                 "headline": d.get("headline"),
                 "summary": d.get("summary"),
                 "generation": d.get("generation"),
+                # Absent in clusters stored before rewrites were recorded.
+                "updated_time": d.get("updated_time"),
+                "revisions": d.get("revisions") or [],
             }
         # After the documents, not before: `add` folds each one into the running
         # mean, and short documents contribute nothing, so what storage holds is

@@ -808,3 +808,60 @@ def test_a_cluster_stored_before_threads_answers_nothing() -> None:
     del record["reply_to_clid"]
 
     assert Cluster.fromdict(record).reply_to_clid is None
+
+
+# A rewrite changes a post readers may already have read. The page can only say
+# so if the cluster remembers that it happened.
+
+
+def test_a_first_pass_records_no_revision(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    cluster = _make_multi_channel_cluster()
+    _patch_llm(monkeypatch)
+
+    assert cluster.summary
+    record = cluster.asdict()
+    assert record["revisions"] == []
+    assert record["updated_time"] is None
+
+
+def test_a_rewrite_records_the_version_it_replaced(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    cluster = _make_multi_channel_cluster()
+    cluster.create_time = 1790322720
+    _patch_llm(monkeypatch)
+    assert cluster.summary
+    first_generation = cluster.asdict()["generation"]
+
+    cluster.add(_make_doc("https://t.me/source_c/1", channel_id="channel_c"))
+    assert cluster.summary
+
+    record = cluster.asdict()
+    assert record["updated_time"]
+    assert record["revisions"] == [
+        {"time": 1790322720, "headline": "Заголовок", "generation": first_generation}
+    ]
+
+
+def test_the_revision_history_survives_storage(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    cluster = _make_multi_channel_cluster()
+    _patch_llm(monkeypatch)
+    assert cluster.summary
+    cluster.add(_make_doc("https://t.me/source_c/1", channel_id="channel_c"))
+    assert cluster.summary
+
+    restored = Cluster.deserialize(cluster.serialize())
+
+    assert restored.asdict()["revisions"] == cluster.asdict()["revisions"]
+    assert restored.asdict()["updated_time"] == cluster.asdict()["updated_time"]
+
+
+def test_a_failed_rewrite_records_nothing(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """The published version is still the one readers see."""
+    cluster = _make_multi_channel_cluster()
+    _patch_llm(monkeypatch)
+    assert cluster.summary
+
+    _patch_llm(monkeypatch, response="not json")
+    cluster.add(_make_doc("https://t.me/source_c/1", channel_id="channel_c"))
+    _ = cluster.summary
+
+    assert cluster.asdict()["revisions"] == []
