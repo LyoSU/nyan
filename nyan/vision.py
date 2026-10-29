@@ -124,6 +124,13 @@ class VisionEmbedder:
         return cast(NDArray[np.float32], embeddings.numpy())
 
     def _process_images_batch(self, images: list[Image.Image]) -> torch.Tensor:
+        # The SigLIP2 processor normalises with three channel means and does
+        # not convert on its own, so a grayscale still (mode "L") reaches it as
+        # one channel and fails to broadcast — and, like an unreadable one, ends
+        # the daemon, which restarts onto the same still forever. Converted
+        # here rather than at fetch time: the hashes and the quality score are
+        # read off the picture as it came.
+        images = [i if i.mode == "RGB" else i.convert("RGB") for i in images]
         inputs: dict[str, torch.Tensor] = self.processor(
             images=images, return_tensors="pt"
         )

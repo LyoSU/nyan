@@ -4,6 +4,7 @@ from io import BytesIO
 import numpy as np
 import pytest
 import requests
+import torch
 from PIL import Image
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -125,3 +126,31 @@ def test_an_annotated_image_carries_what_picks_between_copies(
     assert len(annotated["hashes"]) == 2
     assert 0.0 <= annotated["quality"] <= 1.0
     assert len(annotated["signature"]) == SIGNATURE_SIDE * SIGNATURE_SIDE
+
+
+@pytest.mark.parametrize("mode", ["L", "LA", "P", "RGBA", "CMYK"])
+def test_every_still_reaches_the_encoder_as_rgb(mode: str) -> None:
+    """The SigLIP2 processor normalises three channels and converts nothing.
+
+    A grayscale still handed to it as is fails to broadcast, which ends the
+    daemon mid-annotation and restarts it onto the same still forever.
+    """
+    seen: list[str] = []
+
+    def processor(images: list[Image.Image], **kwargs: object) -> dict:
+        seen.extend(image.mode for image in images)
+        return {}
+
+    class Model:
+        device = "cpu"
+
+        def get_image_features(self) -> torch.Tensor:
+            return torch.zeros((1, 4))
+
+    embedder: VisionEmbedder = object.__new__(VisionEmbedder)
+    embedder.processor = processor
+    embedder.model = Model()
+
+    embedder._process_images_batch([Image.new(mode, (4, 4))])
+
+    assert seen == ["RGB"]
