@@ -1,5 +1,6 @@
 import json
 import os
+from pathlib import Path
 
 import pytest
 import numpy as np
@@ -114,21 +115,28 @@ def channels(channels_info_path) -> Channels:
     return Channels(channels_info_path)
 
 
-@pytest.fixture
-def annotator(annotator_config_path, channels, tmp_path) -> Annotator:
+def build_snapshot_annotator(config_path: str, channels: Channels, tmp_dir: Path) -> Annotator:
     """The shipped annotator, minus the student model.
 
     The snapshot was taken with the older category head, and CI has no student
     model to download, so there it falls back to that head anyway. Removing the
     section here makes a machine that does have the model take the same path,
     instead of the snapshot passing in CI and failing on every laptop.
+
+    `scripts/refresh_snapshots.py` builds its annotator here too: a snapshot
+    written with the student in and checked with the student out can never match.
     """
-    with open(annotator_config_path) as r:
+    with open(config_path) as r:
         config = json.load(r)
     config.pop("student", None)
-    path = tmp_path / "annotator_config.json"
+    path = tmp_dir / "annotator_config.json"
     path.write_text(json.dumps(config))
     return Annotator(str(path), channels)
+
+
+@pytest.fixture
+def annotator(annotator_config_path, channels, tmp_path) -> Annotator:
+    return build_snapshot_annotator(annotator_config_path, channels, tmp_path)
 
 
 @pytest.fixture
@@ -210,4 +218,14 @@ def compare_docs():
 
 @pytest.fixture
 def image_data() -> list[dict[str, str]]:
-    return list(read_jsonl("tests/data/images.jsonl"))
+    """Pictures on the open web for the vision tests, where a list of them exists.
+
+    The list is under the ignored `data/` and was never committed, so in CI the
+    two tests that fetch real pictures errored on a missing file. They need the
+    network and a picture host that answers, which a build should not hang on,
+    so without the list they are skipped and say why.
+    """
+    path = "tests/data/images.jsonl"
+    if not os.path.exists(path):
+        pytest.skip(f"{path} is not in the repository: these tests fetch real pictures")
+    return list(read_jsonl(path))

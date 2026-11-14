@@ -24,15 +24,17 @@ regenerating without looking throws that away.
 
 import argparse
 import logging
+import tempfile
 from collections import Counter
+from pathlib import Path
 
-from nyan.annotator import Annotator
 from nyan.channels import Channels
 from nyan.clusterer import Clusterer
 from nyan.clusters import Clusters
 from nyan.document import Document, read_documents_file
 from nyan.ranker import Ranker
 from tests.conftest import (
+    build_snapshot_annotator,
     get_annotator_config_path,
     get_annotator_output_path,
     get_channels_info_path,
@@ -50,7 +52,8 @@ SNAPSHOT_ISSUE = "main"
 def annotate() -> list[Document]:
     """The annotator snapshot, computed through the paths the test uses."""
     channels = Channels(get_channels_info_path())
-    annotator = Annotator(get_annotator_config_path(), channels)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        annotator = build_snapshot_annotator(get_annotator_config_path(), channels, Path(tmp_dir))
     docs = read_documents_file(get_input_path(), 0, 0)
     return annotator.postprocess(annotator(docs))
 
