@@ -236,3 +236,16 @@ def test_usage_reports_a_gateway_that_counts_no_cache(caplog) -> None:  # type: 
 
 def test_usage_survives_a_response_that_carries_none(caplog) -> None:  # type: ignore[no-untyped-def]
     llm.log_usage(SimpleNamespace(), "model")
+
+
+def test_usage_names_what_the_call_was_for(caplog) -> None:  # type: ignore[no-untyped-def]
+    """Cost per purpose is read from these lines: an hour of production had
+    58 calls, 45 of them relation judgments, and only prompt sizes told them
+    apart."""
+    completion = SimpleNamespace(
+        usage=SimpleNamespace(prompt_tokens=900, completion_tokens=20)
+    )
+    with caplog.at_level("INFO"):
+        llm.log_usage(completion, "model", "relation")
+
+    assert "purpose=relation" in caplog.text

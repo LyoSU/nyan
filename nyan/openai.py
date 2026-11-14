@@ -166,7 +166,7 @@ def parse_unsupported_params(error: str) -> set[str]:
     return names
 
 
-def log_usage(completion: Any, model_name: str) -> None:
+def log_usage(completion: Any, model_name: str, purpose: str = "-") -> None:
     """What the request actually cost, and how much of it the cache paid for.
 
     Without this line a broken prefix is invisible: the calls succeed, the
@@ -188,7 +188,8 @@ def log_usage(completion: Any, model_name: str) -> None:
     completion_tokens = getattr(usage, "completion_tokens", 0) or 0
     if cached is None:
         logging.info(
-            "LLM usage: model=%s, prompt=%d, completion=%d, cached=unreported",
+            "LLM usage: purpose=%s, model=%s, prompt=%d, completion=%d, cached=unreported",
+            purpose,
             model_name,
             prompt_tokens,
             completion_tokens,
@@ -196,7 +197,8 @@ def log_usage(completion: Any, model_name: str) -> None:
         return
     share = cached / prompt_tokens if prompt_tokens else 0.0
     logging.info(
-        "LLM usage: model=%s, prompt=%d, completion=%d, cached=%d (%.0f%%)",
+        "LLM usage: purpose=%s, model=%s, prompt=%d, completion=%d, cached=%d (%.0f%%)",
+        purpose,
         model_name,
         prompt_tokens,
         completion_tokens,
@@ -212,8 +214,18 @@ def openai_completion(
     response_format: dict[str, str] | None = None,
     reasoning_effort: str | None = None,
     prompt_cache_key: str | None = None,
+    purpose: str | None = None,
 ) -> str:
+    """One completion, retried only where the request itself has to change.
+
+    `purpose` names what the call is for in the usage line — "relation",
+    "summary", "digest" — so cost per purpose can be read straight out of the
+    logs. An hour of production sent 58 calls of which some 45 were relation
+    judgments, and that could only be counted by matching prompt sizes by hand.
+    It defaults to the cache key, which already names the prompt.
+    """
     assert decoding_args.n == 1
+    purpose = purpose or prompt_cache_key or "-"
 
     params: dict[str, Any] = decoding_args.as_params()
     # Only forward response_format/reasoning_effort when explicitly requested,
@@ -240,7 +252,8 @@ def openai_completion(
 
     prompt_chars = sum(len(str(m.get("content", ""))) for m in messages)
     logging.info(
-        "LLM call: model=%s, prompt_chars=%d, reasoning_effort=%s",
+        "LLM call: purpose=%s, model=%s, prompt_chars=%d, reasoning_effort=%s",
+        purpose,
         model_name,
         prompt_chars,
         params.get("reasoning_effort"),
@@ -258,7 +271,7 @@ def openai_completion(
                 model=model_name,
                 **params,
             )
-            log_usage(completion, model_name)
+            log_usage(completion, model_name, purpose)
             content = completion.choices[0].message.content
             return cast(str, content).strip() if content else ""
         except Exception as e:
