@@ -10,7 +10,7 @@ the two agree, next to the joblib head production used before. Every run is kept
 under drift/<timestamp>/ and summarised in drift/log.jsonl, so the last line of
 the report is a trend, not a single number.
 
-Usage: OPENLUX_KEY=... drift.py [--n 500] [--hours 24] [--prompt v1]
+Usage: OPENLUX_KEY=... drift.py [--n 500]   (or TEACHER_VIA=codex: the codex CLI, no key) [--hours 24] [--prompt v1]
        [--model models/student_e5_multi] [--mongo-config configs/mongo_config.json]
 Exits 2 when agreement is more than 3 points below the first check, so a
 scheduler can tell a drifted model from a finished run.
@@ -36,8 +36,8 @@ ap.add_argument("--mongo-config", default=str(ROOT / "configs/mongo_config.json"
 ap.add_argument("--teach", default="teach_multi_gpt-5.6-luna.jsonl", help="the training file whose texts are skipped")
 ap.add_argument("--threshold", type=float, default=None, help="not_news threshold; default: the shipped config's")
 args = ap.parse_args()
-if not os.environ.get("OPENLUX_KEY"):
-    sys.exit("OPENLUX_KEY is not set: the teacher cannot be asked")
+if not os.environ.get("OPENLUX_KEY") and os.environ.get("TEACHER_VIA") != "codex":
+    sys.exit("neither OPENLUX_KEY nor TEACHER_VIA=codex is set: the teacher cannot be asked")
 
 stamp = time.strftime("%Y%m%d-%H%M")
 run = OUT / stamp; run.mkdir(parents=True, exist_ok=True)
@@ -111,17 +111,20 @@ print("heads: " + ", ".join(f"{f} {100*v:.0f}%" for f, v in heads.items() if v i
 print("recall by teacher category: " + ", ".join(f"{c} {k}/{n}" for c, (k, n) in sorted(recall.items(), key=lambda x: -x[1][1])))
 print("disagreements (teacher, student): " + ", ".join(f"{t}->{s} {k}" for (t, s), k in Counter((t, s) for t, s in zip(T, S) if t != s).most_common(8)))
 
-summary = {"run": stamp, "n": len(pairs), "hours": args.hours, "prompt": args.prompt, "model": student.name,
+summary = {"run": stamp, "n": len(pairs), "hours": args.hours, "prompt": args.prompt, "teacher": ml.MODEL, "model": student.name,
            "threshold": student.config.not_news_threshold, "deduped": True, "agree": round(agree, 3), "prod_agree": round(prod, 3),
            "news_dropped": dropped, "news": len(news), "not_news_kept": kept, "heads": heads, "cost": round(ml.cost(), 4)}
 with open(OUT / "log.jsonl", "a") as w:
     w.write(json.dumps(summary) + "\n")
-history = [json.loads(l) for l in open(OUT / "log.jsonl")]
-print("\ntrend: " + "  ".join(f"{h['run'][:8]} {100*h['agree']:.1f}%" for h in history[-8:]))
+# Agreement is with one teacher: a run that asked another model measures the two
+# models as well as the drift, so the trend and the alarm stay within a teacher.
+FIRST = "gpt-5.6-luna"  # the teacher the shipped student learnt from; runs before 2026-11-15 did not record it
+history = [h for h in map(json.loads, open(OUT / "log.jsonl")) if h.get("teacher", FIRST) == ml.MODEL]
+print(f"\ntrend ({ml.MODEL}): " + "  ".join(f"{h['run'][:8]} {100*h['agree']:.1f}%" for h in history[-8:]))
 # The first check (2026-09-22) kept the copies of training posts; on the posts
 # that were not copies it agreed on 91.1%, and that is what later runs compare to.
 deduped = [h for h in history if h.get("deduped")]
-baseline = deduped[0]["agree"] if len(deduped) > 1 else 0.911
+baseline = deduped[0]["agree"] if len(deduped) > 1 or ml.MODEL != FIRST else 0.911
 if agree < baseline - 0.03:
     print(f"!! {100*(baseline - agree):.1f} points below the first check: time to relabel fresh posts and retrain")
     sys.exit(2)

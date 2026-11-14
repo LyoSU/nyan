@@ -4,11 +4,13 @@ Same category rules as cat_en.json; the other fields are what the product would 
 subtopic (site sections), scope and region (local feeds, «Світ»), significance and
 urgency (ranking, the «important» mark), story role, clickbait, reason for not_news.
 Usage: OPENLUX_KEY=... multi_label.py gold | pool <n>
+With TEACHER_VIA=codex the same question goes through the codex CLI and its
+subscription instead of the API key: one batch at a time, no cost counted.
 """
 import os as _os
 # The checkout that holds data/ and models/: this one, unless NYAN_ROOT names another.
 ROOT = _os.environ.get("NYAN_ROOT") or _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
-import hashlib, json, os, re, sys, time
+import hashlib, json, os, re, subprocess, sys, tempfile, time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import httpx
@@ -19,6 +21,7 @@ D = Path(f"{ROOT}/data/distill"); E = Path(f"{ROOT}/data/jev_eval")
 URL = "https://api.openlux.ai/v1/chat/completions"
 MODEL = os.environ.get("TEACHER_MODEL", "gpt-5.6-luna")
 BATCH = int(os.environ.get("BATCH", 20))
+VIA_CODEX = os.environ.get("TEACHER_VIA") == "codex"
 CATS = ["not_news", "war", "politics", "economy", "incident", "other", "tech", "sports", "entertainment", "science"]
 TOPICS = {
     "war": ["strikes_on_ukraine", "strikes_on_russia", "front", "weapons", "mobilization", "prisoners", "occupation", "security"],
@@ -131,24 +134,44 @@ def valid(a: dict) -> bool:
         return isinstance(a.get("id"), int) and a.get("significance") is not None
     return isinstance(a.get("id"), int) and a.get("category") in CATS
 
+def post(user: str):
+    """One question to the API: the reply's text and its usage, or None to try again."""
+    try:
+        r = client.post(URL, json={"model": MODEL, "messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}]})
+    except httpx.TransportError:
+        return None
+    if r.status_code == 400 and "content management policy" in r.text:
+        raise Filtered()
+    if r.status_code != 200:
+        if r.status_code in (429, 500, 502, 503, 529):
+            return None
+        raise RuntimeError(f"{r.status_code}: {r.text[:300]}")
+    body = r.json()
+    return body["choices"][0]["message"]["content"] or "", body.get("usage", {})
+
+def codex(user: str):
+    """The same question through the codex CLI, read-only and with no session kept."""
+    with tempfile.NamedTemporaryFile("r", suffix=".txt") as out:
+        done = subprocess.run(
+            ["codex", "exec", "--skip-git-repo-check", "--ephemeral", "-s", "read-only", "-m", MODEL,
+             "-c", f"model_reasoning_effort={os.environ.get('CODEX_EFFORT', 'low')}", "-o", out.name, "-"],
+            input=SYSTEM + "\n\n" + user, capture_output=True, text=True, timeout=900, cwd=tempfile.gettempdir())
+        text = out.read()
+    if not text and "usage limit" in (done.stdout + done.stderr).lower():
+        raise RuntimeError("codex: the subscription's usage limit is reached")
+    return (text, {}) if text else None
+
 def ask(texts: list[str]) -> list[dict]:
     user = "\n\n".join(f'<post id="{i}">\n{t[:1500]}\n</post>' for i, t in enumerate(texts))
     key = hashlib.sha256((MODEL + SYSTEM + user).encode()).hexdigest()[:24]
     if key in cache:
         return cache[key]["answers"]
     for attempt in range(5):
-        try:
-            r = client.post(URL, json={"model": MODEL, "messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}]})
-        except httpx.TransportError:
+        reply = codex(user) if VIA_CODEX else post(user)
+        if reply is None:
             time.sleep(2 ** attempt); continue
-        if r.status_code == 400 and "content management policy" in r.text:
-            raise Filtered()
-        if r.status_code != 200:
-            if r.status_code in (429, 500, 502, 503, 529):
-                time.sleep(2 ** attempt); continue
-            raise RuntimeError(f"{r.status_code}: {r.text[:300]}")
-        body = r.json(); found = {}
-        for m in re.finditer(r"\{[^{}]*\}", body["choices"][0]["message"]["content"] or ""):
+        content, u = reply; found = {}
+        for m in re.finditer(r"\{[^{}]*\}", content):
             try:
                 a = json.loads(m.group(0))
             except json.JSONDecodeError:
@@ -158,7 +181,7 @@ def ask(texts: list[str]) -> list[dict]:
         if len(found) < len(texts):
             time.sleep(1); continue
         answers = [found[i] for i in range(len(texts))]
-        u = body.get("usage", {}); usage["in"] += u.get("prompt_tokens", 0); usage["out"] += u.get("completion_tokens", 0)
+        usage["in"] += u.get("prompt_tokens", 0); usage["out"] += u.get("completion_tokens", 0)
         with open(cache_path, "a") as w:
             w.write(json.dumps({"key": key, "answers": answers, "usage": u}, ensure_ascii=False) + "\n")
         cache[key] = {"answers": answers}
@@ -178,7 +201,7 @@ def ask_split(texts):
 def cost() -> float:
     return usage["in"] * 0.02 / 1e6 + usage["out"] * 0.12 / 1e6
 
-def label(texts, workers=int(os.environ.get("WORKERS", 16))):
+def label(texts, workers=1 if VIA_CODEX else int(os.environ.get("WORKERS", 16))):
     seed = os.environ.get("SEED")
     if seed:
         import random
