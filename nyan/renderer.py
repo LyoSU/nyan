@@ -1,6 +1,7 @@
 import copy
 import logging
 import os
+import re
 import json
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
@@ -310,6 +311,41 @@ def pluralize_sources(count: int) -> str:
 
 # A quoted channel's text longer than this is collapsed in a minor post.
 MINOR_QUOTE_FROM = 200
+
+
+QUOTE_MARKS = re.compile(r"^(?:[ \t]*>[ \t]?)+", re.MULTILINE)
+
+
+def without_quote_marks(text: RichText) -> RichText:
+    """The channel's own "> " markers taken off the start of every line.
+
+    A channel quoting someone writes "> " in front of each line; inside a
+    quotation of ours they are a second, literal quotation mark. Only the
+    starts of lines are touched, and a line can start inside a later piece of
+    a mixed text, so the pieces are walked in order with that in mind.
+    """
+    at_line_start = True
+
+    def strip(value: RichText) -> RichText:
+        nonlocal at_line_start
+        if isinstance(value, str):
+            if not value:
+                return value
+            if at_line_start:
+                value = QUOTE_MARKS.sub("", value)
+            else:
+                head, newline, tail = value.partition("\n")
+                value = head + newline + (QUOTE_MARKS.sub("", tail) if newline else "")
+            if value:
+                at_line_start = value.endswith("\n")
+            return value
+        if isinstance(value, list):
+            return [strip(item) for item in value]
+        if isinstance(value, dict) and "text" in value:
+            return {**value, "text": strip(value["text"])}
+        return value
+
+    return strip(text)
 
 
 def is_attributed(block: Block) -> bool:
@@ -646,7 +682,7 @@ class Renderer:
                     byline = byline[-1]
                 return [
                     *blocks[:i],
-                    rich.expandable_blockquote(body["text"], credit=byline),
+                    rich.expandable_blockquote(without_quote_marks(body["text"]), credit=byline),
                     *blocks[i + 2 :],
                 ]
         return blocks

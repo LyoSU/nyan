@@ -363,3 +363,23 @@ def test_a_long_legend_takes_two_short_lines(tmp_path: Any, channels: Channels) 
         "⚪ Білий список ІМІ · 🔍 Є розслідування"
     )
     assert off.short_legend is False
+
+
+def test_a_channels_own_quote_marks_do_not_go_into_our_quote(
+    tmp_path: Any, channels: Channels
+) -> None:
+    """13 November, "Труха⚡️Київ": the channel's text began every line with "> "."""
+    from nyan.renderer import without_quote_marks
+
+    text = [
+        "> У Подільському районі неповнолітній прийшов до знайомого.\n>> На крики ",
+        {"type": "bold", "text": "вибіг сусід"},
+        " і викликав медиків > не маркер.\n  > Нападнику повідомили про підозру.",
+    ]
+
+    assert without_quote_marks(text) == [
+        "У Подільському районі неповнолітній прийшов до знайомого.\nНа крики ",
+        {"type": "bold", "text": "вибіг сусід"},
+        " і викликав медиків > не маркер.\nНападнику повідомили про підозру.",
+    ]
+    assert without_quote_marks({"type": "bold", "text": "> Х"}) == {"type": "bold", "text": "Х"}
