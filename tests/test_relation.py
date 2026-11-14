@@ -7,6 +7,7 @@ from nyan.client import MessageId
 from nyan.clusters import Cluster
 from nyan.document import Document
 from nyan.relation import (
+    FAILED,
     FOLLOW_UP,
     SAME,
     UNRELATED,
@@ -130,28 +131,29 @@ def test_nothing_to_compare_against_asks_nothing(monkeypatch: Any) -> None:
     assert calls == []
 
 
-def test_an_answer_that_cannot_be_read_publishes_the_story(monkeypatch: Any) -> None:
-    """The feed does not stop because a model returned prose.
+def test_an_answer_that_cannot_be_read_holds_the_story(monkeypatch: Any) -> None:
+    """Prose instead of a verdict is no answer, and no answer is not "new".
 
-    Standing alone is the outcome this replaces, so falling back to it costs a
-    merge that would have been nice to have and nothing else.
+    Read as UNRELATED, it published the very stories the judge is there to
+    stop: the outage that broke this call broke the summary too, and Moldova
+    giving up Russian gas went out twice, seven hours and 0.995 apart.
     """
     story = _cluster([1.0, 0.0])
     other = _cluster([0.99, 0.14], message_id=1, age_seconds=3600)
     _patch_llm(monkeypatch, "не можу відповісти")
 
-    assert judge_relation(story, [other]).verdict == UNRELATED
+    assert judge_relation(story, [other]).verdict == FAILED
 
 
-def test_an_index_outside_the_list_is_refused(monkeypatch: Any) -> None:
+def test_an_index_outside_the_list_is_no_answer(monkeypatch: Any) -> None:
     story = _cluster([1.0, 0.0])
     other = _cluster([0.99, 0.14], message_id=1, age_seconds=3600)
     _patch_llm(monkeypatch, json.dumps({"match": 7, "verdict": "same"}))
 
-    assert judge_relation(story, [other]).verdict == UNRELATED
+    assert judge_relation(story, [other]).verdict == FAILED
 
 
-def test_a_failed_call_publishes_the_story(monkeypatch: Any) -> None:
+def test_a_failed_call_holds_the_story(monkeypatch: Any) -> None:
     def explode(**kwargs: Any) -> str:
         raise RuntimeError("gateway is down")
 
@@ -159,7 +161,7 @@ def test_a_failed_call_publishes_the_story(monkeypatch: Any) -> None:
     story = _cluster([1.0, 0.0])
     other = _cluster([0.99, 0.14], message_id=1, age_seconds=3600)
 
-    assert judge_relation(story, [other]).verdict == UNRELATED
+    assert judge_relation(story, [other]).verdict == FAILED
 
 
 def test_the_judge_is_told_stale_facts_make_a_follow_up(monkeypatch: Any) -> None:

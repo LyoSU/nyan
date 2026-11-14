@@ -21,6 +21,7 @@ from nyan.jev import JevRelationShadow
 from nyan.mongo import get_rank_shadow_collection, get_relation_shadow_collection
 from nyan.rank_shadow import SEEN_TTL, RankShadow, log_records
 from nyan.relation import (
+    FAILED,
     FOLLOW_UP,
     SAME,
     Relation,
@@ -406,6 +407,11 @@ class Daemon:
         # lazily inside render_cluster, and the model has to know what the reader
         # already sees directly above this post.
         relation = self.find_relation(cluster, posted_clusters, issue_name)
+        if relation.verdict == FAILED:
+            # Unjudged is not new. The story is still in the next iteration's
+            # pool and is asked about again there.
+            logging.warning("Could not judge, holding: %s", cluster.cropped_title)
+            return
         parent = relation.cluster
 
         # The same story as one already published: fold this in rather than
@@ -471,6 +477,12 @@ class Daemon:
             logging.warning(
                 "Skipping cluster, nothing to render: %s", cluster.cropped_title
             )
+            return
+        if cluster.analysis_failed:
+            # The renderer would have sent one channel's raw words under no
+            # headline of ours. Held instead and written on a later iteration:
+            # a story late by minutes reads better than one that is not ours.
+            logging.warning("No text written, holding: %s", cluster.cropped_title)
             return
         logging.info("New cluster in %s: %s", issue_name, cluster.cropped_title)
 
@@ -560,8 +572,8 @@ class Daemon:
         about, as a story of their own against the post, once they are enough
         sources to be published as one. The judge is the same as on the
         publish boundary and runs once per batch: a `same` batch is taken in and
-        is not new to the post again. Every other answer, a failed call
-        included, takes them in as before.
+        is not new to the post again. A failed call holds them out for the
+        next iteration; every other answer takes them in as before.
 
         Documents another post already carries are neither taken in nor asked
         about: they belong to that post, typically a follow-up split off here
@@ -601,6 +613,10 @@ class Daemon:
             return _cluster_of(early), None
 
         relation = self.judge(late_cluster, [posted_cluster], "late")
+        if relation.verdict == FAILED:
+            # Folded in, a development is lost for good; held, it is asked
+            # about again next time.
+            return _cluster_of(early), None
         if relation.verdict != FOLLOW_UP:
             return _cluster_of(fresh), None
         logging.info(
@@ -764,14 +780,17 @@ class Daemon:
             story.add(doc)
             # A copy of words the post already carries needs no question: the
             # post has told the reader exactly this.
-            if (
-                not candidate.holds_text_of(doc)
-                and self.judge(story, [candidate], "attach").verdict != SAME
-            ):
-                candidate.refuse(doc)
-                if candidate.clid is not None:
-                    refused[candidate.clid] = candidate
-                continue
+            if not candidate.holds_text_of(doc):
+                verdict = self.judge(story, [candidate], "attach").verdict
+                if verdict == FAILED:
+                    # Not a "no": remembering it as one would keep the
+                    # document out of the post for good.
+                    continue
+                if verdict != SAME:
+                    candidate.refuse(doc)
+                    if candidate.clid is not None:
+                        refused[candidate.clid] = candidate
+                    continue
             candidate.add(doc)
             attached += 1
             if candidate.clid is not None:

@@ -295,6 +295,12 @@ class Cluster:
         self.saved_first_doc: Document | None = None
         self.saved_hash: str | None = None
         self.saved_analysis: dict[str, Any] | None = None
+        # The generation whose analysis was asked for in this process and did
+        # not come back. Not stored: a failure says nothing about the next
+        # attempt, and the daemon builds its clusters afresh every iteration.
+        # Kept so that the several reads of `analysis` one render makes cost
+        # one failed call rather than one each.
+        self.failed_generation: str | None = None
 
         # Running mean of the members' vectors, kept unnormalized alongside the
         # number of documents that contributed, so that a cluster read back from
@@ -594,6 +600,8 @@ class Cluster:
         """
         current = self.generation
         saved = self.saved_analysis
+        if self.failed_generation == current:
+            return saved if saved is not None else {"headline": None}
         if saved is not None:
             # A stored cluster from before generations existed carries the key
             # with no value, so absent and empty have to mean the same thing:
@@ -688,21 +696,33 @@ class Cluster:
                 analysis["revisions"] = history[-MAX_REVISIONS:]
                 analysis["updated_time"] = get_current_ts()
         except Exception:
-            # A cluster with no summary still makes a post — the renderer falls
-            # back to the chosen channel's own text — so a failed call degrades
-            # one post instead of the whole iteration.
             logging.exception("LLM analysis failed for '%s'", self.cropped_title)
 
-        if saved is not None and "revisions" not in analysis:
-            # A rewrite that failed still must not forget the ones before it.
-            analysis["revisions"] = list(saved.get("revisions") or [])
-            analysis["updated_time"] = saved.get("updated_time")
+        if not analysis["headline"]:
+            # Nothing is kept and nothing is cached, so the next iteration
+            # asks again. What the reader sees meanwhile is the daemon's call:
+            # a new story is held (`analysis_failed`), a published one keeps
+            # the text it already has. Both used to be replaced by one
+            # channel's raw words: 22 posts of a week went out that way, three
+            # of them repeating a story already told, and one — a grenade in
+            # Khmelnytskyi — lost a good headline to a failed rewrite.
+            self.failed_generation = current
+            return saved if saved is not None else {"headline": None}
 
         self.saved_analysis = analysis
         if len(_ANALYSIS_CACHE) >= _ANALYSIS_CACHE_MAX_SIZE:
             _ANALYSIS_CACHE.pop(next(iter(_ANALYSIS_CACHE)))
         _ANALYSIS_CACHE[cache_key] = analysis
         return analysis
+
+    @property
+    def analysis_failed(self) -> bool:
+        """Whether the post has no text of ours to show, because the LLM failed.
+
+        False for a published post whose rewrite failed: it still has the text
+        it went out with.
+        """
+        return self.failed_generation is not None and not self.stored_headline
 
     @property
     def summary(self) -> Summary:

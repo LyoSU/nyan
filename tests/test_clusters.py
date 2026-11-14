@@ -865,3 +865,45 @@ def test_a_failed_rewrite_records_nothing(monkeypatch) -> None:  # type: ignore[
     _ = cluster.summary
 
     assert cluster.asdict()["revisions"] == []
+
+
+def test_a_failed_rewrite_keeps_the_published_text(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """A grenade in Khmelnytskyi went out with a headline, and a failed rewrite
+    at the next generation replaced it with one channel's raw words."""
+    cluster = _make_multi_channel_cluster()
+    _patch_llm(monkeypatch)
+    assert cluster.headline == "Заголовок"
+
+    _patch_llm(monkeypatch, response="not json")
+    cluster.add(_make_doc("https://t.me/source_c/1", channel_id="channel_c"))
+
+    assert cluster.headline == "Заголовок"
+    assert cluster.summary
+    assert not cluster.analysis_failed
+
+
+def test_a_failed_first_analysis_is_flagged_and_asked_once(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """The daemon holds such a story; one render reads the analysis several
+    times, and a failure must not cost a call per read."""
+    cluster = _make_multi_channel_cluster()
+    calls = _patch_llm(monkeypatch, response="not json")
+
+    assert cluster.headline is None
+    assert not cluster.summary
+    assert cluster.analysis_failed
+    assert len(calls) == 1
+    assert cluster.asdict()["headline"] is None
+
+
+def test_a_failed_analysis_is_asked_again_by_the_next_iteration(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Not cached: the daemon builds the cluster afresh and the outage may be over."""
+    _patch_llm(monkeypatch, response="not json")
+    failed = _make_multi_channel_cluster()
+    assert failed.headline is None
+    assert failed.analysis_failed
+
+    _patch_llm(monkeypatch)
+    retried = _make_multi_channel_cluster()
+
+    assert retried.headline == "Заголовок"
+    assert not retried.analysis_failed

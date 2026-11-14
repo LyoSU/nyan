@@ -5,7 +5,7 @@ from nyan.client import MessageId
 from nyan.clusters import Cluster, Clusters
 from nyan.daemon import Daemon
 from nyan.document import Document
-from nyan.relation import FOLLOW_UP, SAME, UNRELATED, Relation
+from nyan.relation import FAILED, FOLLOW_UP, SAME, UNRELATED, Relation
 from nyan.util import get_current_ts
 
 
@@ -76,6 +76,8 @@ def _patch_judge(monkeypatch: Any, verdict: str, index: int = 0) -> list[Any]:
 
     def fake_judge(cluster: Cluster, candidates: Sequence[Cluster]) -> Relation:
         seen.append(candidates)
+        if verdict == FAILED:
+            return Relation(FAILED)
         if verdict == UNRELATED or not candidates:
             return Relation(UNRELATED)
         return Relation(verdict, candidates[index])
@@ -925,3 +927,70 @@ def test_a_follow_up_clustered_beside_its_parent_stays_its_own(
     assert len(seen) == 1
     assert client.sent == 1
     assert not any(post.has(doc) for doc in late)
+
+
+def test_an_unjudged_story_is_held_not_published(monkeypatch: Any) -> None:
+    """Moldova giving up Russian gas went out twice, 0.995 apart and seven
+    hours between: the judge's call failed and its failure read as "new"."""
+    daemon = _daemon()
+    daemon.renderer = _FakeRenderer()  # type: ignore[assignment]
+    daemon.client = _FakeClient()  # type: ignore[assignment]
+    parent = _cluster(
+        [1.0, 0.0], message_id=11, headline="Молдова припинила закупівлі газу", age_seconds=7 * 3600
+    )
+    posted = _posted(parent)
+    _patch_judge(monkeypatch, FAILED)
+    story = _cluster([1.0, 0.01])
+
+    daemon.send_cluster(story, "main", posted, None, None)
+
+    client: Any = daemon.client
+    assert client.sent == 0
+    assert client.updated == []
+    assert story.pending_since is None, "nothing on record: the next pass asks again"
+    assert len(posted) == 1
+
+
+class _RawRenderer(_FakeRenderer):
+    """Renders the way the real renderer does when the LLM call failed: it
+    reads the analysis, gets nothing, and falls back to a channel's text."""
+
+    def render_cluster(
+        self, cluster: Cluster, issue_name: str, post_format: str | None = None
+    ) -> str:
+        cluster.failed_generation = cluster.generation
+        return super().render_cluster(cluster, issue_name, post_format)
+
+
+def test_a_story_with_no_text_of_ours_is_held(monkeypatch: Any) -> None:
+    """22 posts of a week went out in one channel's raw words."""
+    daemon = _daemon()
+    daemon.renderer = _RawRenderer()  # type: ignore[assignment]
+    daemon.client = _FakeClient()  # type: ignore[assignment]
+    _patch_judge(monkeypatch, UNRELATED)
+    story = _cluster([1.0, 0.02])
+
+    daemon.send_cluster(story, "main", Clusters(), None, None)
+
+    client: Any = daemon.client
+    assert client.sent == 0
+    assert story.pending_since is None
+
+
+def test_a_failed_judgment_leaves_a_late_document_free_to_try_again(monkeypatch: Any) -> None:
+    """A refusal is remembered for good; a failed call is not a refusal."""
+    daemon = _daemon(max_time_updated=10800)
+    daemon.renderer = _FakeRenderer()  # type: ignore[assignment]
+    daemon.client = _FakeClient()  # type: ignore[assignment]
+    daemon.config["attach_threshold"] = 0.9
+    parent = _cluster([1.0, 0.0], message_id=11, headline="Вибух", age_seconds=600)
+    loose = _cluster([1.0, 0.01], age_seconds=300).docs[0]
+    loose.url = "https://t.me/other/5"
+    loose.channel_id = "other"
+    loose.patched_text = "Інший текст про вибух"
+    _patch_judge(monkeypatch, FAILED)
+
+    attached = daemon.attach_loose_documents([loose], _posted(parent))
+
+    assert attached == 0
+    assert not parent.refuses(loose)

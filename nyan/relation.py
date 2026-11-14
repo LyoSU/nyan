@@ -38,6 +38,13 @@ UNRELATED = "unrelated"
 
 VERDICTS = (SAME, FOLLOW_UP, UNRELATED)
 
+# Not an answer the model gives: the question could not be asked, or what came
+# back was not an answer. Callers hold the story and ask again later. Answering
+# UNRELATED instead, as this did, publishes exactly the stories the judge exists
+# to stop — the same outage that failed this call failed the summary too, and a
+# week of production carried Moldova giving up Russian gas twice, 0.995 apart.
+FAILED = "failed"
+
 # How close a published post has to be before it is worth asking about. Set for
 # recall, not precision: the model makes the call, so a candidate only has to be
 # plausible. Measured over a week of production, this leaves 1.7 candidates per
@@ -101,9 +108,9 @@ def judge_relation(
 ) -> Relation:
     """What this story is to the closest thing already published.
 
-    Never raises. The daemon is a synchronous loop, and every failure here has
-    the same safe answer: publish the post on its own, which is what happened
-    before this existed.
+    Never raises: the daemon is a synchronous loop. A failure comes back as
+    FAILED, which is not a verdict — there is no safe guess between "already
+    told" and "new", so the caller holds the story for the next iteration.
     """
     if not candidates:
         return Relation(UNRELATED)
@@ -126,15 +133,18 @@ def judge_relation(
         parsed = json.loads(content[content.find("{") : content.rfind("}") + 1])
     except Exception:
         logging.exception("Could not judge what '%s' is", cluster.cropped_title)
-        return Relation(UNRELATED)
+        return Relation(FAILED)
 
-    verdict = parsed.get("verdict")
-    match = parsed.get("match")
-    if verdict not in VERDICTS or verdict == UNRELATED:
+    verdict = parsed.get("verdict") if isinstance(parsed, dict) else None
+    match = parsed.get("match") if isinstance(parsed, dict) else None
+    if verdict == UNRELATED:
         return Relation(UNRELATED)
+    if verdict not in VERDICTS:
+        logging.warning("Not a verdict for '%s': %s", cluster.cropped_title, parsed)
+        return Relation(FAILED)
     if not isinstance(match, int) or not 1 <= match <= len(candidates):
         logging.warning("Verdict '%s' names no candidate: %s", verdict, match)
-        return Relation(UNRELATED)
+        return Relation(FAILED)
 
     chosen = candidates[match - 1]
     logging.info(
