@@ -11,6 +11,7 @@ from nyan.relation import (
     FOLLOW_UP,
     SAME,
     UNRELATED,
+    gap,
     judge_relation,
     nearest_clusters,
 )
@@ -300,3 +301,32 @@ def test_the_rules_stay_one_prefix_across_judgements(monkeypatch: Any) -> None:
     assert calls[0]["messages"][0] == calls[1]["messages"][0]
     assert calls[0]["messages"][0]["role"] == "system"
     assert calls[0]["prompt_cache_key"] == "relation"
+
+
+def test_the_judge_is_told_how_long_before_the_story_a_post_went_out(monkeypatch: Any) -> None:
+    """Two drone hits on Kharkiv, 07.11 00:52 and 07.11 23:59: the same date,
+    and the judge called them one event. The gap is now spelled out."""
+    story = _cluster(
+        [1.0, 0.0],
+        age_seconds=600,
+        text="Влучання ударного дрона зафіксували в Київському районі Харкова, "
+        "повідомив міський голова Ігор Терехов.",
+    )
+    published = _cluster(
+        [0.99, 0.14],
+        message_id=1,
+        age_seconds=23 * 3600 + 600,
+        text="Дрон влучив у дах дев'ятиповерхового будинку",
+    )
+    calls = _patch_llm(monkeypatch, json.dumps({"match": None, "verdict": "unrelated"}))
+
+    judge_relation(story, [published])
+
+    assert "за 23 год до нової" in calls[0]["messages"][1]["content"]
+
+
+def test_a_gap_reads_the_way_a_reader_counts() -> None:
+    assert gap(0, 10 * 60) == "приблизно тоді ж"
+    assert gap(0, 45 * 60) == "за 45 хв до нової"
+    assert gap(0, 23 * 3600) == "за 23 год до нової"
+    assert gap(0, 3 * 86400) == "за 3 дн до нової"

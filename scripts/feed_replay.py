@@ -213,6 +213,7 @@ def main() -> None:
     ap.add_argument("--cache", default="feed_replay_answers.jsonl")
     ap.add_argument("--ask", type=int, default=0, help="most new LLM calls to make")
     ap.add_argument("--min-new", type=float, default=0.95, help="ask only when a candidate this close is new")
+    ap.add_argument("--clids", type=int, nargs="*", default=[], help="ask only about these stories")
     args = ap.parse_args()
 
     if args.pull:
@@ -245,7 +246,10 @@ def main() -> None:
         fresh = [c for c in new if c not in old]
         if fresh:
             counts["posts_with_a_new_candidate"] += 1
-        if any(similarity(story, c) >= args.min_new for c in fresh):
+        if args.clids:
+            if story.clid in args.clids:
+                changed.append((story, old, new))
+        elif any(similarity(story, c) >= args.min_new for c in fresh):
             changed.append((story, old, new))
 
     print("candidates:", dict(counts))
@@ -258,11 +262,13 @@ def main() -> None:
         judged = relation.judge_relation(story, new)
         verdicts[f"{then} -> {judged.verdict}"] += 1
         if judged.verdict in (relation.UNRELATED, relation.FAILED):
+            if args.clids:
+                print(f"\n{judged.verdict.upper():9} {label(story)}")
             continue
         target = judged.cluster
         assert target is not None
         was = next((c for c in clusters if c.clid == story.reply_to_clid), None)
-        if was is target:
+        if was is target and not args.clids:
             continue
         print(f"\n{judged.verdict.upper():9} {label(story)}")
         print(f"   now under {label(target)}  cos {similarity(story, target):.3f}")

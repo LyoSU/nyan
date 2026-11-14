@@ -4,7 +4,7 @@
 НОВА НОВИНА ({{story.time}}):
 {{story.text}}
 {% for candidate in candidates %}
-ОПУБЛІКОВАНО {{candidate.number}} ({{candidate.time}}):
+ОПУБЛІКОВАНО {{candidate.number}} ({{candidate.time}}{% if candidate.gap %}, {{candidate.gap}}{% endif %}):
 {{candidate.text}}
 {% endfor %}
 </ДЖЕРЕЛА>

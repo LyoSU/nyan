@@ -174,7 +174,7 @@ def judge_relation(
         "relation",
         story=_as_material(cluster),
         candidates=[
-            _as_published(candidate, number)
+            _as_published(candidate, number, cluster)
             for number, candidate in enumerate(candidates, start=1)
         ],
     )
@@ -222,7 +222,26 @@ def _as_material(cluster: Cluster, number: int = 0) -> dict[str, str]:
     }
 
 
-def _as_published(cluster: Cluster, number: int) -> dict[str, str]:
+def gap(earlier: int, later: int) -> str:
+    """How long before the new story a post went out, in the words a reader uses.
+
+    Spelled out because a timestamp alone was not read. "07.11.2026, 00:52"
+    against "07.11.2026, 23:59" is the same date, and the judge called two drone
+    hits on Kharkiv — two nights, 23 hours apart — one event, which would have
+    folded the second night into the first night's post where nobody sees it.
+    """
+    minutes = (later - earlier) // 60
+    if minutes < 30:
+        return "приблизно тоді ж"
+    if minutes < 90:
+        return f"за {minutes} хв до нової"
+    hours = round(minutes / 60)
+    if hours < 48:
+        return f"за {hours} год до нової"
+    return f"за {round(hours / 24)} дн до нової"
+
+
+def _as_published(cluster: Cluster, number: int, story: Cluster | None = None) -> dict[str, str]:
     """A post already out, as its readers saw it: the headline and the prose.
 
     One channel's text stood in for it before, and that channel's text can
@@ -237,6 +256,8 @@ def _as_published(cluster: Cluster, number: int) -> dict[str, str]:
     own, and that text is what its readers saw.
     """
     material = _as_material(cluster, number)
+    if story is not None:
+        material["gap"] = gap(cluster.pub_time_percentile, story.pub_time_percentile)
     prose = cluster.stored_summary.as_text() or material["text"]
     material["text"] = "\n".join(part for part in (cluster.stored_headline, prose) if part)
     return material
