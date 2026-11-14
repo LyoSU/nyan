@@ -24,6 +24,7 @@ PRESENTATION = {
     "update_line": True,
     "more_on_this": True,
     "quote_parent": True,
+    "short_legend": True,
     "channel_urls": {"main": PUBLISH_CHANNEL_URL},
 }
 
@@ -33,11 +34,14 @@ CASES: list[dict[str, Any]] = [
         "clid": 66325,
         "level": "breaking",
         "updates": [{"time_of": 66332, "text": "Загиблих стало троє, постраждалих — 11"}],
+        "rewritten_by": 66332,
         "note": "Удар по ринку, одна загибла. О 14:38 прод випустив окремий пост-відповідь "
-        "66332 «кількість загиблих зросла до трьох»; тут це рядок «оновлено» в тому самому "
-        "пості. Текст рядка — поле change з реальної відповіді редактора (ізольований виклик). "
-        "Рівень breaking — за правилом промпту (загибель людей); редактор цю історію в "
-        "програванні не бачив.",
+        "66332 «кількість загиблих зросла до трьох»; тут це те саме повідомлення 66325, "
+        "відредаговане: update переписує пост цілком, тож заголовок і текст — уже з "
+        "переписаної версії (взято з реального 66332), а рядок «оновлено» лишається. Текст "
+        "рядка — поле change з реальної відповіді редактора (ізольований виклик). Рівень "
+        "breaking — за правилом промпту (загибель людей); редактор цю історію в програванні "
+        "не бачив.",
     },
     {
         "clid": 66332,
@@ -45,6 +49,20 @@ CASES: list[dict[str, Any]] = [
         "note": "Те, що прод надіслав окремою відповіддю. З редактором окремого поста немає: "
         "relation=update, і його зміст іде рядком у 66325 (вище). Показано для порівняння.",
         "dropped": True,
+    },
+    {
+        "clid": 66361,
+        "level": "normal",
+        "updates": [
+            {"time_of": 66362, "text": "Постраждалих двоє"},
+            {"time_of": 66365, "text": "Загинула 44-річна жінка"},
+        ],
+        "rewritten_by": 66365,
+        "note": "Два оновлення одного поста. 12.11 прод випустив три пости за 16 хвилин "
+        "(09:06 «постраждала людина», 09:15 «постраждалих двоє», 09:22 «загинула жінка»); "
+        "тут це один пост, переписаний до останньої версії (заголовок і текст — з реального "
+        "66365), рядок «оновлено» про останню зміну й таблиця історії перед джерелами. "
+        "Тексти рядків оновлення написано за заголовками прод-постів, не редактором.",
     },
     {
         "clid": 66290,
@@ -80,14 +98,55 @@ CASES: list[dict[str, Any]] = [
         "clid": 66326,
         "level": "minor",
         "note": "Як виглядає minor. Редактор цю монету відправив у skip; рівень тут "
-        "ілюстративний, щоб показати формат.",
+        "ілюстративний, щоб показати формат. «Пишуть окремі джерела» в minor не показуємо. "
+        "Фото посту тижневої давності, посилання протухли — тут без фото; стан із фото "
+        "див. нижче.",
+    },
+    {
+        "clid": 66488,
+        "level": "minor",
+        "also_without_media": True,
+        "note": "Minor зі свіжим фото (14.11): фото не в тілі, а першим у «Докладніше» "
+        "(details приймає будь-які InputRichBlock, медіа теж). Нижче — той самий пост "
+        "без фото взагалі, для порівняння. Рівень ілюстративний.",
+    },
+    {
+        "clid": 66421,
+        "level": "minor",
+        "note": "Minor-цитата: пост одного каналу його словами, довгий текст згорнуто в "
+        "expandable_blockquote з підписом каналу. Рівень ілюстративний.",
     },
     {
         "clid": 66330,
         "level": "normal",
-        "note": "Звичайний пост без оновлень і без теми: новий вигляд має збігатися зі старим.",
+        "note": "Звичайний пост без оновлень і без теми: новий вигляд збігається зі старим, "
+        "крім легенди значків у джерелах — три значки й більше тепер ідуть двома рядками.",
     },
 ]
+
+
+# How old a post's media may be and still load.
+FRESH_MEDIA = 30 * 3600
+
+
+def strip_media(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The same blocks with every photo, video and slideshow taken out, at any depth."""
+    kept = []
+    for block in blocks:
+        if block.get("type") in ("photo", "video", "animation", "slideshow", "collage"):
+            continue
+        block = dict(block)
+        if isinstance(block.get("blocks"), list):
+            block["blocks"] = strip_media(block["blocks"])
+            if block.get("type") == "details" and not block["blocks"]:
+                # A minor post's "Докладніше" that held only the photo.
+                continue
+        if isinstance(block.get("items"), list):
+            block["items"] = [
+                {**item, "blocks": strip_media(item["blocks"])} for item in block["items"]
+            ]
+        kept.append(block)
+    return kept
 
 
 def flatten(value: Any) -> str:
@@ -162,6 +221,8 @@ def main() -> None:
     for case in CASES:
         wanted.update(case.get("storyline_of", []))
         wanted.update(u["time_of"] for u in case.get("updates", []) if "time_of" in u)
+        if "rewritten_by" in case:
+            wanted.add(case["rewritten_by"])
     posts: dict[int, Cluster] = {}
     with open(args.dump) as r:
         for line in r:
@@ -185,11 +246,23 @@ def main() -> None:
         json.dump(config, w, ensure_ascii=False)
     new = Renderer(new_config, channels)
 
+    # Media links of a few days ago no longer load; such posts go without media.
+    newest = max(post.create_time or 0 for post in posts.values())
     out = []
     text: list[str] = []
     for case in CASES:
         post = posts[case["clid"]]
+        fresh = (post.create_time or 0) >= newest - FRESH_MEDIA
         before = old.render_cluster(post, "main")
+        assert before is not None and before.blocks is not None
+        headline = post.stored_headline or flatten(before.blocks[0].get("text"))
+        if "rewritten_by" in case:
+            # What the forced rewrite would have made of it: the later post's
+            # text over the sources of both.
+            later = posts[case["rewritten_by"]]
+            for doc in later.docs:
+                post.add(doc)
+            post.saved_analysis = dict(later.saved_analysis or {})
         if post.reply_to_clid and post.reply_to_clid in posts:
             parent = posts[post.reply_to_clid]
             post.reply_to_headline = parent.stored_headline or ""
@@ -215,6 +288,11 @@ def main() -> None:
         after = new.render_cluster(post, "main")
         assert before is not None and after is not None
         assert before.blocks is not None and after.blocks is not None
+        variants = [("НОВИЙ ВИГЛЯД", after.blocks if fresh else strip_media(after.blocks))]
+        if case.get("also_without_media"):
+            variants.append(("НОВИЙ ВИГЛЯД, БЕЗ ФОТО", strip_media(after.blocks)))
+        if not fresh:
+            before.blocks = strip_media(before.blocks)
         reply = None
         if post.reply_to_clid and post.reply_to_clid in posts:
             reply = {"message_id": posts[post.reply_to_clid].messages[0].message_id}
@@ -223,7 +301,7 @@ def main() -> None:
         entry = {
             "clid": post.clid,
             "published": ts_to_dt(post.create_time or 0).strftime("%d.%m %H:%M"),
-            "headline": post.stored_headline,
+            "headline": headline,
             "note": case["note"],
             "editor": {
                 "level": post.level,
@@ -235,26 +313,37 @@ def main() -> None:
             "new": None
             if case.get("dropped")
             else {
-                "rich_message": {"blocks": after.blocks},
+                "rich_message": {"blocks": variants[0][1]},
                 "disable_notification": not after.notify,
                 "reply_parameters": reply,
             },
+            "media": "kept" if fresh else "removed: links of a few days ago no longer load",
         }
+        if len(variants) > 1:
+            entry["new_without_media"] = {
+                "rich_message": {"blocks": variants[1][1]},
+                "disable_notification": not after.notify,
+                "reply_parameters": reply,
+            }
         out.append(entry)
         text.append("=" * 78)
-        text.append(f"{post.clid} · {entry['published']} · {post.stored_headline}")
+        text.append(f"{post.clid} · {entry['published']} · {headline}")
         text.append(case["note"])
+        if not fresh:
+            text.append("(медіа прибрано в обох версіях: посилання кількаденної давності протухли)")
         text.append("--- СТАРИЙ ВИГЛЯД (як у проді)")
         text.extend(as_text(before.blocks))
-        text.append("--- НОВИЙ ВИГЛЯД")
         if case.get("dropped"):
+            text.append("--- НОВИЙ ВИГЛЯД")
             text.append("(окремого поста немає — див. рядок «оновлено» у 66325)")
-        else:
+            continue
+        for title, blocks in variants:
+            text.append(f"--- {title}")
             if reply:
                 quote = flatten(reply.get("quote_rich_texts") or "")
                 text.append(f"[відповідь на {reply['message_id']}; цитата: «{quote}»]")
             text.append(f"[звук: {'так' if after.notify else 'ні'}]")
-            text.extend(as_text(after.blocks))
+            text.extend(as_text(blocks))
     with open(args.out, "w") as w:
         json.dump(out, w, ensure_ascii=False, indent=1)
     with open(args.out.removesuffix(".json") + ".txt", "w") as w:
