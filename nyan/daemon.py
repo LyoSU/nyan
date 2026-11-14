@@ -12,7 +12,7 @@ from collections import Counter as CounterT
 from nyan import editor
 from nyan.annotator import Annotator
 from nyan.client import MessageId, TelegramClient
-from nyan.clusters import Clusters, Cluster, judged_text_key
+from nyan.clusters import Cluster, Clusters, configure_author, judged_text_key
 from nyan.clusterer import Clusterer
 from nyan.channels import Channels
 from nyan.logs import log_new_iteration
@@ -192,6 +192,8 @@ class Daemon:
         self.annotator = Annotator(annotator_config_path, self.channels)
         self.clusterer = Clusterer(clusterer_config_path)
         self.renderer = Renderer(renderer_config_path, self.channels)
+        # What the author is asked follows what the renderer will show.
+        configure_author(layout=self.renderer.layout, vision=self.renderer.vision)
         self.ranker = Ranker(ranker_config_path)
         if "shadow" in self.ranker.config:
             self.rank_shadow = RankShadow(ranker_config_path, self.ranker.config["shadow"])
@@ -668,6 +670,23 @@ class Daemon:
 
         cluster.level = decision.level
         cluster.storyline = decision.storyline
+        if decision.level == "breaking":
+            # Not capped, only counted: how often the channel rings is worth
+            # watching before anyone decides it rings too often.
+            day_ago = get_current_ts() - 24 * 3600
+            rung = sum(
+                1
+                for posted in posted_clusters.clid2cluster.values()
+                if posted.level == "breaking"
+                and (posted.create_time or 0) >= day_ago
+                and posted.get_issue_message(issue_name) is not None
+            )
+            logging.info(
+                "Important post %d of the last day in %s: %s",
+                rung + 1,
+                issue_name,
+                cluster.cropped_title,
+            )
         parent = None
         if decision.relation in (editor.FOLLOW_UP, editor.UPDATE, editor.SAME):
             parent = post

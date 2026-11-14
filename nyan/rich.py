@@ -299,6 +299,8 @@ class RenderedPost:
     # Whether the post rings: the channel posts silently, and only what the
     # editor called breaking is worth a sound.
     notify: bool = False
+    # The same post in the old template, for a layout Telegram rejects.
+    fallback: list[Block] | None = None
 
     @property
     def is_rich(self) -> bool:

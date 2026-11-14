@@ -18,6 +18,7 @@ from jinja2 import Environment
 from nyan.channels import group_authority, normalize_group
 from nyan.client import MessageId
 from nyan.document import Document, crop_words
+from nyan import media_brief
 from nyan.media import MEDIA_PHOTO, MEDIA_VIDEO, MediaCandidate, MediaItem, select_media
 from nyan.mongo import get_clusters_collection
 from nyan.title import choose_title
@@ -63,6 +64,22 @@ def judged_text_key(doc: Document) -> str | None:
     if not text:
         return None
     return hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
+
+
+# The presentation flags that change what the author is asked, set once by
+# the daemon from the renderer's config. Module-level because the author is a
+# property of the cluster, which has no config of its own; off by default, and
+# then the prompt is byte for byte what it was.
+#: The author lays out the body itself (tables, folded quotes, the media).
+LAYOUT = False
+#: The author sees the first few pictures, at low quality, to decide on them.
+VISION = False
+
+
+def configure_author(layout: bool = False, vision: bool = False) -> None:
+    global LAYOUT, VISION
+    LAYOUT = layout
+    VISION = vision and layout
 
 
 def render_prompt(name: str, **context: Any) -> list[dict[str, str]]:
@@ -707,16 +724,43 @@ class Cluster:
             ),
         )
 
+        laid_out = LAYOUT and is_multi_source
+        attachments: list[media_brief.Attachment] = []
+        stills: list[str] = []
+        if laid_out:
+            # Appended to the fixed rules, so the system message is still the
+            # same bytes on every call of a deployment.
+            messages[0]["content"] += (BASE_DIR / "prompts" / "summary_layout.txt").read_text()
+            attachments = media_brief.describe(list(self.media), list(self.docs))
+            stills = media_brief.stills(attachments) if VISION else []
+            messages[1]["content"] += media_brief.media_note(attachments, len(stills))
+
         analysis: dict[str, Any] = {"headline": None, "generation": current}
         try:
-            content = openai_completion(
-                messages=cast(list[dict[str, Any]], messages),
-                response_format={"type": "json_object"},
-                reasoning_effort=DEFAULT_REASONING_EFFORT,
-                # Every call for this prompt shares a system message, so they
-                # all want the same worker: the one holding that prefix.
-                prompt_cache_key=prompt_name,
-            )
+            try:
+                content = openai_completion(
+                    messages=cast(
+                        list[dict[str, Any]],
+                        [messages[0], media_brief.with_stills(messages[1], stills)],
+                    ),
+                    response_format={"type": "json_object"},
+                    reasoning_effort=DEFAULT_REASONING_EFFORT,
+                    # Every call for this prompt shares a system message, so they
+                    # all want the same worker: the one holding that prefix.
+                    prompt_cache_key=prompt_name,
+                )
+            except Exception:
+                if not stills:
+                    raise
+                # A gateway or model that refuses pictures costs the post its
+                # pictures, not its text.
+                logging.warning("The author refused the pictures of '%s'", self.cropped_title)
+                content = openai_completion(
+                    messages=cast(list[dict[str, Any]], messages),
+                    response_format={"type": "json_object"},
+                    reasoning_effort=DEFAULT_REASONING_EFFORT,
+                    prompt_cache_key=prompt_name,
+                )
             content = content[content.find("{") : content.rfind("}") + 1]
             parsed_content: dict[str, Any] = json.loads(content)
 
@@ -730,9 +774,19 @@ class Cluster:
                     # Only the channels this prompt actually showed may be
                     # credited with a claim.
                     allowed_channels={doc.channel_id for doc in docs},
+                    layout=laid_out,
                 )
                 if summary:
                     analysis["summary"] = summary.asdict()
+                if laid_out:
+                    decision = media_brief.parse_media(
+                        parsed_content.get("media"), len(attachments)
+                    )
+                    if decision is not None:
+                        analysis["media"] = decision
+                        logging.info(
+                            "Author on the media of '%s': %s", self.cropped_title, decision
+                        )
             if saved is not None and analysis["headline"]:
                 # The version being replaced was in the channel and on the site,
                 # so the page can say the post changed and when. Only a note of
@@ -940,6 +994,8 @@ class Cluster:
             "generation": analysis.get("generation"),
             "updated_time": analysis.get("updated_time"),
             "revisions": analysis.get("revisions") or [],
+            # The author's decision on the media, when it laid the post out.
+            "media": analysis.get("media"),
             "is_important": self.is_important,
             "create_time": self.create_time,
             "pending_since": self.pending_since,
@@ -1005,6 +1061,8 @@ class Cluster:
                 "updated_time": d.get("updated_time"),
                 "revisions": d.get("revisions") or [],
             }
+            if d.get("media"):
+                cluster.saved_analysis["media"] = d["media"]
         # After the documents, not before: `add` folds each one into the running
         # mean, and short documents contribute nothing, so what storage holds is
         # the only record of what the full cluster averaged to. Absent in

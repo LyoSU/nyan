@@ -36,6 +36,9 @@ HIDDEN = "hidden"
 DISPUTED = "disputed"
 ATTRIBUTED = "attributed"
 SUBHEADING = "subheading"
+# Offered to the author only when the layout flag is on (see
+# `nyan/prompts/summary_layout.txt`): numbers that are compared side by side.
+TABLE = "table"
 
 MAX_LIST_ITEMS = 6
 MAX_LINKS = 12
@@ -47,6 +50,11 @@ MAX_TEXT_LENGTH = 1000
 MAX_SUMMARY_LENGTH = 100
 MAX_AUTHOR_LENGTH = 120
 MAX_HEADLINE_LENGTH = 200
+# A phone shows four narrow columns at most, and a table taller than this is
+# a list somebody wrote as a table.
+MAX_TABLE_COLUMNS = 4
+MAX_TABLE_ROWS = 10
+MAX_CELL_LENGTH = 80
 
 
 @dataclass(frozen=True)
@@ -77,7 +85,7 @@ class Limits:
 # opening with bullets, a subheading or a caveat is not.
 POST_LIMITS = Limits(
     max_blocks=10,
-    per_type={QUOTE: 2, HIDDEN: 2, SUBHEADING: 2, DISPUTED: 1, ATTRIBUTED: 1},
+    per_type={QUOTE: 2, HIDDEN: 2, SUBHEADING: 2, DISPUTED: 1, ATTRIBUTED: 1, TABLE: 1},
     opening=(TEXT, QUOTE),
 )
 
@@ -115,10 +123,17 @@ class SummaryBlock:
     claims: list[dict[str, Any]] = field(default_factory=list)
     author: str = ""
     summary: str = ""
+    # For `table`: the header row and the rows under it, all of one width.
+    header: list[str] = field(default_factory=list)
+    rows: list[list[str]] = field(default_factory=list)
+    # For `quote`, `attributed` and `disputed`: the author asked for it folded
+    # (a long original under a collapsed quotation; claims under a tap).
+    fold: bool = False
 
     def asdict(self) -> dict[str, Any]:
         record: dict[str, Any] = {"type": self.type}
-        for key in ("text", "items", "links", "claims", "author", "summary"):
+        keys = ("text", "items", "links", "claims", "author", "summary", "header", "rows", "fold")
+        for key in keys:
             value = getattr(self, key)
             if value:
                 record[key] = value
@@ -143,6 +158,9 @@ class SummaryBlock:
             ],
             author=str(record.get("author", "")),
             summary=str(record.get("summary", "")),
+            header=[str(cell) for cell in record.get("header", [])],
+            rows=[[str(cell) for cell in row] for row in record.get("rows", [])],
+            fold=bool(record.get("fold", False)),
         )
 
 
@@ -207,6 +225,7 @@ def parse_summary(
     allowed_urls: Collection[str] = (),
     limits: Limits = POST_LIMITS,
     allowed_channels: Collection[str] = (),
+    layout: bool = False,
 ) -> Summary:
     """A `Summary` built from whatever the model returned.
 
@@ -244,7 +263,7 @@ def parse_summary(
     blocks: list[SummaryBlock] = []
     counts: dict[str, int] = {}
     for raw_block in raw_blocks[: limits.max_blocks]:
-        block = _parse_block(raw_block, context, known_urls, known_channels)
+        block = _parse_block(raw_block, context, known_urls, known_channels, layout)
         if block is None:
             continue
         counts[block.type] = counts.get(block.type, 0) + 1
@@ -285,6 +304,7 @@ def _parse_block(
     context: str,
     known_urls: frozenset[str],
     known_channels: Mapping[str, str],
+    layout: bool = False,
 ) -> SummaryBlock | None:
     if not isinstance(raw, dict):
         logging.info("Skipping a non-object block for '%s': %r", context, type(raw))
@@ -296,7 +316,15 @@ def _parse_block(
         return _parse_links(raw, context, known_urls)
 
     if block_type in (DISPUTED, ATTRIBUTED):
-        return _parse_claims(raw, block_type, context, known_channels)
+        claims = _parse_claims(raw, block_type, context, known_channels)
+        if claims is not None and layout and raw.get("fold") is True:
+            claims.fold = True
+        return claims
+
+    if block_type == TABLE and layout:
+        # Only when the author was offered one: otherwise an old-template
+        # post would start showing a block it never had.
+        return _parse_table(raw, context)
 
     if block_type == SUBHEADING:
         text = _clean(raw.get("text"), MAX_TEXT_LENGTH)
@@ -341,7 +369,8 @@ def _parse_block(
         if not text or not author:
             logging.info("Dropping an unattributed quote for '%s'", context)
             return None
-        return SummaryBlock(type=QUOTE, text=text, author=author)
+        fold = layout and raw.get("fold") is True
+        return SummaryBlock(type=QUOTE, text=text, author=author, fold=fold)
 
     if block_type == HIDDEN:
         text = _clean(raw.get("text"), MAX_TEXT_LENGTH)
@@ -364,6 +393,42 @@ def _parse_block(
 
     logging.info("Skipping an unknown block type %r for '%s'", block_type, context)
     return None
+
+
+def _parse_table(raw: dict[str, Any], context: str) -> SummaryBlock | None:
+    """A small table, or nothing: a ragged or oversized one is not shown at all.
+
+    Dropped rather than repaired, because a table with a guessed column is a
+    table with a wrong number in it. The facts still stand in the prose.
+    """
+    header = raw.get("header")
+    rows = raw.get("rows")
+    if not isinstance(rows, list) or not rows:
+        return None
+    width = len(header) if isinstance(header, list) and header else len(rows[0] or [])
+    if not 2 <= width <= MAX_TABLE_COLUMNS or len(rows) > MAX_TABLE_ROWS:
+        logging.info("Dropping a %d-column, %d-row table for '%s'", width, len(rows), context)
+        return None
+    cleaned: list[list[str]] = []
+    for row in rows:
+        if not isinstance(row, list) or len(row) != width:
+            logging.info("Dropping a ragged table for '%s'", context)
+            return None
+        cells = [_clean(_cell_text(cell), MAX_CELL_LENGTH) for cell in row]
+        if not any(cells):
+            continue
+        cleaned.append(cells)
+    if not cleaned:
+        return None
+    head = [_clean(cell, MAX_CELL_LENGTH) for cell in header] if isinstance(header, list) else []
+    return SummaryBlock(type=TABLE, header=head if any(head) else [], rows=cleaned)
+
+
+def _cell_text(cell: Any) -> Any:
+    """A number is a cell too: models write 144 as a number, not as "144"."""
+    if isinstance(cell, (int, float)) and not isinstance(cell, bool):
+        return str(cell)
+    return cell
 
 
 def _parse_claims(

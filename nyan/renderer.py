@@ -229,8 +229,13 @@ def summary_blocks(
     summary: Summary,
     section_size: int,
     sources: Mapping[str, RichText] | None = None,
+    layout: bool = False,
 ) -> list[Block]:
     """The model's blocks as Telegram blocks.
+
+    With `layout` the author's own layout choices are kept: a table, a folded
+    quotation, folded claims. Without it each is set the way the old template
+    sets what is closest: rows as a list, a quotation open, claims open.
 
     The model chooses the shape — neither a news story nor a digest comes in one
     shape — and this is where its vocabulary maps onto the API's. Unknown kinds
@@ -260,9 +265,19 @@ def summary_blocks(
                 )
             )
         elif block.type == nyan_summary.QUOTE:
-            blocks.append(
-                rich.blockquote(rich.paragraph(block.text), credit=block.author)
-            )
+            if layout and block.fold:
+                blocks.append(rich.expandable_blockquote(block.text, credit=block.author))
+            else:
+                blocks.append(
+                    rich.blockquote(rich.paragraph(block.text), credit=block.author)
+                )
+        elif block.type == nyan_summary.TABLE:
+            if layout:
+                blocks.append(rich.table(block.rows, header=block.header or None))
+            else:
+                blocks.append(
+                    rich.bullet_list(*[[rich.paragraph(" — ".join(row))] for row in block.rows])
+                )
         elif block.type == nyan_summary.HIDDEN:
             inside: list[Block] = []
             if block.text:
@@ -291,8 +306,11 @@ def summary_blocks(
                 # first one: with two or more sides there is no single sentence
                 # for it to introduce, and a bullet that starts with bold text
                 # reads as the heading of the list rather than as a member of it.
-                blocks.append(rich.paragraph(rich.bold(title)))
-                blocks.append(rich.bullet_list(*items))
+                if layout and block.fold:
+                    blocks.append(rich.details(title, rich.bullet_list(*items)))
+                else:
+                    blocks.append(rich.paragraph(rich.bold(title)))
+                    blocks.append(rich.bullet_list(*items))
             elif block.text:
                 # The old unattributed shape, still stored on earlier posts.
                 blocks.append(
@@ -463,6 +481,12 @@ class Renderer:
         # "Терміново": the post is read hours later, when "urgent" is no
         # longer true and "important" still is.
         self.breaking_label = str(presentation.get("breaking_label") or BREAKING_LABEL)
+        # The author lays out the body (tables, folded quotes, where the media
+        # goes) and, with `vision`, sees the pictures it decides on. A post
+        # laid out this way carries the old-template version of itself for
+        # Telegram to fall back on.
+        self.layout = bool(presentation.get("layout"))
+        self.vision = bool(presentation.get("vision")) and self.layout
         # Where each issue's channel lives, to link its earlier posts. An issue
         # with no address here gets no "Ще про це": a link has to lead to the
         # channel the reader is in, and on a host with one channel per rubric
@@ -489,8 +513,18 @@ class Renderer:
 
         if (post_format or self.post_format) == "legacy":
             return self.render_legacy_cluster(cluster, groups)
-        post = self.render_rich_cluster(cluster, groups)
-        return self.present(post, cluster, issue_name)
+        post = self.present(self.render_rich_cluster(cluster, groups), cluster, issue_name)
+        if self.layout:
+            # The same post in the old template, from the same answer: sent if
+            # Telegram rejects the layout, so no story is lost to it.
+            self.layout = False
+            try:
+                plain = self.present(self.render_rich_cluster(cluster, groups), cluster, issue_name)
+            finally:
+                self.layout = True
+            if plain.blocks != post.blocks:
+                post.fallback = plain.blocks
+        return post
 
     def group_docs(
         self, cluster: Cluster, issue_name: str
@@ -574,6 +608,18 @@ class Renderer:
             # bold one is the one that looks like a news headline.
             blocks.append(rich.heading(rich.bold(headline), size=self.headline_size))
         media = self.render_media(cluster)
+        media_place = "show"
+        folded_media: list[Block] = []
+        if self.layout and summary:
+            decided = (cluster.saved_analysis or {}).get("media") or {}
+            media_place = decided.get("place") or "show"
+            first = decided.get("first")
+            if isinstance(first, int) and first > 1:
+                media = self.render_media(cluster, lead=first - 1)
+            if media_place == "none":
+                media = []
+            elif media_place == "fold" and media:
+                folded_media, media = media, []
 
         if summary:
             # What the reader has not already read in the bold line above: a
@@ -588,6 +634,8 @@ class Renderer:
             blocks.extend(story[:at])
             blocks.extend(media)
             blocks.extend(story[at:])
+            if folded_media:
+                blocks.append(rich.details("Фото й відео", *folded_media))
         else:
             blocks.extend(media)
             body = self.split_headline(cluster)[1]
@@ -612,7 +660,12 @@ class Renderer:
         assert post.blocks is not None
         blocks = list(post.blocks)
         if self.show_levels:
-            blocks = self.render_level(blocks, cluster.level)
+            # The author saw the pictures: one it put in the body stays there
+            # even in a short post — the coin is the news of a coin.
+            shown = self.layout and (
+                ((cluster.saved_analysis or {}).get("media") or {}).get("place") == "show"
+            )
+            blocks = self.render_level(blocks, cluster.level, keep_media=shown)
             post.notify = cluster.level == "breaking"
 
         # The headline is a heading, or the first paragraph of a minor post.
@@ -654,7 +707,9 @@ class Renderer:
         post.blocks = blocks
         return post
 
-    def render_level(self, blocks: list[Block], level: str) -> list[Block]:
+    def render_level(
+        self, blocks: list[Block], level: str, keep_media: bool = False
+    ) -> list[Block]:
         """Breaking gets a label and a sound; minor is set short.
 
         The headline keeps its size at every level: size used to signal
@@ -687,7 +742,7 @@ class Renderer:
             if kind == "heading":
                 result.append(rich.paragraph(block["text"]))
             elif kind == "slideshow" or kind in rich.MEDIA_BLOCK_TYPES:
-                media.append(block)
+                (result if keep_media else media).append(block)
             elif is_attributed(block):
                 # What single channels add is a third level of detail; for a
                 # minor story the sources are one tap away anyway.
@@ -826,6 +881,7 @@ class Renderer:
             summary,
             section_size=self.section_size,
             sources=self.index_sources(groups) if groups else None,
+            layout=self.layout,
         )
 
     def index_sources(
@@ -903,7 +959,7 @@ class Renderer:
         return text[:split_at].strip(), text[split_at:].strip() or None
 
 
-    def render_media(self, cluster: Cluster) -> list[Block]:
+    def render_media(self, cluster: Cluster, lead: int = 0) -> list[Block]:
         """The cluster's attachments as blocks, in the order it chose them.
 
         Photos and videos are not ranked here. They were chosen together, as one
@@ -912,6 +968,9 @@ class Renderer:
         the video block was returned *instead of* the photos.
         """
         media = list(cluster.media)[: rich.MAX_MEDIA]
+        if 0 < lead < len(media):
+            # The author saw the pictures and named the one that is the news.
+            media.insert(0, media.pop(lead))
         if not media:
             return []
         if len(media) == 1:

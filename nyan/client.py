@@ -186,6 +186,17 @@ class TelegramClient:
                 quote=post.reply_quote,
                 notify=post.notify,
             )
+            if message is None and post.fallback:
+                # The author's layout was refused; the old template of the same
+                # answer goes instead, so the story is not lost to the layout.
+                logging.warning("Layout refused, sending the plain post to %s", issue_name)
+                message = self.send_rich_message(
+                    post.fallback,
+                    issue_name,
+                    reply_to=reply_to,
+                    quote=post.reply_quote,
+                    notify=post.notify,
+                )
             if message:
                 message.post_format = FORMAT_RICH
             return message
@@ -259,6 +270,9 @@ class TelegramClient:
             response.status_code,
             response.text,
         )
+        if post.is_rich and post.fallback:
+            logging.warning("Layout refused, editing %s to the plain post", message.message_id)
+            return self.update_post(message, RenderedPost(blocks=post.fallback))
         return False
 
     @staticmethod
