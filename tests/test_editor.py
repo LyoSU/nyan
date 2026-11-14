@@ -293,6 +293,18 @@ def test_an_editor_that_did_not_answer_holds_the_story(monkeypatch: Any) -> None
     assert list(daemon.held_now.values()) == ["editor"]
 
 
+def test_the_rules_name_the_editing_window_the_daemon_uses() -> None:
+    """The editor is told a post older than three hours can no longer be edited,
+    so an update to it costs a message; that has to stay the daemon's window."""
+    with open("configs/daemon_config.json") as r:
+        window = json.load(r)["max_time_updated"]
+    with open("nyan/prompts/editor.txt") as r:
+        rules = r.read()
+
+    assert window == 3 * 3600
+    assert "старший за 3 години" in rules
+
+
 def test_without_the_editor_nothing_changes() -> None:
     daemon = _daemon()
     daemon.config["editor"] = {"enabled": False}
