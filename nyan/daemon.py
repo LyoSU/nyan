@@ -1,7 +1,7 @@
 import os
 import json
 import logging
-from collections import Counter
+from collections import Counter, defaultdict
 from time import sleep
 from typing import Any, cast
 
@@ -17,7 +17,7 @@ from nyan.clusterer import Clusterer
 from nyan.channels import Channels
 from nyan.logs import log_new_iteration
 from nyan.publish import notify_published
-from nyan.ranker import Ranker, independent_sources
+from nyan.ranker import FALLBACK_ISSUE, Ranker, independent_sources
 from nyan.jev import JevRelationShadow
 from nyan.mongo import get_rank_shadow_collection, get_relation_shadow_collection
 from nyan.rank_shadow import SEEN_TTL, RankShadow, log_records, signals
@@ -220,10 +220,7 @@ class Daemon:
 
         ranked_clusters: dict[str, list[Cluster]]
         if self.editor_config:
-            ranked_clusters = self.ranker.candidates(
-                new_clusters,
-                float(self.editor_config.get("min_sources", DEFAULT_EDITOR_MIN_SOURCES)),
-            )
+            ranked_clusters = self.editor_candidates(new_clusters)
         else:
             ranked_clusters = self.ranker(new_clusters)
             self.shadow_rank(new_clusters, ranked_clusters, mongo_config_path)
@@ -421,6 +418,32 @@ class Daemon:
                 get_rank_shadow_collection(mongo_config_path).insert_many(records)
         except Exception:
             logging.exception("Rank shadow failed")
+
+    def editor_candidates(self, new_clusters: list[Cluster]) -> dict[str, list[Cluster]]:
+        """The stories to put to the editor, each under an issue the client can post to.
+
+        The ranker routes a story to `war`, `politics` or `tech` when those
+        channels lead its sources, and a deployment with only a `main` channel
+        then drops it unseen: on 11 November the strike on the market in
+        Chornomorsk, seventeen newsrooms ten minutes in, was routed to `war`
+        and never reached the question. The editor is the one who decides
+        whether a story belongs in the feed, so it is shown under `main`.
+        """
+        assert self.editor_config is not None
+        ranked = self.ranker.candidates(
+            new_clusters,
+            float(self.editor_config.get("min_sources", DEFAULT_EDITOR_MIN_SOURCES)),
+        )
+        result: dict[str, list[Cluster]] = defaultdict(list)
+        placed: set[tuple[str, int]] = set()
+        for issue, clusters in ranked.items():
+            target = issue if self.client.has_issue(issue) else FALLBACK_ISSUE
+            for cluster in clusters:
+                if (target, id(cluster)) in placed:
+                    continue
+                placed.add((target, id(cluster)))
+                result[target].append(cluster)
+        return dict(result)
 
     def drop_unpostable_issues(
         self, ranked_clusters: dict[str, list[Cluster]]

@@ -293,6 +293,27 @@ def test_an_editor_that_did_not_answer_holds_the_story(monkeypatch: Any) -> None
     assert list(daemon.held_now.values()) == ["editor"]
 
 
+def test_a_story_routed_to_an_issue_with_no_channel_still_reaches_the_editor() -> None:
+    """The Chornomorsk market strike, seventeen newsrooms in, was routed to `war`
+    on a host that posts only to `main`, and was dropped before anyone was asked."""
+    daemon = _daemon()
+    strike = _story(["РФ вдарила по ринку у центрі Чорноморська, одна людина загинула"], [1.0, 0.0])
+    both = _story(["Сили оборони збили 144 цілі"], [0.0, 1.0])
+
+    class _Ranker:
+        def candidates(self, clusters: Any, min_sources: float) -> dict[str, list[Cluster]]:
+            return {"war": [strike, both], "main": [both]}
+
+    class _MainOnly(_Client):
+        def has_issue(self, issue_name: str) -> bool:
+            return issue_name == "main"
+
+    daemon.ranker = _Ranker()  # type: ignore[assignment]
+    daemon.client = _MainOnly()  # type: ignore[assignment]
+
+    assert daemon.editor_candidates([]) == {"main": [strike, both]}
+
+
 def test_without_the_editor_nothing_changes() -> None:
     daemon = _daemon()
     daemon.config["editor"] = {"enabled": False}
