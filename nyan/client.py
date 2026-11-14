@@ -179,7 +179,13 @@ class TelegramClient:
         """Send a rendered post using whichever API method its format needs."""
         if post.is_rich:
             assert post.blocks is not None
-            message = self.send_rich_message(post.blocks, issue_name, reply_to=reply_to)
+            message = self.send_rich_message(
+                post.blocks,
+                issue_name,
+                reply_to=reply_to,
+                quote=post.reply_quote,
+                notify=post.notify,
+            )
             if message:
                 message.post_format = FORMAT_RICH
             return message
@@ -445,17 +451,36 @@ class TelegramClient:
         blocks: Sequence[Block],
         issue_name: str,
         reply_to: int | None = None,
+        quote: Any = None,
+        notify: bool = False,
     ) -> MessageId | None:
         if issue_name not in self.issues:
             logging.warning(ISSUE_WARNING, issue_name)
             return None
         issue = self.issues[issue_name]
+        original = list(blocks)
         blocks, response = self._deliver_rich(
-            blocks,
+            original,
             lambda blocks, files: self._send_rich(
-                blocks, issue=issue, reply_to=reply_to, files=files
+                blocks,
+                issue=issue,
+                reply_to=reply_to,
+                files=files,
+                quote=quote if reply_to else None,
+                notify=notify,
             ),
         )
+        if response.status_code != 200 and reply_to and quote and "quote" in response.text.lower():
+            # The parent's headline was rewritten after this reply's text was
+            # set, so the quote no longer matches it. The reply still belongs
+            # under the parent; it goes without the quote.
+            logging.warning("Quote not found in the parent, replying without it")
+            blocks, response = self._deliver_rich(
+                original,
+                lambda blocks, files: self._send_rich(
+                    blocks, issue=issue, reply_to=reply_to, files=files, notify=notify
+                ),
+            )
 
         if response.status_code != 200:
             logging.error(
@@ -649,19 +674,22 @@ class TelegramClient:
         issue: IssueConfig,
         reply_to: int | None = None,
         files: UploadedFiles | None = None,
+        quote: Any = None,
+        notify: bool = False,
     ) -> Response:
         url_template = self.host + "/bot{}/sendRichMessage"
         params: dict[str, Any] = {
             "chat_id": issue.channel_id,
             "rich_message": json.dumps({"blocks": list(blocks)}, ensure_ascii=False),
-            "disable_notification": True,
+            "disable_notification": not notify,
         }
         if reply_to:
             # sendRichMessage takes a ReplyParameters object rather than the
             # flat reply_to_message_id the older send methods accept.
-            params["reply_parameters"] = json.dumps(
-                {"message_id": reply_to, "allow_sending_without_reply": True}
-            )
+            reply: dict[str, Any] = {"message_id": reply_to, "allow_sending_without_reply": True}
+            if quote:
+                reply["quote_rich_texts"] = quote
+            params["reply_parameters"] = json.dumps(reply, ensure_ascii=False)
         return self._post(url_template.format(issue.bot_token), params, files)
 
     def _edit_rich(

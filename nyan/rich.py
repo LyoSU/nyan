@@ -120,6 +120,37 @@ def blockquote(*blocks: Block, credit: RichText | None = None) -> Block:
     return block
 
 
+def expandable_blockquote(text: RichText, credit: RichText | None = None) -> Block:
+    """A quotation shown collapsed to a few lines, expanded on tap (Bot API 10.3).
+
+    Unlike `blockquote` it holds text rather than blocks."""
+    block: Block = {"type": "expandable_blockquote", "text": text}
+    if credit:
+        block["credit"] = credit
+    return block
+
+
+def table(
+    rows: Sequence[Sequence[RichText]],
+    header: Sequence[RichText] | None = None,
+    caption: RichText | None = None,
+) -> Block:
+    """A compact striped table; cells are left-aligned and top-aligned."""
+
+    def cell(text: RichText, is_header: bool = False) -> dict[str, Any]:
+        result: dict[str, Any] = {"text": text, "align": "left", "valign": "top"}
+        if is_header:
+            result["is_header"] = True
+        return result
+
+    cells = [[cell(text, True) for text in header]] if header else []
+    cells.extend([cell(text) for text in row] for row in rows)
+    block: Block = {"type": "table", "cells": cells, "is_compact": True, "is_striped": True}
+    if caption:
+        block["caption"] = caption
+    return block
+
+
 def details(summary: RichText, *blocks: Block, is_open: bool = False) -> Block:
     """A collapsible block. `summary` stays visible, so make it informative."""
     block: Block = {"type": "details", "summary": summary, "blocks": list(blocks)}
@@ -261,6 +292,13 @@ class RenderedPost:
     blocks: list[Block] | None = None
     text: str | None = None
     media: Sequence[MediaItem] = field(default_factory=tuple)
+    # The part of the parent post this one continues, quoted in the reply
+    # (ReplyParameters.quote_rich_texts). Rich posts only, and only where the
+    # renderer was asked to quote.
+    reply_quote: RichText | None = None
+    # Whether the post rings: the channel posts silently, and only what the
+    # editor called breaking is worth a sound.
+    notify: bool = False
 
     @property
     def is_rich(self) -> bool:

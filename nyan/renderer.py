@@ -302,6 +302,34 @@ def pluralize_sources(count: int) -> str:
     return "джерел"
 
 
+# A quoted channel's text longer than this is collapsed in a minor post.
+MINOR_QUOTE_FROM = 200
+
+
+def is_byline(block: Block) -> bool:
+    """The "— Channel" line `render_credit` puts under a quoted text."""
+    text = block.get("text")
+    if block.get("type") != "paragraph" or not isinstance(text, dict):
+        return False
+    inner = text.get("text")
+    return (
+        text.get("type") == "italic"
+        and isinstance(inner, list)
+        and bool(inner)
+        and inner[0] == CREDIT_DASH
+    )
+
+
+def is_sources_block(block: Block) -> bool:
+    """The collapsed "12 джерел" list, which closes every rich post."""
+    summary = block.get("summary")
+    return (
+        block.get("type") == "details"
+        and isinstance(summary, str)
+        and summary.split(" ")[0].isdigit()
+    )
+
+
 class Renderer:
     def __init__(self, config_path: str, channels: Channels) -> None:
         assert os.path.exists(config_path)
@@ -335,6 +363,23 @@ class Renderer:
         )
         self.section_size = clamp_heading_size(self.headline_size + 1)
 
+        # How the editor's decisions show in the post. Every part is off unless
+        # the config turns it on, and with all of them off a post renders
+        # exactly as it did before the editor.
+        presentation = config.get("presentation") or {}
+        self.show_levels = bool(presentation.get("levels"))
+        self.show_updates = bool(presentation.get("update_line"))
+        self.show_storyline = bool(presentation.get("more_on_this"))
+        self.quote_parent = bool(presentation.get("quote_parent"))
+        # Where each issue's channel lives, to link its earlier posts. An issue
+        # with no address here gets no "Ще про це": a link has to lead to the
+        # channel the reader is in, and on a host with one channel per rubric
+        # the main channel's address would lead elsewhere.
+        self.channel_urls: dict[str, str] = {
+            issue: url.rstrip("/")
+            for issue, url in (presentation.get("channel_urls") or {}).items()
+        }
+
     def render_cluster(
         self, cluster: Cluster, issue_name: str, post_format: str | None = None
     ) -> RenderedPost | None:
@@ -352,7 +397,8 @@ class Renderer:
 
         if (post_format or self.post_format) == "legacy":
             return self.render_legacy_cluster(cluster, groups)
-        return self.render_rich_cluster(cluster, groups)
+        post = self.render_rich_cluster(cluster, groups)
+        return self.present(post, cluster, issue_name)
 
     def group_docs(
         self, cluster: Cluster, issue_name: str
@@ -462,6 +508,156 @@ class Renderer:
         blocks.append(self.render_footer(cluster))
 
         return RenderedPost(blocks=blocks)
+
+    # ------------------------------------------------------------ presentation
+
+    def present(self, post: RenderedPost, cluster: Cluster, issue_name: str) -> RenderedPost:
+        """The editor's decisions on top of the rendered post, as configured.
+
+        Applied to the finished block list rather than threaded through the
+        rendering, so the post with every option off is the post as it was.
+        """
+        assert post.blocks is not None
+        blocks = list(post.blocks)
+        if self.show_levels:
+            blocks = self.render_level(blocks, cluster.level)
+            post.notify = cluster.level == "breaking"
+
+        # The headline is a heading, or the first paragraph of a minor post.
+        headline_at = next(
+            (i for i, block in enumerate(blocks) if block.get("type") == "heading"),
+            None,
+        )
+        if headline_at is None and self.show_levels and cluster.level == "minor":
+            headline_at = 0
+        if self.show_updates and cluster.updates:
+            at = 0 if headline_at is None else headline_at + 1
+            blocks.insert(at, self.render_update_line(cluster.updates[-1]))
+
+        before_sources: list[Block] = []
+        if self.show_updates and len(cluster.updates) > 1:
+            before_sources.append(self.render_update_table(cluster.updates))
+        if self.show_storyline and cluster.storyline_posts:
+            before_sources.extend(
+                self.render_more_on_this(cluster.storyline_posts, issue_name)
+            )
+        sources_at = next(
+            (i for i, block in enumerate(blocks) if is_sources_block(block)), len(blocks)
+        )
+        blocks[sources_at:sources_at] = before_sources
+
+        if self.quote_parent and cluster.reply_to_clid and cluster.reply_to_headline:
+            # Quoted exactly as the parent shows it — bold inside its heading —
+            # or Telegram will not find the quote. The client sends the reply
+            # without it if the parent's headline has since been rewritten.
+            post.reply_quote = [rich.bold(cluster.reply_to_headline)]
+
+        post.blocks = blocks
+        return post
+
+    def render_level(self, blocks: list[Block], level: str) -> list[Block]:
+        """Breaking gets a label and a sound; minor is set short.
+
+        The headline keeps its size at every level: size used to signal
+        "breaking" and read as a glitch, because the flag behind it fired on
+        most stories. The label says it in words, and only the editor sets it.
+        A minor story keeps its first paragraph and folds the rest away, and
+        a quoted channel's text goes into a collapsed quotation under its
+        name, so the post takes two or three lines of the feed.
+        """
+        if level == "breaking":
+            return [rich.paragraph(rich.marked(rich.bold("⚡ Терміново"))), *blocks]
+        if level != "minor":
+            return blocks
+        result: list[Block] = []
+        rest: list[Block] = []
+        seen_paragraph = False
+        for block in blocks:
+            kind = block.get("type")
+            if kind == "heading":
+                result.append(rich.paragraph(block["text"]))
+            elif kind == "slideshow":
+                result.append(block["blocks"][0])
+            elif kind in rich.MEDIA_BLOCK_TYPES:
+                result.append(block)
+            elif kind == "paragraph" and (not seen_paragraph or is_byline(block)):
+                seen_paragraph = True
+                result.append(block)
+            elif kind in ("details", "divider", "footer"):
+                if rest:
+                    result.append(rich.details("Докладніше", *rest))
+                    rest = []
+                result.append(block)
+            else:
+                rest.append(block)
+        if rest:
+            result.append(rich.details("Докладніше", *rest))
+        return self.quote_minor_body(result)
+
+    @staticmethod
+    def quote_minor_body(blocks: list[Block]) -> list[Block]:
+        """A one-channel post's text, then its byline, as a collapsed quotation."""
+        for i in range(len(blocks) - 1):
+            body, credit = blocks[i], blocks[i + 1]
+            if (
+                body.get("type") == "paragraph"
+                and is_byline(credit)
+                and len(str(body.get("text"))) > MINOR_QUOTE_FROM
+            ):
+                byline = credit["text"]["text"]
+                if isinstance(byline, list) and byline and byline[0] == CREDIT_DASH:
+                    byline = byline[-1]
+                return [
+                    *blocks[:i],
+                    rich.expandable_blockquote(body["text"], credit=byline),
+                    *blocks[i + 2 :],
+                ]
+        return blocks
+
+    def render_update_line(self, update: Mapping[str, Any]) -> Block:
+        """"оновлено 14:20: загиблих троє" — the edit, said out loud."""
+        moment = int(update["time"])
+        clock = ts_to_dt(moment, self.tz_name).strftime("%H:%M")
+        return rich.paragraph(
+            rich.italic(["оновлено ", rich.date_time(clock, moment), f": {update['text']}"])
+        )
+
+    def render_update_table(self, updates: Sequence[Mapping[str, Any]]) -> Block:
+        """Every update to the event in one compact table, oldest first."""
+        rows = []
+        for update in updates:
+            moment = int(update["time"])
+            clock = ts_to_dt(moment, self.tz_name).strftime("%H:%M")
+            rows.append([rich.date_time(clock, moment), str(update["text"])])
+        return rich.table(rows, header=["Коли", "Що змінилося"], caption="Оновлення")
+
+    def render_more_on_this(
+        self, posts: Sequence[Mapping[str, Any]], issue_name: str
+    ) -> list[Block]:
+        """Links to the channel's earlier posts of the same storyline."""
+        base = self.channel_urls.get(issue_name)
+        if not base:
+            return []
+        items = []
+        for post in posts:
+            moment = int(post["time"] or 0)
+            when = ts_to_dt(moment, self.tz_name).strftime("%d.%m %H:%M")
+            items.append(
+                [
+                    rich.paragraph(
+                        rich.join(
+                            [
+                                rich.date_time(when, moment, "dt"),
+                                rich.link(str(post["headline"]), f"{base}/{post['message_id']}"),
+                            ],
+                            " — ",
+                        )
+                    )
+                ]
+            )
+        if not items:
+            return []
+        return [rich.paragraph(rich.bold("Ще про це")), rich.bullet_list(*items)]
 
     def render_summary(
         self,
