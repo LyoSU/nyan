@@ -684,7 +684,7 @@ class Cluster:
                     "headline": saved.get("headline"),
                     "generation": saved.get("generation"),
                 }
-                history = list(saved.get("revisions") or []) + [previous]
+                history = [*(saved.get("revisions") or []), previous]
                 analysis["revisions"] = history[-MAX_REVISIONS:]
                 analysis["updated_time"] = get_current_ts()
         except Exception:
