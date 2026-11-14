@@ -780,7 +780,7 @@ class Cluster:
                     analysis["summary"] = summary.asdict()
                 if laid_out:
                     decision = media_brief.parse_media(
-                        parsed_content.get("media"), len(attachments)
+                        parsed_content.get("media"), len(attachments), seen=len(stills)
                     )
                     if decision is not None:
                         analysis["media"] = decision

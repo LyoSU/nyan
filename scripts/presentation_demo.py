@@ -10,6 +10,7 @@ per post in `CASES` (where each one came from is said there).
 
 import argparse
 import json
+import os
 import sys
 from typing import Any
 
@@ -25,6 +26,7 @@ PRESENTATION = {
     "more_on_this": True,
     "quote_parent": True,
     "short_legend": True,
+    "layout": True,
     "channel_urls": {"main": PUBLISH_CHANNEL_URL},
 }
 
@@ -35,13 +37,14 @@ CASES: list[dict[str, Any]] = [
         "level": "breaking",
         "updates": [{"time_of": 66332, "text": "Загиблих стало троє, постраждалих — 11"}],
         "rewritten_by": 66332,
+        "author_file": "author_update_66325.json",
         "note": "Удар по ринку, одна загибла. О 14:38 прод випустив окремий пост-відповідь "
         "66332 «кількість загиблих зросла до трьох»; тут це те саме повідомлення 66325, "
-        "відредаговане: update переписує пост цілком, тож заголовок і текст — уже з "
-        "переписаної версії (взято з реального 66332), а рядок «оновлено» лишається. Текст "
-        "рядка — поле change з реальної відповіді редактора (ізольований виклик). Рівень "
-        "breaking — за правилом промпту (загибель людей); редактор цю історію в програванні "
-        "не бачив.",
+        "відредаговане: update переписує пост цілком. Заголовок і текст написав автор "
+        "(реальний виклик із новим правилом про заголовок оновлення і з найсвіжішими "
+        "постами кожного каналу). Рядок «оновлено» — поле change з реальної відповіді "
+        "редактора (ізольований виклик). Рівень breaking («Важливо») — за правилом промпту "
+        "(загибель людей); редактор цю історію в програванні не бачив.",
     },
     {
         "clid": 66332,
@@ -54,15 +57,17 @@ CASES: list[dict[str, Any]] = [
         "clid": 66361,
         "level": "normal",
         "updates": [
-            {"time_of": 66362, "text": "Постраждалих двоє"},
-            {"time_of": 66365, "text": "Загинула 44-річна жінка"},
+            {"time_of": 66362, "text": "постраждала ще одна людина"},
+            {"time_of": 66365, "text": "одна з постраждалих померла"},
         ],
         "rewritten_by": 66365,
+        "author_file": "author_update_66361.json",
         "note": "Два оновлення одного поста. 12.11 прод випустив три пости за 16 хвилин "
         "(09:06 «постраждала людина», 09:15 «постраждалих двоє», 09:22 «загинула жінка»); "
-        "тут це один пост, переписаний до останньої версії (заголовок і текст — з реального "
-        "66365), рядок «оновлено» про останню зміну й таблиця історії перед джерелами. "
-        "Тексти рядків оновлення написано за заголовками прод-постів, не редактором.",
+        "тут це один пост. Заголовок і текст написав автор двома послідовними переписуваннями "
+        "(реальні виклики). Рядок «оновлено» про останню зміну, історія згорнута в "
+        "«Оновлення: 2» і починається з початкового заголовка. Тексти рядків оновлення "
+        "написав я в стилі нового правила для change (різниця з постом), не редактор.",
     },
     {
         "clid": 66290,
@@ -106,9 +111,84 @@ CASES: list[dict[str, Any]] = [
         "clid": 66488,
         "level": "minor",
         "also_without_media": True,
-        "note": "Minor зі свіжим фото (14.11): фото не в тілі, а першим у «Докладніше» "
-        "(details приймає будь-які InputRichBlock, медіа теж). Нижче — той самий пост "
-        "без фото взагалі, для порівняння. Рівень ілюстративний.",
+        "note": "Minor зі свіжим фото (14.11) без верстки автора: фото не в тілі, а першим у "
+        "«Докладніше» (details приймає будь-які InputRichBlock, медіа теж). Нижче — той "
+        "самий пост без фото взагалі, для порівняння. Рівень ілюстративний. (Автор у "
+        "своїй верстці для цієї історії сказав place=show — тоді фото лишилося б у тілі.)",
+    },
+    {
+        "clid": 66470,
+        "level": "breaking",
+        "author_layout": True,
+        "note": "ВЕРСТКА АВТОРА, важливий зі свіжим фото в тілі. Автор бачив 3 фото (low) і "
+        "поставив у тіло кадр із Зеленським. Рівень breaking — мій вибір для зразка (рішення "
+        "держави, що стосується багатьох: обмін 1200 на 1200). Зауваження: кластер у проді "
+        "змішав кілька новин (Starshield, FREYJA, Данія), і автор склав їх у список — це "
+        "вада кластеризації, не верстки.",
+    },
+    {
+        "clid": 66485,
+        "level": "normal",
+        "author_layout": True,
+        "note": "ВЕРСТКА АВТОРА, normal зі свіжим фото в тілі. Автор побачив, що перше фото — "
+        "портрет із текстом поверх, і поставив першим архівне фото з колегами (first=2). "
+        "Згоден.",
+    },
+    {
+        "clid": 66473,
+        "level": "normal",
+        "author_layout": True,
+        "note": "ВЕРСТКА АВТОРА: пряма мова. Автор узяв quote зі словами Зеленського — "
+        "заради них новина. Згоден.",
+    },
+    {
+        "clid": 66463,
+        "level": "normal",
+        "author_layout": True,
+        "note": "ВЕРСТКА АВТОРА: подія з відео. Автор бачив прев'ю трьох відео з підписом "
+        "«відео, 0:58» тощо, третє правильно назвав кадром телеефіру (kind=text). Список із "
+        "трьох окремих фактів доречний.",
+    },
+    {
+        "clid": 66447,
+        "level": "normal",
+        "author_layout": True,
+        "note": "ВЕРСТКА АВТОРА: графік відключень. Абзац і список із двох пунктів (населення / "
+        "промисловість); медіа автор не взяв (place=none). Згоден: картинка-заставка "
+        "графіка нічого не дає без самих черг.",
+    },
+    {
+        "clid": 66462,
+        "level": "normal",
+        "author_layout": True,
+        "note": "ВЕРСТКА АВТОРА: ціни на пальне. Автор побачив, що фото — скриншоти таблиць "
+        "цін, і згорнув їх під «Фото й відео». Тут я з автором НЕ згоден у заголовку: "
+        "«Бензин подешевшав на 3 гривні» загальніше за факт (подешевшав лише А-95 Energy в "
+        "«Укрнафті»); у проді заголовок точніший. Таблицю він не взяв — для одного числа "
+        "й не треба.",
+    },
+    {
+        "clid": 66486,
+        "level": "normal",
+        "author_layout": True,
+        "note": "ВЕРСТКА АВТОРА: удар по Харкову, два відео (прев'ю + «відео, 0:05»). Абзац і "
+        "attributed. Згоден.",
+    },
+    {
+        "clid": 66237,
+        "level": "normal",
+        "author_layout": True,
+        "note": "ВЕРСТКА АВТОРА без зображень (фото тижневої давності не завантажилися): "
+        "розслідування. Один абзац із найпомітнішим (басейн, Rolls-Royce, крокодил) і "
+        "attributed. Для розслідування коротко, але не переверстано.",
+    },
+    {
+        "clid": 66115,
+        "level": "normal",
+        "author_layout": True,
+        "note": "ВЕРСТКА АВТОРА без зображень: числа по складах. Абзац + список із двох "
+        "наслідків + attributed; таблицю не взяв (чисел для порівняння по рядках немає). "
+        "Згоден.",
     },
     {
         "clid": 66421,
@@ -246,6 +326,14 @@ def main() -> None:
         json.dump(config, w, ensure_ascii=False)
     new = Renderer(new_config, channels)
 
+    folder = os.path.dirname(os.path.abspath(args.out))
+    layouts: dict[int, dict[str, Any]] = {}
+    if os.path.exists(f"{folder}/layout_answers.jsonl"):
+        with open(f"{folder}/layout_answers.jsonl") as r:
+            for line in r:
+                answer = json.loads(line)
+                if answer["analysis"].get("headline"):
+                    layouts[answer["clid"]] = answer["analysis"]
     # Media links of a few days ago no longer load; such posts go without media.
     newest = max(post.create_time or 0 for post in posts.values())
     out = []
@@ -263,6 +351,12 @@ def main() -> None:
             for doc in later.docs:
                 post.add(doc)
             post.saved_analysis = dict(later.saved_analysis or {})
+            if "author_file" in case:
+                with open(f"{folder}/{case['author_file']}") as r:
+                    post.saved_analysis = json.load(r)
+        if case.get("author_layout"):
+            # The author's own layout of this story, from a real call.
+            post.saved_analysis = dict(layouts[post.clid])
         if post.reply_to_clid and post.reply_to_clid in posts:
             parent = posts[post.reply_to_clid]
             post.reply_to_headline = parent.stored_headline or ""
@@ -319,6 +413,11 @@ def main() -> None:
             },
             "media": "kept" if fresh else "removed: links of a few days ago no longer load",
         }
+        if after.fallback and not case.get("dropped"):
+            # What goes out instead if Telegram refuses the author's layout.
+            entry["new_fallback"] = {
+                "rich_message": {"blocks": after.fallback if fresh else strip_media(after.fallback)}
+            }
         if len(variants) > 1:
             entry["new_without_media"] = {
                 "rich_message": {"blocks": variants[1][1]},

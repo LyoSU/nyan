@@ -207,6 +207,14 @@ def test_a_media_decision_out_of_range_is_no_lead() -> None:
     assert media_brief.parse_media({"place": "show"}, 0) is None
 
 
+def test_notes_on_pictures_the_author_never_saw_are_not_kept() -> None:
+    """Asked without pictures, the model described them from the captions anyway."""
+    guessed = {"place": "show", "notes": [{"what": "Складські приміщення", "kind": "event"}]}
+
+    assert media_brief.parse_media(guessed, 3, seen=0) == {"place": "show"}
+    assert len(media_brief.parse_media(guessed, 3, seen=1)["notes"]) == 1
+
+
 # The author's call with the flag on.
 
 

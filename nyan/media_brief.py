@@ -124,12 +124,14 @@ def with_stills(message: dict[str, Any], data_urls: list[str]) -> dict[str, Any]
     return {**message, "content": parts}
 
 
-def parse_media(raw: Any, count: int) -> dict[str, Any] | None:
+def parse_media(raw: Any, count: int, seen: int = MAX_PICTURES) -> dict[str, Any] | None:
     """The author's decision on the media, or None when it gave none usable.
 
     `place`: "show" in the body, "fold" under "Докладніше", "none" not at all.
     `first`: which attachment leads (1-based). `notes`: what each picture
-    shows, kept for the log and for a caption later.
+    shows, kept for the log and for a caption later — only for the pictures
+    the author was actually shown: asked without them, it described the
+    pictures anyway from the captions ("Складські приміщення").
     """
     if not isinstance(raw, dict) or count == 0:
         return None
@@ -148,7 +150,9 @@ def parse_media(raw: Any, count: int) -> dict[str, Any] | None:
                 "kind": str(note.get("kind") or ""),
                 "sensitive": note.get("sensitive") is True,
             }
-            for note in notes[:MAX_PICTURES]
+            for note in notes[: min(seen, MAX_PICTURES)]
             if isinstance(note, dict)
         ]
+        if not decision["notes"]:
+            del decision["notes"]
     return decision
