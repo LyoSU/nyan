@@ -4,5 +4,17 @@
     "sources_open": false,
     "headline_size": 3,
     "tz_name": "Europe/Kyiv",
-    "site_url": "https://news.yuri.ly"
+    "site_url": "https://news.yuri.ly",
+    "presentation": {
+        "levels": true,
+        "update_line": true,
+        "more_on_this": true,
+        "quote_parent": true,
+        "short_legend": true,
+        "layout": true,
+        "vision": true,
+        "channel_urls": {
+            "main": "https://t.me/UAliveNews"
+        }
+    }
 }

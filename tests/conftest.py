@@ -1,3 +1,4 @@
+import tempfile
 import json
 import os
 from pathlib import Path
@@ -102,7 +103,20 @@ def ranker_config_path() -> str:
 
 
 def get_renderer_config_path() -> str:
-    return "configs/renderer_config.json"
+    """The shipped renderer config with the presentation flags taken out.
+
+    Production turns the presentation on in `configs/renderer_config.json`.
+    The tests that use this path describe the post as it is without those
+    flags, and the tests of the presentation set the flags they need
+    themselves, so neither should change when the shipped config does.
+    """
+    with open("configs/renderer_config.json") as r:
+        config = json.load(r)
+    config.pop("presentation", None)
+    handle, path = tempfile.mkstemp(prefix="renderer_config_", suffix=".json")
+    with os.fdopen(handle, "w") as w:
+        json.dump(config, w)
+    return path
 
 
 @pytest.fixture
