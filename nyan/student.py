@@ -4,9 +4,9 @@ A multilingual-e5-base fine-tuned on 40k posts labelled by an LLM teacher,
 with a head per question — category, topic, scope, region, role, significance
 and three yes/no scores. On the blind 500 (`scripts/eval_jev.py`) its category
 is right on 94-95% of posts against 72% for the joblib head it replaces, and it
-runs on the CPU with no API behind it. The training and export scripts live
-outside the repository, in `data/distill/scripts`; what ships is the model
-directory they write: `model_emb8.onnx`, the tokenizer and `meta.json`, which
+runs on the CPU with no API behind it. The training and export scripts are in
+`scripts/distill`; their data and the models stay out of git, in `data/distill`.
+What ships is the model directory they write: `model_emb8.onnx`, the tokenizer and `meta.json`, which
 names the labels of every head so this file does not have to.
 
 Its encoder is its own. The shared `embedding` stays with `Embedder`, whose

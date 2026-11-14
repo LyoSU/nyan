@@ -15,7 +15,9 @@ packages = ["nyan", "crawler", "crawler.spiders"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-exclude = [".venv", "data", "models"]
+# scripts/distill is how the student model was trained: research scripts kept
+# as they ran, dense on purpose, and outside what the application imports.
+exclude = [".venv", "data", "models", "scripts/distill"]
 
 [tool.ruff.lint]
 # The rule families that used to be five separate flake8 plugins:

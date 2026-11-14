@@ -1,0 +1,94 @@
+{
+  "_note": "Sections anchored to IPTC Media Topics and Suspilne's desks, plus the owner's rulings on contested posts (2026-09-22): the subject decides, not the speaker; business adapting to the war is economy; peace talks stay in politics as their own tag.",
+  "category": {
+    "criteria": {
+      "war": {
+        "what": "armed conflict and its direct physical results (IPTC conflict, war and peace): an attack or strike on a specific place and its consequences — casualties, destruction, fires, fallen debris even without damage; fighting and the front line; the armed forces, weapons and military technology, foreign included; mobilization and military service; prisoners of war and exchanges; occupation and war crimes; sabotage, enemy agents and collaborators; military exercises and threats by armies",
+        "not_for": "businesses or public services adapting to the war (a company closing during alerts) — economy or other; peace talks — politics; signals without an object, daily counters, attack summaries and unit videos of ordinary targets — not_news",
+        "examples": [
+          "Унаслідок удару по Харкову загинули двоє людей",
+          "Уламки дрона впали біля житлового будинку",
+          "Турецькі інженери навчили Bayraktar TB2 придушувати радари",
+          "У Білорусі розпочалися військові навчання біля кордонів"
+        ]
+      },
+      "politics": {
+        "what": "power and government as the subject (IPTC politics and government): elections and parties, parliament and government as institutions, appointments and dismissals, diplomacy, peace talks, sanctions, corruption of officials and anti-corruption bodies, what authorities spend on themselves, other countries' domestic politics including Russia's",
+        "not_for": "the subject decides, not the speaker: a president or MP talking about the deficit, taxes, prices or energy is economy; a law whose subject is taxes or payments is economy",
+        "examples": [
+          "Рада призначила нового міністра оборони",
+          "На облаштування бункера для Верховної Ради заклали 263 млн грн",
+          "Російські еліти вивозять родичів за кордон, побоюючись мобілізації"
+        ]
+      },
+      "economy": {
+        "what": "money and business (IPTC economy, business and finance; labour): the budget and deficit, taxes and duties and laws on them, prices and tariffs, the hryvnia and banks, a company's decisions in any industry (openings, layoffs, closures, working hours) film and media included, markets and sales, the energy sector and power outages, jobs and wages, social payments and humanitarian cash-aid programmes",
+        "not_for": "a new gadget or app, and what a technology company builds, launches or opens (a model, a service, a network, a lab) — tech; AI replacing or assisting people at work — tech; a film's or album's release — entertainment",
+        "examples": [
+          "Рада підтримала ПДВ на посилки з AliExpress і Temu",
+          "«Нова пошта» не працюватиме під час повітряної тривоги",
+          "AMO Pictures скоротила зйомки в Україні",
+          "Acted виплачуватиме по 10 800 гривень на людину"
+        ]
+      },
+      "incident": {
+        "what": "sudden harm not caused by the war (IPTC disaster, accident and emergency incident; crime, law and justice): crime and police cases, fraud, courts over criminals, a suspect fleeing justice, road accidents, fires, industrial accidents, storms and disasters with damage, poisonings",
+        "not_for": "consequences of Russian strikes — war; police or sirens with no known event — not_news; corruption of officials — politics",
+        "examples": [
+          "На трасі зіткнулися два авто",
+          "У Львові затримали шахраїв",
+          "Злива повалила в Одесі 24 дерева"
+        ]
+      },
+      "other": {
+        "what": "society (IPTC society, education, health, religion, environment, human interest): transport and public services for residents, education, the healthcare system, religion, language and identity, social issues, human-interest stories, environment",
+        "not_for": "texts without an event",
+        "examples": [
+          "Укрзалізниця призначила додаткові поїзди",
+          "МОН змінює правила вступу"
+        ]
+      },
+      "tech": {
+        "what": "civilian technology: AI, internet services, telecom, cyber, gadgets and consumer electronics, civilian space and rocket launches; what technology companies build, launch, research or open (a new model, service, mobile network, research lab), AI at work and in public life, tech leaders on where AI is going",
+        "not_for": "military technology — war; a tech company's layoffs, earnings or prices — economy",
+        "examples": [
+          "OpenAI випустила нову модель",
+          "Google відкрила дослідницький центр",
+          "Оператор запускає мобільний зв'язок через супутник"
+        ]
+      },
+      "science": {
+        "what": "research and discoveries, medical research",
+        "examples": [
+          "Вчені знайшли новий вид"
+        ]
+      },
+      "sports": {
+        "what": "matches, results, line-ups, transfers, athletes' and coaches' sporting careers; interviews with athletes and coaches about their sport",
+        "not_for": "an athlete's private scandal — entertainment",
+        "examples": [
+          "Названо стартовий склад Шахтаря на матч Кубка"
+        ]
+      },
+      "entertainment": {
+        "what": "culture and lifestyle (IPTC arts, culture, entertainment and media; lifestyle): film, TV, music, games, celebrities and their scandals athletes included, theatre, books, exhibitions, fashion, trends and slang; release dates and premieres",
+        "examples": [
+          "Вийшов трейлер нового фільму",
+          "Школярі масово підхопили нову фразу з треку"
+        ]
+      },
+      "not_news": {
+        "what": "not a story: ads and promo, including a company's event or contest dressed as news; fundraising; stream and event announcements; a promotional or career-advice interview, an essay or article with no event and no new fact; opinion; greetings; operational: alerts, drone and missile courses, an explosion heard or smoke seen with nothing said about what was hit, air defense working, threats; an unconfirmed signal with no known event (police gathering, sirens); daily counters: N of M shot down, enemy losses per day, a night's attack summary even listing consequences, today's exchange rate; digests of several stories; unit videos of ordinary targets; minute of silence, farewells",
+        "not_for": "an event with consequences or a decision; a one-off report, rating or investigation with new facts — classify by topic; a public figure talking about their field's events (a coach about the Cup, a fighter about a bout, a minister about a decision) — classify by that field; a release date of a film, series or album — entertainment; a fundraiser or programme announced by the state, a company or a large organization — classify by topic",
+        "examples": [
+          "3х БпЛА курсом на Бровари",
+          "У Києві пролунав вибух",
+          "Багато поліції помітили на кварталі, поки невідомо, що сталося",
+          "Геймдизайнер про поєднання роботи з навчанням студентів",
+          "Після вибуху здійнявся стовп диму",
+          "тут ракета прилетіла, почалось"
+        ]
+      }
+    }
+  }
+}

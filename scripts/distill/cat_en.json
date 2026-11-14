@@ -1,0 +1,43 @@
+{
+  "_note": "Category only, English criteria with Ukrainian examples: the cheap teacher for distillation. Same editorial rules as configs/jev_questions.json (2026-09-22).",
+  "category": {
+    "type": "choice",
+    "instructions": "Which section of a Ukrainian news feed does this Telegram post belong to? Judge what the post reports, not which topic it mentions.",
+    "criteria": {
+      "war": {
+        "what": "a war fact about a specific object in a specific place: a hit, fallen debris, destruction, killed or wounded, fighting for a settlement, a significant target hit (aircraft, ship, air defense, refinery, depot); the army, weapons, prisoners, mobilization, occupation, saboteurs and collaborators",
+        "not_for": "signals without an object: an explosion heard, smoke, air defense working, drone or missile courses, threats, alerts; counters and summaries: N of M shot down overnight, enemy losses per day, a summary of the night's attack; a unit video hitting ordinary vehicles or infantry",
+        "examples": ["Унаслідок удару по Харкову загинули двоє людей", "Уламки дрона впали біля житлового будинку", "Сили оборони звільнили село на Запоріжжі"]
+      },
+      "politics": {
+        "what": "decisions of authorities, laws, appointments, politicians' statements, diplomacy, peace talks, sanctions, elections, corruption cases against officials",
+        "not_for": "fighting at the front; prices and markets",
+        "examples": ["Рада ухвалила закон про ...", "НАБУ повідомило про підозру заступнику міністра"]
+      },
+      "economy": {
+        "what": "money: prices, tariffs, the hryvnia, budget, taxes, banks, business, energy sector and power outages, social payments and pensions",
+        "not_for": "today's exchange rate as a routine daily post",
+        "examples": ["НБУ підвищив облікову ставку", "Укрзалізниця запроваджує нові тарифи"]
+      },
+      "incident": {
+        "what": "sudden harm not caused by the war: crime, road accidents, fires, industrial accidents, natural disasters, poisonings, court cases against criminals",
+        "not_for": "consequences of Russian strikes: that is war",
+        "examples": ["На трасі зіткнулися два авто", "У Львові затримали шахраїв"]
+      },
+      "other": {
+        "what": "a specific event of society not fitting above: transport, education, healthcare system, religion, language, social issues",
+        "not_for": "texts without an event",
+        "examples": ["Укрзалізниця призначила додаткові поїзди"]
+      },
+      "tech": {"what": "technology, AI, internet services, gadgets, telecom, cyber, space", "examples": ["OpenAI випустила нову модель"]},
+      "science": {"what": "research, discoveries, medicine research", "examples": ["Вчені знайшли новий вид"]},
+      "sports": {"what": "matches, athletes, results, transfers, interviews with athletes and coaches", "examples": ["Шахтар переміг у Лізі конференцій"]},
+      "entertainment": {"what": "film, TV, music, games, celebrities, theatre, books, exhibitions", "examples": ["Вийшов трейлер нового фільму"]},
+      "not_news": {
+        "what": "not a story: ads and promo, fundraising, event or stream announcements, opinion without a new event, greetings; operational: alerts, all-clear, drone and missile movement, threats, an explosion heard without what was hit; daily counters: N of M shot down, enemy losses per day, a night's attack summary even listing consequences, today's exchange rate; digests: several different stories in one post, the day's or week's highlights; unit videos hitting ordinary vehicles or infantry; minute of silence, farewells",
+        "not_for": "an event with consequences or a decision; a one-off report, rating, investigation, law explainer, interview or analysis with new facts: classify by topic; a fundraiser or event announced by the state, a company or a large organization",
+        "examples": ["3х БпЛА курсом на Бровари", "У Києві пролунав вибух", "РФ атакувала 93 дронами, збито 69", "Головне за ніч: ...", "Підтримайте збір на дрони для бригади"]
+      }
+    }
+  }
+}
