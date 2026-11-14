@@ -94,6 +94,9 @@ class Decision:
     storyline: str | None = None
     level: str = "normal"
     why: str = ""
+    # For an update, what changed, short enough to show the reader as the
+    # post's "updated" line ("загиблих троє").
+    change: str = ""
 
     @property
     def failed(self) -> bool:
@@ -150,6 +153,8 @@ def parse(parsed: Any, by_number: dict[int, Cluster], story: Cluster) -> Decisio
         storyline = post.storyline if post is not None and relation != NEW else None
     level = str(parsed["level"]) if parsed.get("level") in LEVELS else "normal"
     why = str(parsed.get("why") or "")
+    change = parsed.get("change")
+    change = change.strip() if isinstance(change, str) and relation == UPDATE else ""
     return Decision(
         relation=relation,
         decision=decision,
@@ -157,6 +162,7 @@ def parse(parsed: Any, by_number: dict[int, Cluster], story: Cluster) -> Decisio
         storyline=storyline.strip() if storyline else None,
         level=level,
         why=why,
+        change=change,
     )
 
 

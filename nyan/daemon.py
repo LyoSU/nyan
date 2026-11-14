@@ -125,6 +125,51 @@ def _judgment_key(story: Cluster, candidates: list[Cluster]) -> tuple[Any, ...]:
     return texts, shown
 
 
+# Earlier posts of a storyline listed under a new one: enough to follow the
+# thread back, few enough that the list stays a line or two.
+MAX_STORYLINE_POSTS = 3
+
+
+def storyline_posts(
+    posted_clusters: Clusters,
+    issue_name: str,
+    storyline: str,
+    nearest: Cluster | None,
+    exclude: Cluster | None = None,
+) -> list[dict[str, Any]]:
+    """The channel's earlier posts on a storyline, newest first, for "Ще про це".
+
+    The post the editor named as the storyline's nearest comes first: posts
+    published before the editor have no label, so on its first days the label
+    alone finds nothing. That post then takes the label, so the next one does.
+    Only posts in this issue's channel: a link to a post the reader's channel
+    does not carry leads nowhere.
+    """
+    if nearest is not None and nearest.storyline is None:
+        nearest.storyline = storyline
+    found: list[Cluster] = []
+    for post in posted_clusters.clid2cluster.values():
+        if post is exclude or post.get_issue_message(issue_name) is None:
+            continue
+        if post is nearest or post.storyline == storyline:
+            found.append(post)
+    found.sort(key=lambda post: post.create_time or 0, reverse=True)
+    result = []
+    for post in found[:MAX_STORYLINE_POSTS]:
+        message = post.get_issue_message(issue_name)
+        assert message is not None
+        result.append(
+            {
+                "clid": post.clid,
+                "message_id": message.message_id,
+                "issue": issue_name,
+                "time": post.create_time,
+                "headline": post.stored_headline or post.cropped_title,
+            }
+        )
+    return result
+
+
 class Daemon:
     #: Declared here as well as set in `__init__`, so a daemon assembled without
     #: it — as the tests do, to exercise one method — simply has no shadow.
@@ -588,13 +633,30 @@ class Daemon:
         if decision.relation in (editor.SAME, editor.UPDATE) and post is not None:
             message = post.get_issue_message(issue_name)
             editable = post.accepts_updates(max_time_updated)
-            if message is not None and (editable or decision.relation == editor.SAME):
+            # Past the editing window an update can only go out as a reply. Not
+            # when every source of it is older than that window, though: on
+            # 11 November the night's strike on Saltivka reached the editor at
+            # 13:50 from sources of 07:56-08:20, and a reply then re-tells, six
+            # hours late, what the channel's readers have read everywhere.
+            stale = (
+                decision.relation == editor.UPDATE
+                and not editable
+                and get_current_ts() - max(doc.pub_time for doc in cluster.docs)
+                > max_time_updated
+            )
+            if message is not None and (editable or decision.relation == editor.SAME or stale):
                 # New numbers are written into the post the reader already has,
                 # not sent as one more message: one strike gave five posts in
-                # ninety minutes, each a new count. Past the editing window an
-                # update has nowhere to go but a reply, below.
-                if decision.relation == editor.UPDATE:
+                # ninety minutes, each a new count.
+                if decision.relation == editor.UPDATE and editable:
                     post.force_rewrite = True
+                    post.updates.append(
+                        {"time": get_current_ts(), "text": decision.change or decision.why}
+                    )
+                elif stale:
+                    logging.info(
+                        "Late update folded without a reply: %s", cluster.cropped_title
+                    )
                 self.update_posted_cluster(
                     cluster, post, posted_clusters, issue_name, max_time_updated
                 )
@@ -610,6 +672,10 @@ class Daemon:
             parent = post
         elif decision.relation == editor.STORYLINE and post is not None:
             cluster.storyline_clid = post.clid
+        if cluster.storyline:
+            cluster.storyline_posts = storyline_posts(
+                posted_clusters, issue_name, cluster.storyline, post, exclude=parent
+            )
         self.publish(
             cluster,
             issue_name,

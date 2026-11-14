@@ -308,6 +308,15 @@ class Cluster:
         self.storyline_clid: int | None = None
         # How the editor wants the post presented: breaking, normal or minor.
         self.level: str = "normal"
+        # What changed in the event since the post first went out, one line per
+        # update the editor folded in, oldest first: {"time": ts, "text": ...}.
+        # Shown to the reader so an edit is not a silent one.
+        self.updates: list[dict[str, Any]] = []
+        # The earlier posts of this storyline the channel carries, newest
+        # first, at most a few: {"clid", "message_id", "issue", "time",
+        # "headline"}. Kept on the post because the renderer sees one story,
+        # not the channel.
+        self.storyline_posts: list[dict[str, Any]] = []
 
         self.saved_annotation_doc: Document | None = None
         self.saved_first_doc: Document | None = None
@@ -922,6 +931,8 @@ class Cluster:
             "storyline": self.storyline,
             "storyline_clid": self.storyline_clid,
             "level": self.level,
+            "updates": self.updates,
+            "storyline_posts": self.storyline_posts,
             "embedding": self.embedding_mean,
             "embedding_count": self.embedding_count,
             # Sorted rather than a bare set dump: the dict is compared against
@@ -999,6 +1010,8 @@ class Cluster:
         cluster.storyline = d.get("storyline")
         cluster.storyline_clid = d.get("storyline_clid")
         cluster.level = d.get("level") or "normal"
+        cluster.updates = list(d.get("updates") or [])
+        cluster.storyline_posts = list(d.get("storyline_posts") or [])
         # Absent in clusters stored before refusals were remembered; those pay
         # for one more question each and then carry the answer like the rest.
         cluster.refused_docs = {

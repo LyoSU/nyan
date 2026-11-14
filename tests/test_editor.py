@@ -311,3 +311,95 @@ def test_without_the_editor_nothing_changes() -> None:
 
     assert daemon.editor_config is None
     assert get_current_ts() > 0
+
+
+def test_an_update_leaves_a_line_for_the_reader(monkeypatch: Any) -> None:
+    daemon = _daemon()
+    parent = _post(66360, "БпЛА влучив у багатоповерхівку в Києві", 1, [1.0, 0.0])
+    _answer(
+        monkeypatch,
+        {"relation": "update", "post": 1, "decision": "publish", "change": "постраждалих п’ятеро"},
+    )
+    monkeypatch.setattr("nyan.clusters.get_current_ts", lambda: NOW)
+
+    daemon.send_cluster(
+        _story(["Кількість постраждалих у Києві зросла до п’яти"], [1.0, 0.0]),
+        "main",
+        _posted(parent),
+        None,
+        None,
+    )
+
+    assert parent.updates == [{"time": NOW, "text": "постраждалих п’ятеро"}]
+
+
+def test_a_late_retelling_of_an_old_post_is_folded_not_replied(monkeypatch: Any) -> None:
+    """11 November: the night strike on Saltivka reached the editor at 13:50 from
+    sources of 07:56-08:20, and went out as a reply to the 03:35 post."""
+    daemon = _daemon()
+    parent = _post(66300, "Росія завдала подвійного ракетного удару по Харкову", 10, [1.0, 0.0])
+    _answer(monkeypatch, {"relation": "update", "post": 1, "decision": "publish"})
+    monkeypatch.setattr("nyan.clusters.get_current_ts", lambda: NOW)
+    story = Cluster()
+    for index in range(3):
+        story.add(
+            _doc(
+                f"https://t.me/kh{index}/{index + 1}",
+                "Вночі росіяни вдарили по Салтівському району, горіли 38 гаражів",
+                330 + index * 5,
+                [1.0, 0.0],
+            )
+        )
+
+    daemon.send_cluster(story, "main", _posted(parent), None, None)
+
+    client: Any = daemon.client
+    assert client.sent == []
+    assert len(parent.docs) == 4
+    assert parent.updates == []
+
+
+def test_a_storyline_post_lists_the_earlier_ones_of_its_channel(monkeypatch: Any) -> None:
+    daemon = _daemon()
+    first = _post(66119, KHARKIV_NIGHT_ONE, 23, [1.0, 0.0])
+    labelled = _post(
+        66200, "Удар по Холодногірському району Харкова", 12, [0.9, 0.1], "Атаки на Харків"
+    )
+    other = _post(66201, "Бензин дешевшає", 2, [0.0, 1.0], "Ціни на пальне")
+    _answer(
+        monkeypatch,
+        {"relation": "storyline", "post": 2, "decision": "publish", "storyline": "Атаки на Харків"},
+    )
+    story = _story(["Влучання ударного дрона в Київському районі Харкова"], [1.0, 0.02])
+
+    daemon.send_cluster(story, "main", _posted(first, labelled, other), None, None)
+
+    # The unlabelled 66119 is not found: posts from before the editor carry no
+    # label until the editor names one of them as a storyline's nearest.
+    assert [post["clid"] for post in story.storyline_posts] == [66200]
+    assert all(post["issue"] == "main" for post in story.storyline_posts)
+    assert story.storyline_posts[0]["message_id"] == labelled.messages[0].message_id
+
+
+def test_on_a_host_with_a_channel_per_rubric_the_editor_sees_that_channel(
+    monkeypatch: Any,
+) -> None:
+    """War stories may move to a channel of their own; the editor of the war
+    channel is shown what that channel published, not the main feed."""
+    daemon = _daemon()
+    in_main = _post(66300, "Бензин дешевшає, автогаз дорожчає", 2, [0.0, 1.0])
+    in_war = _post(66301, "Дрон влучив у дах дев’ятиповерхівки в Харкові", 3, [1.0, 0.0])
+    in_war.messages = [MessageId(message_id=777, issue="war")]
+    calls = _answer(monkeypatch, {"relation": "new", "post": None, "decision": "skip"})
+
+    daemon.send_cluster(
+        _story(["Влучання ударного дрона в Харкові"], [1.0, 0.0]),
+        "war",
+        _posted(in_main, in_war),
+        None,
+        None,
+    )
+
+    shown = calls[0]["messages"][1]["content"]
+    assert "Дрон влучив у дах" in shown
+    assert "Бензин дешевшає" not in shown
