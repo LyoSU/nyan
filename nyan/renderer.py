@@ -24,7 +24,13 @@ from nyan.restatement import (
 )
 from nyan.rich import Block, RenderedPost, RichText
 from nyan.summary import Summary, SummaryBlock
-from nyan.util import DEFAULT_TIMEZONE, normalize_channel_id, ts_to_dt
+from nyan.util import (
+    DEFAULT_TIMEZONE,
+    UK_MONTHS_GENITIVE,
+    get_current_ts,
+    normalize_channel_id,
+    ts_to_dt,
+)
 
 
 # Used to derive a headline from the text itself when the LLM did not supply
@@ -306,6 +312,19 @@ def pluralize_sources(count: int) -> str:
 MINOR_QUOTE_FROM = 200
 
 
+def is_attributed(block: Block) -> bool:
+    """The "Пишуть окремі джерела" title, in the list shape or the old inline one."""
+    if block.get("type") != "paragraph":
+        return False
+    title = rich.bold(ATTRIBUTED_TITLE)
+    text = block.get("text")
+    return text == title or (isinstance(text, list) and bool(text) and text[0] == title)
+
+
+# Said on its own line above a breaking post's headline.
+BREAKING_LABEL = "🔴 Терміново"
+
+
 def is_byline(block: Block) -> bool:
     """The "— Channel" line `render_credit` puts under a quoted text."""
     text = block.get("text")
@@ -371,6 +390,9 @@ class Renderer:
         self.show_updates = bool(presentation.get("update_line"))
         self.show_storyline = bool(presentation.get("more_on_this"))
         self.quote_parent = bool(presentation.get("quote_parent"))
+        # The legend of source marks on short lines, not one that runs off a
+        # phone screen.
+        self.short_legend = bool(presentation.get("short_legend"))
         # Where each issue's channel lives, to link its earlier posts. An issue
         # with no address here gets no "Ще про це": a link has to lead to the
         # channel the reader is in, and on a host with one channel per rubric
@@ -530,16 +552,18 @@ class Renderer:
         )
         if headline_at is None and self.show_levels and cluster.level == "minor":
             headline_at = 0
+        # The moment the post went out, against which its dates are said.
+        published = cluster.create_time or get_current_ts()
         if self.show_updates and cluster.updates:
             at = 0 if headline_at is None else headline_at + 1
-            blocks.insert(at, self.render_update_line(cluster.updates[-1]))
+            blocks.insert(at, self.render_update_line(cluster.updates[-1], published))
 
         before_sources: list[Block] = []
         if self.show_updates and len(cluster.updates) > 1:
-            before_sources.append(self.render_update_table(cluster.updates))
+            before_sources.append(self.render_update_table(cluster.updates, published))
         if self.show_storyline and cluster.storyline_posts:
             before_sources.extend(
-                self.render_more_on_this(cluster.storyline_posts, issue_name)
+                self.render_more_on_this(cluster.storyline_posts, issue_name, published)
             )
         sources_at = next(
             (i for i, block in enumerate(blocks) if is_sources_block(block)), len(blocks)
@@ -566,32 +590,45 @@ class Renderer:
         name, so the post takes two or three lines of the feed.
         """
         if level == "breaking":
-            return [rich.paragraph(rich.marked(rich.bold("⚡ Терміново"))), *blocks]
+            # 🔴, not ⚡: the headline prompts put ⚡ on power outages, so a
+            # reader already takes it for energy, and an outage post would show
+            # two. No `marked`: highlighted, the line reads as a small badge.
+            return [rich.paragraph(rich.bold(BREAKING_LABEL)), *blocks]
         if level != "minor":
             return blocks
         result: list[Block] = []
+        # Photos go under "Докладніше", first: a square photo in the body made
+        # the two-line story the tallest post of the feed.
+        media: list[Block] = []
         rest: list[Block] = []
         seen_paragraph = False
+        skip_list = False
         for block in blocks:
             kind = block.get("type")
+            if skip_list:
+                skip_list = False
+                if kind == "list":
+                    continue
             if kind == "heading":
                 result.append(rich.paragraph(block["text"]))
-            elif kind == "slideshow":
-                result.append(block["blocks"][0])
-            elif kind in rich.MEDIA_BLOCK_TYPES:
-                result.append(block)
+            elif kind == "slideshow" or kind in rich.MEDIA_BLOCK_TYPES:
+                media.append(block)
+            elif is_attributed(block):
+                # What single channels add is a third level of detail; for a
+                # minor story the sources are one tap away anyway.
+                skip_list = True
             elif kind == "paragraph" and (not seen_paragraph or is_byline(block)):
                 seen_paragraph = True
                 result.append(block)
             elif kind in ("details", "divider", "footer"):
-                if rest:
-                    result.append(rich.details("Докладніше", *rest))
-                    rest = []
+                if media or rest:
+                    result.append(rich.details("Докладніше", *media, *rest))
+                    media, rest = [], []
                 result.append(block)
             else:
                 rest.append(block)
-        if rest:
-            result.append(rich.details("Докладніше", *rest))
+        if media or rest:
+            result.append(rich.details("Докладніше", *media, *rest))
         return self.quote_minor_body(result)
 
     @staticmethod
@@ -614,47 +651,69 @@ class Renderer:
                 ]
         return blocks
 
-    def render_update_line(self, update: Mapping[str, Any]) -> Block:
-        """"оновлено 14:20: загиблих троє" — the edit, said out loud."""
-        moment = int(update["time"])
-        clock = ts_to_dt(moment, self.tz_name).strftime("%H:%M")
-        return rich.paragraph(
-            rich.italic(["оновлено ", rich.date_time(clock, moment), f": {update['text']}"])
-        )
+    # Dates in the presentation are plain text in Kyiv time, not `date_time`
+    # entities: a client formats those in its own language ("nov 10 15:41"),
+    # and the feed is Ukrainian. Absolute dates, never "сьогодні"/"вчора": a
+    # post is read for days after it went out, and "вчора" would go stale.
 
-    def render_update_table(self, updates: Sequence[Mapping[str, Any]]) -> Block:
+    def say_date(self, moment: int, published: int) -> str:
+        """ "10 листопада", with the year only when it is not the post's year."""
+        when = ts_to_dt(moment, self.tz_name)
+        date = f"{when.day} {UK_MONTHS_GENITIVE[when.month - 1]}"
+        if when.year != ts_to_dt(published, self.tz_name).year:
+            date += f" {when.year}"
+        return date
+
+    def say_moment(self, moment: int, published: int) -> str:
+        """ "10 листопада, 15:41"."""
+        return f"{self.say_date(moment, published)}, {ts_to_dt(moment, self.tz_name):%H:%M}"
+
+    def say_update_time(self, moment: int, published: int) -> str:
+        """ "о 14:38" on the day the post went out, "12 листопада о 09:10" after."""
+        when = ts_to_dt(moment, self.tz_name)
+        if when.date() == ts_to_dt(published, self.tz_name).date():
+            return f"о {when:%H:%M}"
+        return f"{self.say_date(moment, published)} о {when:%H:%M}"
+
+    def render_update_line(self, update: Mapping[str, Any], published: int) -> Block:
+        """ "оновлено о 14:20: загиблих троє" — the edit, said out loud."""
+        when = self.say_update_time(int(update["time"]), published)
+        return rich.paragraph(rich.italic(f"оновлено {when}: {update['text']}"))
+
+    def render_update_table(self, updates: Sequence[Mapping[str, Any]], published: int) -> Block:
         """Every update to the event in one compact table, oldest first."""
         rows = []
         for update in updates:
             moment = int(update["time"])
-            clock = ts_to_dt(moment, self.tz_name).strftime("%H:%M")
-            rows.append([rich.date_time(clock, moment), str(update["text"])])
+            when = ts_to_dt(moment, self.tz_name)
+            if when.date() == ts_to_dt(published, self.tz_name).date():
+                said = f"{when:%H:%M}"
+            else:
+                said = self.say_moment(moment, published)
+            rows.append([said, str(update["text"])])
         return rich.table(rows, header=["Коли", "Що змінилося"], caption="Оновлення")
 
     def render_more_on_this(
-        self, posts: Sequence[Mapping[str, Any]], issue_name: str
+        self, posts: Sequence[Mapping[str, Any]], issue_name: str, published: int
     ) -> list[Block]:
-        """Links to the channel's earlier posts of the same storyline."""
+        """Links to the channel's earlier posts of the same storyline.
+
+        The date stays outside the link: only the headline is the thing to tap.
+        """
         base = self.channel_urls.get(issue_name)
         if not base:
             return []
-        items = []
-        for post in posts:
-            moment = int(post["time"] or 0)
-            when = ts_to_dt(moment, self.tz_name).strftime("%d.%m %H:%M")
-            items.append(
-                [
-                    rich.paragraph(
-                        rich.join(
-                            [
-                                rich.date_time(when, moment, "dt"),
-                                rich.link(str(post["headline"]), f"{base}/{post['message_id']}"),
-                            ],
-                            " — ",
-                        )
-                    )
-                ]
-            )
+        items = [
+            [
+                rich.paragraph(
+                    [
+                        f"{self.say_moment(int(post['time'] or 0), published)} — ",
+                        rich.link(str(post["headline"]), f"{base}/{post['message_id']}"),
+                    ]
+                )
+            ]
+            for post in posts
+        ]
         if not items:
             return []
         return [rich.paragraph(rich.bold("Ще про це")), rich.bullet_list(*items)]
@@ -829,9 +888,7 @@ class Renderer:
         if composition:
             blocks.append(composition)
 
-        legend = self.render_marks_legend(groups)
-        if legend:
-            blocks.append(legend)
+        blocks.extend(self.render_marks_legend(groups))
 
         provenance = self.render_provenance(cluster)
         if provenance:
@@ -871,7 +928,7 @@ class Renderer:
 
     def render_marks_legend(
         self, groups: list[tuple[str, list[Document]]]
-    ) -> Block | None:
+    ) -> list[Block]:
         """Names only the glyphs this post actually used.
 
         A fixed legend of every possible marker is longer than the source list it
@@ -902,8 +959,23 @@ class Renderer:
             for badge in dict.fromkeys(badges)
         ]
         if not parts:
-            return None
-        return rich.paragraph(rich.italic(" · ".join(parts)))
+            return []
+        if self.short_legend and len(parts) > 2:
+            return self.render_short_legend(parts, len(dict.fromkeys(kinds)))
+        return [rich.paragraph(rich.italic(" · ".join(parts)))]
+
+    @staticmethod
+    def render_short_legend(parts: list[str], kind_count: int) -> list[Block]:
+        """Three marks or more on two lines: kinds on one, badges on the other,
+        or halves when there is only one sort. One line of four ran off the
+        right edge of a phone. Two paragraphs, since a line break inside a rich
+        text is not something the API documents."""
+        if 0 < kind_count < len(parts):
+            lines = [parts[:kind_count], parts[kind_count:]]
+        else:
+            middle = (len(parts) + 1) // 2
+            lines = [parts[:middle], parts[middle:]]
+        return [rich.paragraph(rich.italic(" · ".join(line))) for line in lines]
 
     def render_provenance(self, cluster: Cluster) -> list[Block]:
         """Who published first and where the story probably originated.
