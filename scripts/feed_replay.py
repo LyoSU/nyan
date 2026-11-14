@@ -105,6 +105,11 @@ class CliLLM:
         self.usage[f"{purpose}:calls"] += 1
         self.usage[f"{purpose}:prompt"] += self.tokens(prompt)
         key = hashlib.sha256(f"{CLI_MODEL}\n{prompt}".encode()).hexdigest()[:24]
+        # To re-ask a few answers under a changed prompt without replaying
+        # everything: REPLAY_PROMPTS=dir keeps every prompt under its key.
+        if keep := os.environ.get("REPLAY_PROMPTS"):
+            with open(os.path.join(keep, f"{key}.json"), "w") as w:
+                json.dump(messages, w, ensure_ascii=False)
         if key in self.cache:
             answer = self.cache[key]
         else:

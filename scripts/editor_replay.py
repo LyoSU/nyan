@@ -46,6 +46,7 @@ from nyan.clusterer import Clusterer
 from nyan.clusters import Cluster, Clusters, render_prompt
 from nyan.daemon import Daemon
 from nyan.document import Document
+from nyan.rank_shadow import signals
 from nyan.ranker import Ranker, independent_sources
 from nyan.util import normalize_url, ts_to_dt
 
@@ -242,6 +243,25 @@ def label(cluster: Cluster) -> str:
     return f"{when} {title[:100]}"
 
 
+def trace(needle: str, now: int, clusters: list[Cluster], asked: list[Cluster], daemon: Daemon) -> None:
+    """Where one story stops: size, newsrooms, the student's reading, the gates."""
+    chosen = {id(c) for c in asked}
+    for cluster in clusters:
+        if not any(needle in (doc.text or "") for doc in cluster.docs):
+            continue
+        found = signals(cluster)
+        print(
+            f"TRACE {ts_to_dt(now):%H:%M} docs={len(cluster.docs)} "
+            f"sources={independent_sources(cluster):.1f} age={cluster.age // 60}m "
+            f"signals={found and (round(found.significance, 1), round(found.urgent, 2))} "
+            f"candidate={id(cluster) in chosen}/{len(asked)} issues={cluster.issues} "
+            f"lang={sorted({d.language for d in cluster.docs})} "
+            f"worth={id(cluster) in chosen and daemon.worth_asking(cluster)} "
+            f"| {cluster.cropped_title[:60]}",
+            file=sys.stderr,
+        )
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--docs", required=True)
@@ -254,6 +274,7 @@ def main() -> None:
     ap.add_argument("--ask", type=int, default=0)
     ap.add_argument("--min-sources", type=float, default=3.0)
     ap.add_argument("--dry", action="store_true", help="answer every question 'digest' without asking")
+    ap.add_argument("--trace", help="print each iteration's gates for stories whose text has this")
     args = ap.parse_args()
 
     start = ts(args.start)
@@ -291,6 +312,7 @@ def main() -> None:
     daemon_module.notify_published = lambda clids: None  # type: ignore[assignment]
 
     daemon = build_daemon(tokens)
+    daemon.config["editor"]["min_sources"] = args.min_sources
     clusterer = Clusterer("configs/clusterer_config.json")
     posted = Clusters()
     for post in history:
@@ -318,7 +340,9 @@ def main() -> None:
             doc.fetch_time = now
         if len(pool) > 1:
             clusters = clusterer(pool, posted.published_documents())
-            candidates = daemon.ranker.candidates(clusters, args.min_sources)
+            candidates = daemon.editor_candidates(clusters)
+            if args.trace:
+                trace(args.trace, now, clusters, candidates.get("main", []), daemon)
             daemon.held_now.clear()
             for cluster in candidates.get("main", []):
                 daemon.send_cluster(cluster, "main", posted, None, None)
