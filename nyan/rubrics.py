@@ -69,6 +69,12 @@ class RubricDetector:
     database, visible to the channel statistics, and excluded by the same
     `is_discarded()` rule that already drops what the model calls `not_news`.
 
+    A power-outage schedule belongs here for a different reason: the model was
+    taught that power outages are economy, which is right for a grid that was
+    hit and wrong for a timetable. The patterns take the timetable — a schedule
+    published, updated or announced for a day — and `not_emergency` leaves
+    alone a heading that says the schedule stopped applying.
+
     Patterns are anchored wherever the distinction actually lives. A rubric
     heading sits at the start of a post; a news story that merely mentions the
     minute of silence mentions it in the middle of a longer text. Matching a bare

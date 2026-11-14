@@ -22,6 +22,30 @@ In the order they were used:
 5. `drift.py` — asks the teacher about fresh production posts and compares.
    `python -m nyan.student_health` is the free daily check that says when to run it.
 
+## When the owner decides something is not news
+
+«A power-outage schedule is not news» is a decision about the feed, and the
+model cannot know it: it learnt from rules that put power outages under
+economy, and three other models given those rules split two to one the same
+way. Such a decision goes into three places, in this order:
+
+1. The rule, in `cat_en.json`, in words a teacher can apply. Until it is there
+   every later relabelling quietly undoes the decision.
+2. A pattern in `configs/annotator_config.json` (`rubric_detector`), with the
+   real posts it must take and the real posts it must leave in
+   `tests/test_rubrics.py`. It works the day it is deployed and needs no
+   training. `routine_candidates.py <posts.jsonl> taken` shows what the
+   patterns take from a week of production; read that before merging, and have
+   two or three other models label a sample of what is taken and what is left
+   under the new rule (the 2026-11 run used `agy -p` for Gemini and Claude and
+   `codex exec` for GPT, which need no API key).
+3. The model, at the next retraining, from labels made under the new rule. The
+   pattern stays as the net under it.
+
+`routine_candidates.py <posts.jsonl> repeated` is where the next such decision
+usually comes from: headings one channel repeats five times a week that still
+pass as news (traffic reports, daily fuel prices, a region's daily tally).
+
 The rest are experiments along the way: `ft.py` and `heads.py` (category only),
 `grok_label.py` and `label_en.py` (other teachers and prompts), `quant_variants.py`,
 `fit_urgent.py`, `relabel_tech.py`, `shadow_rescore.py`, and `pick_review.py` with
