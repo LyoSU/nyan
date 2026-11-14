@@ -83,6 +83,29 @@ class Tokens:
         return len(self.encoding.encode(text))
 
 
+def reuse_answers(
+    prompts_dir: str, cache: dict[str, str], reask: Any
+) -> dict[str, str]:
+    """Answers from a run whose prompts were kept, by the user half of the prompt.
+
+    A change to the rules changes every prompt, and asking every story again
+    to see what one rule moved costs a full replay. Stories whose old answer
+    `reask` says the rule could move are asked again; the rest keep their
+    answer as long as they are shown exactly as before. A story whose context
+    changed because an earlier answer changed is asked too.
+    """
+    kept: dict[str, str] = {}
+    for name in os.listdir(prompts_dir):
+        key = name.removesuffix(".json")
+        if key not in cache:
+            continue
+        with open(os.path.join(prompts_dir, name)) as r:
+            messages = json.load(r)
+        if not reask(cache[key]):
+            kept[str(messages[-1]["content"])] = cache[key]
+    return kept
+
+
 class CliLLM:
     """`openai_completion` over a local CLI: sequential, stdin closed, cached."""
 
@@ -93,6 +116,10 @@ class CliLLM:
         self.cache: dict[str, str] = {}
         self.usage: Counter[str] = Counter()
         self.tokens = Tokens()
+        # Answers to carry over from a run under earlier rules, by the user half
+        # of the prompt; see `reuse_answers`.
+        self.reuse: dict[str, str] = {}
+        self.reused = 0
         if os.path.exists(cache_path):
             with open(cache_path) as r:
                 for line in r:
@@ -110,8 +137,14 @@ class CliLLM:
         if keep := os.environ.get("REPLAY_PROMPTS"):
             with open(os.path.join(keep, f"{key}.json"), "w") as w:
                 json.dump(messages, w, ensure_ascii=False)
+        user = str(messages[-1]["content"])
         if key in self.cache:
             answer = self.cache[key]
+        elif user in self.reuse:
+            # The same story shown the same way under an earlier version of the
+            # rules, and its answer was not one the change is about.
+            answer = self.reuse[user]
+            self.reused += 1
         else:
             if self.asked >= self.budget:
                 raise RuntimeError("replay budget spent")

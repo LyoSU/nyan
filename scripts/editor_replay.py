@@ -50,7 +50,7 @@ from nyan.rank_shadow import signals
 from nyan.ranker import Ranker, independent_sources
 from nyan.util import normalize_url, ts_to_dt
 
-from feed_replay import CliLLM, Tokens, load  # type: ignore[import-not-found]
+from feed_replay import CliLLM, Tokens, load, reuse_answers  # type: ignore[import-not-found]
 
 # How long the crawler takes to deliver a post, roughly: channels are read
 # every five to fifteen minutes.
@@ -74,14 +74,14 @@ def ts(text: str) -> int:
     return int(datetime.strptime(text, "%Y-%m-%d %H:%M").timestamp())
 
 
-def load_docs(path: str, emb_path: str, start: int, end: int) -> list[Document]:
+def load_docs(path: str, emb_path: str, start: int, end: int, pool: int) -> list[Document]:
     vectors = np.load(emb_path, mmap_mode="r")
     docs = []
     with open(path) as r:
         for index, line in enumerate(r):
             record = json.loads(line)
             pub_time = int(record.get("pub_time") or 0)
-            if not start - POOL <= pub_time < end:
+            if not start - pool <= pub_time < end:
                 continue
             record.pop("embedding_key", None)
             known = set(Document.__dataclass_fields__)
@@ -172,10 +172,23 @@ def unit(cluster: Cluster) -> Any:
     return vector / norm if norm else None
 
 
+# The sources each replayed post had when it went out. A post gathers more
+# afterwards, and a "same" answer folds in another cluster's sources, some of
+# them older than the post: timed on those, a post looks late for a story it
+# never carried.
+AT_PUBLISH: dict[int, list[Document]] = {}
+
+
+def at_publish(cluster: Cluster) -> list[Document]:
+    if id(cluster) in AT_PUBLISH:
+        return AT_PUBLISH[id(cluster)]
+    return [d for d in cluster.docs if d.pub_time <= (cluster.create_time or 0)] or cluster.docs
+
+
 def fourth_newsroom(cluster: Cluster) -> int | None:
     """When the story reached four newsrooms, counted as the ranker counts."""
     seen = Cluster()
-    for doc in sorted(cluster.docs, key=lambda d: d.pub_time):
+    for doc in sorted(at_publish(cluster), key=lambda d: d.pub_time):
         seen.add(doc)
         if independent_sources(seen) >= 4:
             return doc.pub_time
@@ -185,7 +198,7 @@ def fourth_newsroom(cluster: Cluster) -> int | None:
 def measure(posts: list[Cluster], days: float, name: str) -> dict[str, Any]:
     posts = sorted(posts, key=lambda c: c.create_time or 0)
     vectors = [unit(post) for post in posts]
-    first = [(p.create_time or 0) - p.pub_time for p in posts]
+    first = [(p.create_time or 0) - min(d.pub_time for d in at_publish(p)) for p in posts]
     fourth = [
         (p.create_time or 0) - t for p in posts if (t := fourth_newsroom(p)) is not None
     ]
@@ -237,6 +250,40 @@ def measure(posts: list[Cluster], days: float, name: str) -> dict[str, Any]:
     }
 
 
+def urls_of(cluster: Cluster) -> frozenset[str]:
+    return frozenset(normalize_url(u) for u in cluster.urls)
+
+
+def waited(
+    post: Cluster, timeline: list[tuple[int, frozenset[str], str]], step: int
+) -> tuple[int | None, Counter[str]]:
+    """Minutes from the fourth newsroom to the post, by what the story was doing.
+
+    Each pass is charged with the state of the pass-time cluster that shares
+    the most sources with the post: under the student gate, waiting on a
+    "wait" or "digest" answer kept because coverage had not grown a step
+    ("kept"), or because it had grown but the pause had not passed ("pause").
+    A pass where no such cluster was put to the editor is "not a candidate":
+    under three newsrooms in the pool, or not yet crawled.
+    """
+    fourth = fourth_newsroom(post)
+    if fourth is None or not post.create_time:
+        return None, Counter()
+    urls = frozenset(normalize_url(d.url) for d in at_publish(post))
+    by_pass: dict[int, tuple[int, str]] = {}
+    for when, seen_urls, state in timeline:
+        shared = len(seen_urls & urls)
+        if shared and shared >= by_pass.get(when, (0, ""))[0]:
+            by_pass[when] = (shared, state)
+    spent: Counter[str] = Counter()
+    published = post.create_time
+    first = published - ((published - fourth - 1) // step) * step
+    spent["to the first pass"] += (first - fourth) // 60
+    for when in range(first, published, step):
+        spent[by_pass.get(when, (0, "not a candidate"))[1]] += step // 60
+    return (post.create_time - fourth) // 60, spent
+
+
 def label(cluster: Cluster) -> str:
     when = ts_to_dt(cluster.create_time or cluster.pub_time).strftime("%d.%m %H:%M")
     title = cluster.stored_headline or cluster.annotation_doc.patched_text.split("\n")[0]
@@ -274,6 +321,11 @@ def main() -> None:
     ap.add_argument("--ask", type=int, default=0)
     ap.add_argument("--min-sources", type=float, default=3.0)
     ap.add_argument("--dry", action="store_true", help="answer every question 'digest' without asking")
+    ap.add_argument(
+        "--reuse",
+        help="prompts kept from a run under earlier rules: keep its answers except wait/update",
+    )
+    ap.add_argument("--pool-hours", type=float, default=POOL / 3600, help="documents clustered per pass")
     ap.add_argument("--trace", help="print each iteration's gates for stories whose text has this")
     args = ap.parse_args()
 
@@ -286,11 +338,21 @@ def main() -> None:
     actual = [c for c in production if start <= (c.create_time or 0) < end]
     actual = [c for c in actual if any(m.issue == "main" for m in c.messages)]
 
-    docs = load_docs(args.docs, args.emb, start, end)
+    docs = load_docs(args.docs, args.emb, start, end, int(args.pool_hours * 3600))
     print(f"{len(docs)} documents, {len(history)} posts of history, {len(actual)} published then")
 
     tokens = Tokens()
     llm = CliLLM(args.cache, args.ask)
+    if args.reuse:
+
+        def reask(answer: str) -> bool:
+            try:
+                parsed = json.loads(answer[answer.find("{") : answer.rfind("}") + 1])
+            except ValueError:
+                return True
+            return parsed.get("relation") == "update" or parsed.get("decision") == "wait"
+
+        llm.reuse = reuse_answers(args.reuse, llm.cache, reask)
     if args.dry:
 
         def answer(**kwargs: Any) -> str:
@@ -321,13 +383,41 @@ def main() -> None:
     seen: set[int] = set()
     original_ask = daemon.ask_editor
 
+    # What each story was doing at each pass, to say where a late post waited.
+    timeline: list[tuple[int, frozenset[str], str]] = []
+    original_worth = daemon.worth_asking
+
+    def recording_worth(cluster: Cluster) -> bool:
+        worth = original_worth(cluster)
+        if not worth:
+            timeline.append((now, urls_of(cluster), "gate"))
+        return worth
+
     def recording_ask(cluster: Cluster, posted_clusters: Clusters, issue_name: str) -> Any:
+        asked = daemon.__dict__.get("_editor_asked", {})
+        previous = asked.get(f"{issue_name} {normalize_url(cluster.first_doc.url)}")
         decision = original_ask(cluster, posted_clusters, issue_name)
         if decision is not None and not decision.failed and id(decision) not in seen:
             seen.add(id(decision))
             decisions.append((now, cluster, decision))
+            state = f"asked:{decision.decision}"
+        elif decision is None or decision.failed:
+            state = "failed"
+        elif previous is not None and previous[1] == cluster.generation:
+            state = f"kept:{decision.decision}"
+        else:
+            state = f"pause:{decision.decision}"
+        timeline.append((now, urls_of(cluster), state))
         return decision
 
+    original_publish = daemon.publish
+
+    def recording_publish(cluster: Cluster, *args: Any, **kwargs: Any) -> None:
+        AT_PUBLISH[id(cluster)] = list(cluster.docs)
+        original_publish(cluster, *args, **kwargs)
+
+    daemon.publish = recording_publish  # type: ignore[method-assign]
+    daemon.worth_asking = recording_worth  # type: ignore[method-assign]
     daemon.ask_editor = recording_ask  # type: ignore[method-assign]
 
     now = start
@@ -335,7 +425,7 @@ def main() -> None:
         clock = lambda moment=now: moment
         daemon_module.get_current_ts = clock  # type: ignore[assignment]
         nyan.clusters.get_current_ts = clock  # type: ignore[assignment]
-        pool = [d for d in docs if now - POOL <= d.pub_time <= now - CRAWL_LAG]
+        pool = [d for d in docs if now - args.pool_hours * 3600 <= d.pub_time <= now - CRAWL_LAG]
         for doc in pool:
             doc.fetch_time = now
         if len(pool) > 1:
@@ -344,7 +434,18 @@ def main() -> None:
             if args.trace:
                 trace(args.trace, now, clusters, candidates.get("main", []), daemon)
             daemon.held_now.clear()
+            chosen = {id(c) for c in candidates.get("main", [])}
+            for cluster in clusters:
+                if id(cluster) not in chosen:
+                    too_old = cluster.age >= 360 * 60
+                    timeline.append(
+                        (now, urls_of(cluster), "too old" if too_old else "under 3 newsrooms")
+                    )
             for cluster in candidates.get("main", []):
+                if posted.find_similar(
+                    cluster, "main", min_intersection_ratio=daemon.config["similar_min_intersection_ratio"]
+                ):
+                    timeline.append((now, urls_of(cluster), "joined a post by URL"))
                 daemon.send_cluster(cluster, "main", posted, None, None)
         now += args.step * 60
 
@@ -373,7 +474,7 @@ def main() -> None:
         f"LLM per day (production, from storage): writer {len(actual) / days:.0f} first writes "
         f"+ {revisions / days:.0f} rewrites; the judge is not stored"
     )
-    print(f"new CLI calls this run: {llm.asked}")
+    print(f"new CLI calls this run: {llm.asked}, answers carried over from earlier rules: {llm.reused}")
 
     print("\nDecisions:", Counter(f"{d.relation}/{d.decision}" for _, _, d in decisions))
     per_story = Counter(normalize_url(c.first_doc.url) for _, c, _ in decisions)
@@ -411,6 +512,24 @@ def main() -> None:
                 f"{cluster.cropped_title[:80]}\n         into {label(decision.post)}"
             )
 
+    print("\n== Where each post waited after its fourth newsroom (minutes) ==")
+    total: Counter[str] = Counter()
+    for post in sorted(replayed, key=lambda c: c.create_time or 0):
+        minutes, spent = waited(post, timeline, args.step * 60)
+        if minutes is None:
+            print(f"  {label(post)[:70]}: under four newsrooms")
+            continue
+        total.update(spent)
+        parts = ", ".join(f"{state} {m}" for state, m in spent.most_common() if m)
+        mine = {normalize_url(d.url) for d in at_publish(post)}
+        twin = max(actual, key=lambda c: len(mine & {normalize_url(u) for u in c.urls}), default=None)
+        then = "prod: none"
+        if twin is not None and mine & {normalize_url(u) for u in twin.urls}:
+            fourth_then = fourth_newsroom(twin)
+            late = ((twin.create_time or 0) - fourth_then) // 60 if fourth_then else None
+            then = f"prod: {ts_to_dt(twin.create_time or 0):%H:%M}, {late} min"
+        print(f"  {minutes:4d} {label(post)[:60]}: {parts} | {then}")
+    print("  all:", ", ".join(f"{state} {m}" for state, m in total.most_common()))
     print("\n== Storylines ==")
     lines: dict[str, list[Cluster]] = defaultdict(list)
     for post in posted.clid2cluster.values():
