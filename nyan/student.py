@@ -6,8 +6,9 @@ and three yes/no scores. On the blind 500 (`scripts/eval_jev.py`) its category
 is right on 94-95% of posts against 72% for the joblib head it replaces, and it
 runs on the CPU with no API behind it. The training and export scripts are in
 `scripts/distill`; their data and the models stay out of git, in `data/distill`.
-What ships is the model directory they write: `model_emb8.onnx`, the tokenizer and `meta.json`, which
-names the labels of every head so this file does not have to.
+What ships is the model directory they write: `model_emb8.onnx`, the tokenizer
+and `meta.json`, which names the labels of every head so this file does not
+have to.
 
 Its encoder is its own. The shared `embedding` stays with `Embedder`, whose
 vectors the clusterer's thresholds were tuned on: a fine-tuned encoder places
