@@ -220,12 +220,16 @@ RELATION_QUESTIONS = "configs/jev_relation_questions.json"
 
 
 def story(clid: int | None, hours: float, text: str = "текст") -> SimpleNamespace:
-    """Just what the relation shadow reads off a cluster."""
+    """Just what the relation shadow, and the daemon's memo of answers, read off a cluster."""
+    doc = SimpleNamespace(patched_text=text, url=f"https://t.me/a/{clid}")
     return SimpleNamespace(
         clid=clid,
         cropped_title=f"story {clid}",
         pub_time_percentile=int(hours * 3600),
-        annotation_doc=SimpleNamespace(patched_text=text, url=f"https://t.me/a/{clid}"),
+        annotation_doc=doc,
+        docs=[doc],
+        stored_headline=None,
+        stored_summary=SimpleNamespace(as_text=lambda: ""),
     )
 
 

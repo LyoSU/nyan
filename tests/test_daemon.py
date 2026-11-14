@@ -994,3 +994,29 @@ def test_a_failed_judgment_leaves_a_late_document_free_to_try_again(monkeypatch:
 
     assert attached == 0
     assert not parent.refuses(loose)
+
+
+def test_a_held_story_is_not_judged_twice(monkeypatch: Any) -> None:
+    """A story held because its text could not be written comes back to the
+    boundary every iteration; the question it asks has not changed."""
+    daemon = _daemon()
+    parent = _cluster([1.0, 0.0], message_id=11, headline="Фантоми на дорогах", age_seconds=3600)
+    seen = _patch_judge(monkeypatch, UNRELATED)
+    posted = _posted(parent)
+
+    daemon.find_relation(_cluster([1.0, 0.02]), posted, "main")
+    daemon.find_relation(_cluster([1.0, 0.02]), posted, "main")
+
+    assert len(seen) == 1
+
+
+def test_a_failed_judgment_is_asked_again(monkeypatch: Any) -> None:
+    daemon = _daemon()
+    parent = _cluster([1.0, 0.0], message_id=11, headline="Фантоми на дорогах", age_seconds=3600)
+    seen = _patch_judge(monkeypatch, FAILED)
+    posted = _posted(parent)
+
+    daemon.find_relation(_cluster([1.0, 0.02]), posted, "main")
+    daemon.find_relation(_cluster([1.0, 0.02]), posted, "main")
+
+    assert len(seen) == 2

@@ -1095,14 +1095,22 @@ class Clusters:
                 assignments[normalize_url(url)] = clid
         return assignments
 
-    def get_embedded_clusters(self, current_ts: int, issue: str) -> list[Cluster]:
+    def get_embedded_clusters(
+        self, current_ts: int, issue: str, window: int = 24 * 3600
+    ) -> list[Cluster]:
+        """Published posts of this issue that went out within `window`.
+
+        Measured from when the post went out, not from its first source: a
+        story whose first channel wrote at night is still the morning's post.
+        """
         filtered_clusters = []
         for cluster in self.clid2cluster.values():
             if not cluster.embedding:
                 continue
             if not cluster.messages:
                 continue
-            if abs(cluster.pub_time - current_ts) > 24 * 3600:
+            published_at = cluster.create_time or cluster.pub_time
+            if abs(current_ts - published_at) > window:
                 continue
             if issue not in cluster.issues:
                 continue

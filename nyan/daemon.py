@@ -11,7 +11,7 @@ from collections import Counter as CounterT
 
 from nyan.annotator import Annotator
 from nyan.client import MessageId, TelegramClient
-from nyan.clusters import Clusters, Cluster
+from nyan.clusters import Clusters, Cluster, judged_text_key
 from nyan.clusterer import Clusterer
 from nyan.channels import Channels
 from nyan.logs import log_new_iteration
@@ -21,6 +21,7 @@ from nyan.jev import JevRelationShadow
 from nyan.mongo import get_rank_shadow_collection, get_relation_shadow_collection
 from nyan.rank_shadow import SEEN_TTL, RankShadow, log_records
 from nyan.relation import (
+    CANDIDATE_WINDOW,
     FAILED,
     FOLLOW_UP,
     SAME,
@@ -39,6 +40,9 @@ from nyan.document import (
 )
 from nyan.util import get_current_ts, normalize_url, ts_to_dt
 
+
+# Judge answers kept per process; a day of questions is far below this.
+MAX_JUDGMENTS = 4096
 
 # How long to wait before looking for documents again when there are none.
 EMPTY_INPUT_SLEEP_SECONDS = 10
@@ -89,6 +93,12 @@ def _unit_rows(embeddings: list[list[float]]) -> NDArray[np.float32]:
     matrix = np.asarray(embeddings, dtype=np.float32)
     norms = np.linalg.norm(matrix, axis=1, keepdims=True)
     return cast("NDArray[np.float32]", matrix / np.where(norms == 0.0, 1.0, norms))
+
+
+def _judgment_key(story: Cluster, candidates: list[Cluster]) -> tuple[Any, ...]:
+    texts = frozenset(judged_text_key(doc) or normalize_url(doc.url) for doc in story.docs)
+    shown = tuple((c.clid, c.stored_headline, c.stored_summary.as_text()) for c in candidates)
+    return texts, shown
 
 
 class Daemon:
@@ -832,10 +842,13 @@ class Daemon:
         `related_threshold` is now that narrowing floor rather than a verdict,
         which is why it sits well below where a verdict would have to.
         """
+        now = get_current_ts()
+        window = int(self.config.get("candidate_window", CANDIDATE_WINDOW))
         candidates = nearest_clusters(
             cluster,
-            posted_clusters.get_embedded_clusters(get_current_ts(), issue_name),
+            posted_clusters.get_embedded_clusters(now, issue_name, window),
             threshold=float(self.config["related_threshold"]),
+            now=now,
         )
         return self.judge(cluster, candidates, "publish")
 
@@ -849,8 +862,27 @@ class Daemon:
 
         The shadow never raises into the daemon: a failure to ask or to write
         leaves the LLM's verdict standing and costs one log line.
+
+        An answer is kept for the life of the process, keyed by what the
+        prompt showed: the story's texts and the candidates' published words.
+        Asked again, the same question is the same prompt, and a story that is
+        held — its text could not be written, Telegram did not answer — comes
+        back to this boundary on every iteration until it goes out.
         """
+        # Made on first use rather than in `__init__`, which the tests skip to
+        # build a daemon without its models.
+        judgments: dict[tuple[Any, ...], Relation] = self.__dict__.setdefault(
+            "judgments", {}
+        )
+        key = _judgment_key(story, candidates)
+        cached = judgments.get(key)
+        if cached is not None:
+            return cached
         relation = judge_relation(story, candidates)
+        if relation.verdict != FAILED:
+            if len(judgments) >= MAX_JUDGMENTS:
+                judgments.pop(next(iter(judgments)))
+            judgments[key] = relation
         if self.relation_shadow is None or not self.relation_shadow.enabled:
             return relation
         try:

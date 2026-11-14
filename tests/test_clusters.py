@@ -907,3 +907,21 @@ def test_a_failed_analysis_is_asked_again_by_the_next_iteration(monkeypatch) -> 
 
     assert retried.headline == "Заголовок"
     assert not retried.analysis_failed
+
+
+def test_the_candidate_window_counts_from_when_the_post_went_out() -> None:
+    """The first channel of the Kraków shooting wrote more than a day before
+    "the shooter died in hospital", though the posts themselves went out
+    later; counted from that first channel, the whole thread had left the
+    window."""
+    now = 1794150000
+    cluster = _make_multi_channel_cluster()
+    for doc in cluster.docs:
+        doc.pub_time = now - 26 * 3600
+    cluster.create_time = now - 20 * 3600
+    cluster.embedding_mean = [1.0, 0.0]
+    clusters = Clusters()
+    clusters.add(cluster)
+
+    assert clusters.get_embedded_clusters(now, "main") == [cluster]
+    assert clusters.get_embedded_clusters(now, "main", window=12 * 3600) == []

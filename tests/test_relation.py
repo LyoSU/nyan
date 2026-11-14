@@ -58,21 +58,72 @@ def _patch_llm(monkeypatch: Any, response: str) -> list[dict[str, Any]]:
     return calls
 
 
-def test_only_close_enough_and_older_clusters_are_candidates() -> None:
+def test_only_close_enough_clusters_are_candidates() -> None:
     """Who is worth asking about.
 
     The floor is set for recall rather than precision — the judge is what
-    decides, so a candidate only has to be plausible. Anything published after
-    this story cannot be what this story is a development of.
+    decides, so a candidate only has to be plausible.
     """
     story = _cluster([1.0, 0.0], age_seconds=600)
     close = _cluster([0.99, 0.14], message_id=1, age_seconds=3600)
     distant = _cluster([0.0, 1.0], message_id=2, age_seconds=3600)
-    newer = _cluster([1.0, 0.0], message_id=3, age_seconds=10)
 
-    candidates = nearest_clusters(story, [close, distant, newer])
+    assert nearest_clusters(story, [close, distant]) == [close]
 
-    assert candidates == [close]
+
+def test_a_post_with_newer_sources_is_still_a_candidate() -> None:
+    """"У Києві після падіння БпЛА загорілося авто", then four minutes later
+    "Уламки БпЛА впали на дорогу в Києві" — 0.969 apart, and never compared:
+    the second cluster held an earlier channel's post, so the published one
+    looked newer than the story and was dropped as a candidate."""
+    story = _cluster([1.0, 0.0], age_seconds=1800, text="Уламки БпЛА впали на дорогу в Києві")
+    published = _cluster(
+        [0.99, 0.14],
+        message_id=1,
+        age_seconds=600,
+        text="У Києві після падіння БпЛА загорілося авто",
+    )
+
+    assert nearest_clusters(story, [published]) == [published]
+
+
+def _published_ago(
+    embedding: list[float], message_id: int, hours: float, reply_to: int | None = None
+) -> Cluster:
+    cluster = _cluster(embedding, message_id=message_id, age_seconds=int(hours * 3600) + 600)
+    cluster.clid = 70000 + message_id
+    cluster.create_time = get_current_ts() - int(hours * 3600)
+    cluster.reply_to_clid = reply_to
+    return cluster
+
+
+def test_a_thread_takes_one_slot() -> None:
+    """Twelve posts on the Kraków shooting were each other's nearest
+    neighbours; offered one by one they took every slot."""
+    root = _published_ago([1.0, 0.0], 1, 5)
+    reply = _published_ago([1.0, 0.01], 2, 4, reply_to=root.clid)
+    reply_of_reply = _published_ago([1.0, 0.02], 3, 3, reply_to=reply.clid)
+    other = _published_ago([0.95, 0.31], 4, 2)
+    story = _cluster([1.0, 0.012])
+
+    candidates = nearest_clusters(story, [root, reply, reply_of_reply, other], now=get_current_ts())
+
+    assert candidates == [reply, other]
+
+
+def test_an_older_post_has_to_be_much_closer() -> None:
+    """Past a day only a near-copy is offered: "вибухи в Києві" reads the same
+    every night, while "the Kraków shooter died in hospital" sat at 0.97 to
+    the shooting's posts of the day before."""
+    now = get_current_ts()
+    yesterday_close = _published_ago([0.97, 0.243], 1, 30)
+    yesterday_loose = _published_ago([0.9, 0.436], 2, 30)
+    today_loose = _published_ago([0.9, 0.436], 3, 3)
+    story = _cluster([1.0, 0.0])
+
+    candidates = nearest_clusters(story, [yesterday_close, yesterday_loose, today_loose], now=now)
+
+    assert candidates == [yesterday_close, today_loose]
 
 
 def test_candidates_are_capped_and_ordered_by_closeness() -> None:

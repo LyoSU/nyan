@@ -56,6 +56,20 @@ CANDIDATE_SIMILARITY = 0.86
 # something is a development of the closest thing, not the seventh closest.
 MAX_CANDIDATES = 3
 
+# How far back a story's thread is looked for. A day was too short: "the Kraków
+# shooter died in hospital" went out on its own 21 hours after the shooting's
+# own posts, because the window was measured from the first channel's post
+# rather than from when the post went out. Three days is what the daemon keeps
+# loaded anyway (`clusters_offset`).
+CANDIDATE_WINDOW = 3 * 24 * 3600
+
+# Past this age a post has to be much closer to be offered. Nearly every pair of
+# posts a day apart clears 0.86 — "вибухи в Києві" is written the same way every
+# night — and three days of them crowd the day's own thread out of the three
+# slots. The Kraków posts sat at 0.96-0.97 to each other across the day.
+RECENT_WINDOW = 24 * 3600
+OLDER_SIMILARITY = 0.94
+
 
 @dataclass(frozen=True)
 class Relation:
@@ -68,21 +82,33 @@ def nearest_clusters(
     published: Sequence[Cluster],
     limit: int = MAX_CANDIDATES,
     threshold: float = CANDIDATE_SIMILARITY,
+    now: int | None = None,
 ) -> list[Cluster]:
-    """The published posts this story might be about, closest first."""
+    """The published posts this story might be about, closest first.
+
+    One per thread. A story that ran as a chain of replies is one story to the
+    reader, and its posts are each other's nearest neighbours: offered one by
+    one they filled every slot, and nothing else was ever asked about. The
+    thread is represented by its member closest to this story.
+
+    No order in time is required. A post that went out is out, whenever its
+    sources were written; dropping candidates whose sources were newer than
+    this story's let "free travel in Kyiv" and a car burning after a drone
+    strike go out twice, 13 and 4 minutes apart: the second cluster held an
+    earlier channel's post, so it looked older than the post it repeated. Over
+    the week that rule hid a closer candidate from 127 of 368 posts.
+    """
     pivot = cluster.embedding
     if not pivot:
         return []
     vector = _unit(pivot)
     if vector is None:
         return []
+    by_clid = {c.clid: c for c in published if c.clid is not None}
 
-    scored: list[tuple[float, int, Cluster]] = []
+    best: dict[int, tuple[float, int, Cluster]] = {}
     for index, candidate in enumerate(published):
         if not candidate.messages:
-            continue
-        # A post published after this story cannot be what it develops.
-        if candidate.pub_time_percentile > cluster.pub_time_percentile:
             continue
         embedding = candidate.embedding
         if not embedding or len(embedding) != len(pivot):
@@ -91,14 +117,38 @@ def nearest_clusters(
         if other is None:
             continue
         similarity = float(vector @ other)
-        if similarity < threshold:
+        floor = threshold
+        if now is not None and now - (candidate.create_time or now) > RECENT_WINDOW:
+            floor = max(threshold, OLDER_SIMILARITY)
+        if similarity < floor:
             continue
+        thread = thread_root(candidate, by_clid)
         # The index breaks ties without reaching for the cluster itself, which
         # has no ordering, and keeps the result stable across runs.
-        scored.append((-similarity, index, candidate))
+        scored = (-similarity, index, candidate)
+        if thread not in best or scored[:2] < best[thread][:2]:
+            best[thread] = scored
 
-    scored.sort(key=lambda item: (item[0], item[1]))
-    return [candidate for _, _, candidate in scored[:limit]]
+    ranked = sorted(best.values(), key=lambda item: (item[0], item[1]))
+    return [candidate for _, _, candidate in ranked[:limit]]
+
+
+def thread_root(cluster: Cluster, by_clid: dict[int, Cluster]) -> int:
+    """The id of the first post of the thread this one stands in.
+
+    Followed only as far as the posts at hand go: a parent that has left the
+    window is where the thread starts as far as this pass is concerned.
+    """
+    seen: set[int] = set()
+    current = cluster
+    while (
+        current.reply_to_clid is not None
+        and current.reply_to_clid in by_clid
+        and current.reply_to_clid not in seen
+    ):
+        seen.add(current.reply_to_clid)
+        current = by_clid[current.reply_to_clid]
+    return current.clid if current.clid is not None else -id(current)
 
 
 def judge_relation(
