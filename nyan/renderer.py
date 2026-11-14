@@ -348,6 +348,36 @@ def without_quote_marks(text: RichText) -> RichText:
     return strip(text)
 
 
+def normalized(text: str) -> str:
+    """Lower case, letters and digits only, single spaces: for comparing wording."""
+    text = text.lower().replace("’", "").replace("'", "")
+    return " ".join(re.sub(r"[^\w]+", " ", text).split())
+
+
+def said_in(change: str, headline: str) -> bool:
+    """Whether the change line would only repeat the headline."""
+    short = normalized(change)
+    return bool(short) and short in normalized(headline)
+
+
+def original_headline(cluster: Cluster) -> str | None:
+    """The headline the post first went out with, if it is known.
+
+    The first revision a rewrite records is the published version, timed at
+    the post's creation. Older ones fall off past MAX_REVISIONS; then the
+    start is no longer known and is not made up.
+    """
+    analysis = cluster.saved_analysis or {}
+    revisions = analysis.get("revisions") or []
+    if revisions:
+        first = revisions[0]
+        created = cluster.create_time or 0
+        if abs(int(first.get("time") or 0) - created) <= 60 and first.get("headline"):
+            return str(first["headline"])
+        return None
+    return cluster.stored_headline
+
+
 def is_attributed(block: Block) -> bool:
     """The "Пишуть окремі джерела" title, in the list shape or the old inline one."""
     if block.get("type") != "paragraph":
@@ -357,8 +387,8 @@ def is_attributed(block: Block) -> bool:
     return text == title or (isinstance(text, list) and bool(text) and text[0] == title)
 
 
-# Said on its own line above a breaking post's headline.
-BREAKING_LABEL = "🔴 Терміново"
+# Said on its own line above a breaking post's headline, unless the config says otherwise.
+BREAKING_LABEL = "🔴 Важливо"
 
 
 def is_byline(block: Block) -> bool:
@@ -429,6 +459,10 @@ class Renderer:
         # The legend of source marks on short lines, not one that runs off a
         # phone screen.
         self.short_legend = bool(presentation.get("short_legend"))
+        # The line above a post the editor called important. "Важливо", not
+        # "Терміново": the post is read hours later, when "urgent" is no
+        # longer true and "important" still is.
+        self.breaking_label = str(presentation.get("breaking_label") or BREAKING_LABEL)
         # Where each issue's channel lives, to link its earlier posts. An issue
         # with no address here gets no "Ще про це": a link has to lead to the
         # channel the reader is in, and on a host with one channel per rubric
@@ -592,11 +626,16 @@ class Renderer:
         published = cluster.create_time or get_current_ts()
         if self.show_updates and cluster.updates:
             at = 0 if headline_at is None else headline_at + 1
-            blocks.insert(at, self.render_update_line(cluster.updates[-1], published))
+            blocks.insert(
+                at,
+                self.render_update_line(
+                    cluster.updates[-1], published, cluster.stored_headline or ""
+                ),
+            )
 
         before_sources: list[Block] = []
         if self.show_updates and len(cluster.updates) > 1:
-            before_sources.append(self.render_update_table(cluster.updates, published))
+            before_sources.append(self.render_update_history(cluster, published))
         if self.show_storyline and cluster.storyline_posts:
             before_sources.extend(
                 self.render_more_on_this(cluster.storyline_posts, issue_name, published)
@@ -629,7 +668,7 @@ class Renderer:
             # 🔴, not ⚡: the headline prompts put ⚡ on power outages, so a
             # reader already takes it for energy, and an outage post would show
             # two. No `marked`: highlighted, the line reads as a small badge.
-            return [rich.paragraph(rich.bold(BREAKING_LABEL)), *blocks]
+            return [rich.paragraph(rich.bold(self.breaking_label)), *blocks]
         if level != "minor":
             return blocks
         result: list[Block] = []
@@ -711,23 +750,47 @@ class Renderer:
             return f"о {when:%H:%M}"
         return f"{self.say_date(moment, published)} о {when:%H:%M}"
 
-    def render_update_line(self, update: Mapping[str, Any], published: int) -> Block:
-        """ "оновлено о 14:20: загиблих троє" — the edit, said out loud."""
-        when = self.say_update_time(int(update["time"]), published)
-        return rich.paragraph(rich.italic(f"оновлено {when}: {update['text']}"))
+    def render_update_line(
+        self, update: Mapping[str, Any], published: int, headline: str = ""
+    ) -> Block:
+        """"оновлено о 14:20: загиблих троє" — the edit, said out loud.
 
-    def render_update_table(self, updates: Sequence[Mapping[str, Any]], published: int) -> Block:
-        """Every update to the event in one compact table, oldest first."""
+        Only the time when the change is what the rewritten headline already
+        says: "Загинула 44-річна жінка" stood in the headline, the line and the
+        table, three times over.
+        """
+        when = self.say_update_time(int(update["time"]), published)
+        change = str(update.get("text") or "")
+        if not change or said_in(change, headline):
+            return rich.paragraph(rich.italic(f"оновлено {when}"))
+        return rich.paragraph(rich.italic(f"оновлено {when}: {change}"))
+
+    def render_update_history(self, cluster: Cluster, published: int) -> Block:
+        """Every update in a folded table, starting from the post as it first went out.
+
+        The first row is the original headline: by now the headline has been
+        rewritten, and without it the reader cannot see where the story began.
+        """
         rows = []
-        for update in updates:
-            moment = int(update["time"])
-            when = ts_to_dt(moment, self.tz_name)
-            if when.date() == ts_to_dt(published, self.tz_name).date():
-                said = f"{when:%H:%M}"
-            else:
-                said = self.say_moment(moment, published)
-            rows.append([said, str(update["text"])])
-        return rich.table(rows, header=["Коли", "Що змінилося"], caption="Оновлення")
+        original = original_headline(cluster)
+        if original is not None:
+            rows.append([self.say_table_time(published, published), f"опубліковано: {original}"])
+        for update in cluster.updates:
+            rows.append(
+                [self.say_table_time(int(update["time"]), published), str(update["text"])]
+            )
+        # No width can be set for a column (a table cell has text, spans and
+        # alignment only), so the time is kept short instead.
+        return rich.details(
+            f"Оновлення: {len(cluster.updates)}",
+            rich.table(rows, header=["Коли", "Що змінилося"]),
+        )
+
+    def say_table_time(self, moment: int, published: int) -> str:
+        when = ts_to_dt(moment, self.tz_name)
+        if when.date() == ts_to_dt(published, self.tz_name).date():
+            return f"{when:%H:%M}"
+        return self.say_moment(moment, published)
 
     def render_more_on_this(
         self, posts: Sequence[Mapping[str, Any]], issue_name: str, published: int

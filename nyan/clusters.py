@@ -332,6 +332,11 @@ class Cluster:
         # same event: the post is rewritten now, whatever the coverage ladder
         # says. Not stored: it is an instruction for this iteration.
         self.force_rewrite: bool = False
+        # Set with `force_rewrite` when the reason is an update: the author is
+        # then told the headline it is rewriting, so that the headline stays
+        # about the event ("Удар по Запоріжжю: загиблих п’ятеро")
+        # instead of becoming the follow-up's ("кількість загиблих зросла").
+        self.rewrite_after_update: bool = False
 
         # Running mean of the members' vectors, kept unnormalized alongside the
         # number of documents that contributed, so that a cluster read back from
@@ -609,6 +614,17 @@ class Cluster:
         story covered by fifty channels would otherwise not fit a prompt.
         """
         by_channel: dict[str, Document] = {}
+        if self.rewrite_after_update:
+            # An update is new numbers, and they are in each channel's latest
+            # post: the same channels that wrote "one dead" at noon wrote
+            # "three dead" at two. With the earliest post per channel the
+            # author was shown the noon version again and kept "одна людина
+            # загинула" (11 November, Chornomorsk). What it said before is in
+            # the previous version the prompt carries.
+            for doc in sorted(self.docs, key=lambda d: d.pub_time):
+                by_channel[doc.channel_id] = doc
+            latest = sorted(by_channel.values(), key=lambda d: -d.pub_time)
+            return sorted(latest[:MAX_PROMPT_DOCS], key=lambda d: d.pub_time)
         for doc in sorted(self.docs, key=lambda d: d.pub_time):
             by_channel.setdefault(doc.channel_id, doc)
         docs = list(by_channel.values())
@@ -686,6 +702,9 @@ class Cluster:
             reply_to_text=self.reply_to_text,
             reply_to_thread=self.reply_to_thread,
             previous_post=previous_post,
+            updated_headline=(
+                saved.get("headline") or "" if saved and self.rewrite_after_update else ""
+            ),
         )
 
         analysis: dict[str, Any] = {"headline": None, "generation": current}
@@ -743,6 +762,7 @@ class Cluster:
 
         self.saved_analysis = analysis
         self.force_rewrite = False
+        self.rewrite_after_update = False
         if len(_ANALYSIS_CACHE) >= _ANALYSIS_CACHE_MAX_SIZE:
             _ANALYSIS_CACHE.pop(next(iter(_ANALYSIS_CACHE)))
         _ANALYSIS_CACHE[cache_key] = analysis

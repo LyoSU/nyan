@@ -87,25 +87,63 @@ def test_an_update_is_said_under_the_headline(tmp_path: Any, channels: Channels)
         "type": "italic",
         "text": "оновлено о 14:30: у лікарні померли двоє постраждалих",
     }
-    assert "table" not in types(post), "one update is a line, not a history"
+    assert "Оновлення" not in json.dumps(post.blocks, ensure_ascii=False), "a line, not a history"
 
 
-def test_several_updates_add_a_table_before_the_sources(tmp_path: Any, channels: Channels) -> None:
+def updates_table(post: RenderedPost | None) -> dict[str, Any]:
+    assert post is not None and post.blocks is not None
+    folded = next(
+        b for b in post.blocks if b["type"] == "details" and b["summary"].startswith("Оновлення")
+    )
+    assert folded["blocks"][0]["type"] == "table"
+    return folded
+
+
+def test_several_updates_fold_into_a_history_from_the_first_version(
+    tmp_path: Any, channels: Channels
+) -> None:
     cluster = story()
     cluster.updates = [{"time": 1794390000, "text": "загинула людина"}, DEATHS]
 
     post = make_renderer(tmp_path, channels, **ALL_ON).render_cluster(cluster, "main")
 
-    kinds = types(post)
-    assert kinds.index("table") < len(kinds) - 3
-    assert post is not None and post.blocks is not None
-    table = post.blocks[kinds.index("table")]
-    assert [row[1]["text"] for row in table["cells"][1:]] == [
-        "загинула людина",
-        "у лікарні померли двоє постраждалих",
+    folded = updates_table(post)
+    assert folded["summary"] == "Оновлення: 2"
+    rows = folded["blocks"][0]["cells"][1:]
+    assert [[cell["text"] for cell in row] for row in rows] == [
+        ["11:00", "опубліковано: На Одещині загинув чоловік, троє людей постраждали"],
+        ["11:40", "загинула людина"],
+        ["14:30", "у лікарні померли двоє постраждалих"],
     ]
-    assert [row[0]["text"] for row in table["cells"][1:]] == ["11:40", "14:30"]
+    assert post is not None and post.blocks is not None
     assert post.blocks[1]["text"]["text"].endswith("двоє постраждалих"), "latest on top"
+    assert "table" not in types(post), "the history is folded, not in the body"
+
+
+def test_the_history_starts_from_the_headline_before_the_rewrites(
+    tmp_path: Any, channels: Channels
+) -> None:
+    cluster = story("У Києві загинула 44-річна жінка")
+    cluster.saved_analysis["revisions"] = [
+        {"time": PUBLISHED, "headline": "У Солом’янському районі постраждала людина"},
+        {"time": PUBLISHED + 600, "headline": "Постраждалих двоє"},
+    ]
+    cluster.updates = [{"time": PUBLISHED + 540, "text": "постраждалих двоє"}, DEATHS]
+
+    post = make_renderer(tmp_path, channels, **ALL_ON).render_cluster(cluster, "main")
+
+    first = updates_table(post)["blocks"][0]["cells"][1]
+    assert first[1]["text"] == "опубліковано: У Солом’янському районі постраждала людина"
+
+
+def test_an_update_line_does_not_repeat_the_headline(tmp_path: Any, channels: Channels) -> None:
+    cluster = story("У Києві загинула 44-річна жінка")
+    cluster.updates = [{"time": 1794400200, "text": "Загинула 44-річна жінка."}]
+
+    post = make_renderer(tmp_path, channels, **ALL_ON).render_cluster(cluster, "main")
+
+    assert post is not None and post.blocks is not None
+    assert post.blocks[1]["text"] == {"type": "italic", "text": "оновлено о 14:30"}
 
 
 def test_more_on_this_links_into_the_readers_own_channel(tmp_path: Any, channels: Channels) -> None:
@@ -140,7 +178,7 @@ def test_breaking_has_a_label_and_rings(tmp_path: Any, channels: Channels) -> No
     post = make_renderer(tmp_path, channels, **ALL_ON).render_cluster(cluster, "main")
 
     assert post is not None and post.blocks is not None
-    assert post.blocks[0] == {"type": "paragraph", "text": {"type": "bold", "text": "🔴 Терміново"}}
+    assert post.blocks[0] == {"type": "paragraph", "text": {"type": "bold", "text": "🔴 Важливо"}}
     assert post.blocks[1]["type"] == "heading", "the label is its own line above the headline"
     assert post.notify is True
 
@@ -251,8 +289,8 @@ def test_an_update_on_a_later_day_names_the_day(tmp_path: Any, channels: Channel
 
     assert post is not None and post.blocks is not None
     assert post.blocks[1]["text"]["text"] == "оновлено 12 листопада о 09:10: загиблих троє"
-    table = next(b for b in post.blocks if b["type"] == "table")
-    assert [row[0]["text"] for row in table["cells"][1:]] == ["14:30", "12 листопада, 09:10"]
+    table = updates_table(post)["blocks"][0]
+    assert [row[0]["text"] for row in table["cells"][2:]] == ["14:30", "12 листопада, 09:10"]
 
 
 def test_a_date_from_another_year_carries_the_year(tmp_path: Any, channels: Channels) -> None:
@@ -301,10 +339,13 @@ def test_an_update_rewrites_the_headline_and_keeps_its_line(
         "headline": "У Чорноморську загинули троє людей",
         "blocks": [{"type": "text", "text": "У лікарні померли двоє постраждалих."}],
     }
-    monkeypatch.setattr(
-        "nyan.clusters.openai_completion",
-        lambda **kwargs: json.dumps(rewrite, ensure_ascii=False),
-    )
+    asked: list[Any] = []
+
+    def author(**kwargs: Any) -> str:
+        asked.append(kwargs)
+        return json.dumps(rewrite, ensure_ascii=False)
+
+    monkeypatch.setattr("nyan.clusters.openai_completion", author)
     monkeypatch.setattr("nyan.clusters._ANALYSIS_CACHE", {})
 
     daemon.send_cluster(
@@ -321,6 +362,9 @@ def test_an_update_rewrites_the_headline_and_keeps_its_line(
     assert blocks[0]["type"] == "heading"
     assert "У Чорноморську загинули троє людей" in json.dumps(blocks[0], ensure_ascii=False)
     assert blocks[1]["text"] == {"type": "italic", "text": "оновлено о 10:00: загиблих стало троє"}
+    prompt = "\n".join(str(m["content"]) for m in asked[0]["messages"])
+    assert 'названо так: "Удар по ринку в Чорноморську: одна людина загинула"' in prompt
+    assert parent.rewrite_after_update is False, "only that one rewrite"
 
 
 def test_a_minor_post_keeps_its_photo_and_drops_what_single_channels_add(
@@ -383,3 +427,32 @@ def test_a_channels_own_quote_marks_do_not_go_into_our_quote(
         " і викликав медиків > не маркер.\nНападнику повідомили про підозру.",
     ]
     assert without_quote_marks({"type": "bold", "text": "> Х"}) == {"type": "bold", "text": "Х"}
+
+
+def test_the_label_of_an_important_post_comes_from_the_config(
+    tmp_path: Any, channels: Channels
+) -> None:
+    cluster = story()
+    cluster.level = "breaking"
+    config = {"presentation": {**ALL_ON["presentation"], "breaking_label": "Головне"}}
+
+    post = make_renderer(tmp_path, channels, **config).render_cluster(cluster, "main")
+
+    assert post is not None and post.blocks is not None
+    assert post.blocks[0]["text"] == {"type": "bold", "text": "Головне"}
+
+
+def test_an_update_shows_the_author_each_channels_latest_post() -> None:
+    """11 November: the same channels wrote "one dead" at noon and "three" at two;
+    shown the noon posts, the author kept "одна людина загинула"."""
+    from nyan.clusters import Cluster
+    from tests.test_editor import _doc
+
+    cluster = Cluster()
+    for channel in ("rbc_news", "nexta_live"):
+        cluster.add(_doc(f"https://t.me/{channel}/1", "Одна людина загинула", 150, [1.0, 0.0]))
+        cluster.add(_doc(f"https://t.me/{channel}/2", "Загиблих троє", 10, [1.0, 0.0]))
+
+    assert {doc.text for doc in cluster.prompt_docs} == {"Одна людина загинула"}
+    cluster.rewrite_after_update = True
+    assert {doc.text for doc in cluster.prompt_docs} == {"Загиблих троє"}

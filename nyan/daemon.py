@@ -650,6 +650,7 @@ class Daemon:
                 # ninety minutes, each a new count.
                 if decision.relation == editor.UPDATE and editable:
                     post.force_rewrite = True
+                    post.rewrite_after_update = True
                     post.updates.append(
                         {"time": get_current_ts(), "text": decision.change or decision.why}
                     )
