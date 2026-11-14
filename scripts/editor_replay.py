@@ -340,7 +340,7 @@ def main() -> None:
             doc.fetch_time = now
         if len(pool) > 1:
             clusters = clusterer(pool, posted.published_documents())
-            candidates = daemon.editor_candidates(clusters)
+            candidates = daemon.ranker.candidates(clusters, args.min_sources)
             if args.trace:
                 trace(args.trace, now, clusters, candidates.get("main", []), daemon)
             daemon.held_now.clear()
