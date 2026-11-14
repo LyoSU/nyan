@@ -925,3 +925,46 @@ def test_the_candidate_window_counts_from_when_the_post_went_out() -> None:
 
     assert clusters.get_embedded_clusters(now, "main") == [cluster]
     assert clusters.get_embedded_clusters(now, "main", window=12 * 3600) == []
+
+
+def _thread_post(clid: int, headline: str, reply_to: int | None, hour: int) -> Cluster:
+    post = _make_cluster(f"https://t.me/thread/{clid}", message_id=clid)
+    post.clid = clid
+    post.reply_to_clid = reply_to
+    post.create_time = 1794063600 + hour * 3600
+    post.saved_analysis = {"headline": headline, "generation": post.generation}
+    return post
+
+
+def test_the_writer_sees_the_thread_above_the_parent(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """The Kraków shooting ran as a chain of twelve posts; a reply three down
+    was written knowing only its parent."""
+    clusters = Clusters()
+    first = _thread_post(66150, "У центрі Кракова сталася стрілянина", None, 0)
+    second = _thread_post(66160, "ЗМІ повідомляють про затримання стрілка в Кракові", 66150, 1)
+    parent = _thread_post(66170, "Поліція поранила стрільця під час затримання", 66160, 2)
+    for post in (first, second, parent):
+        clusters.add(post)
+
+    thread = clusters.thread_before(parent)
+
+    assert [line.split(" — ")[1] for line in thread] == [
+        "У центрі Кракова сталася стрілянина",
+        "ЗМІ повідомляють про затримання стрілка в Кракові",
+    ]
+
+    story = _make_multi_channel_cluster()
+    story.reply_to_headline = parent.stored_headline or ""
+    story.reply_to_thread = thread
+    calls = _patch_llm(monkeypatch)
+    assert story.summary
+    assert "У центрі Кракова сталася стрілянина" in prompt_text(calls[0])
+    assert Cluster.deserialize(story.serialize()).reply_to_thread == thread
+
+
+def test_a_post_with_no_thread_above_it_shows_none(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    story = _make_multi_channel_cluster()
+    story.reply_to_headline = "У центрі Кракова сталася стрілянина"
+    calls = _patch_llm(monkeypatch)
+    assert story.summary
+    assert "А до нього в цій історії" not in prompt_text(calls[0])

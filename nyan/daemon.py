@@ -481,6 +481,7 @@ class Daemon:
                 # published.
                 cluster.reply_to_headline = parent.stored_headline or ""
                 cluster.reply_to_text = parent.stored_summary.as_text()
+                cluster.reply_to_thread = posted_clusters.thread_before(parent)
 
         post = self.renderer.render_cluster(cluster, issue_name)
         if post is None:

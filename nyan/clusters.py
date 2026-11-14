@@ -130,6 +130,10 @@ MAX_TITLE_WORDS = 14
 # `nyan.media.select_media`, which also owns the thresholds it needs.
 MAX_CLUSTER_MEDIA = 4
 
+# Earlier posts of a thread shown to the writer above the one it replies to.
+# Threads grow as chains up to six deep; their headlines are a line each.
+MAX_THREAD_LINES = 6
+
 # Documents sent to the LLM. Enough for a well-covered story to be summarized
 # from several angles, few enough that a story on fifty channels still fits.
 MAX_PROMPT_DOCS = 12
@@ -290,6 +294,11 @@ class Cluster:
         # and the post it answers into one thread. Only the Telegram reply
         # recorded the link before, and the site cannot read a reply.
         self.reply_to_clid: int | None = None
+        # The posts before that one in the same thread, oldest first, each as
+        # "time — headline". A follow-up three posts down a chain was written
+        # knowing only its parent, so it could re-tell what the thread's first
+        # post had said: the Kraków shooting ran as twelve posts.
+        self.reply_to_thread: list[str] = []
 
         self.saved_annotation_doc: Document | None = None
         self.saved_first_doc: Document | None = None
@@ -653,6 +662,7 @@ class Cluster:
             today=today,
             reply_to_headline=self.reply_to_headline,
             reply_to_text=self.reply_to_text,
+            reply_to_thread=self.reply_to_thread,
             previous_post=previous_post,
         )
 
@@ -894,6 +904,7 @@ class Cluster:
             "reply_to_headline": self.reply_to_headline,
             "reply_to_text": self.reply_to_text,
             "reply_to_clid": self.reply_to_clid,
+            "reply_to_thread": self.reply_to_thread,
             "embedding": self.embedding_mean,
             "embedding_count": self.embedding_count,
             # Sorted rather than a bare set dump: the dict is compared against
@@ -966,6 +977,7 @@ class Cluster:
         cluster.reply_to_text = d.get("reply_to_text") or ""
         # Absent in clusters published before the link was kept.
         cluster.reply_to_clid = d.get("reply_to_clid")
+        cluster.reply_to_thread = list(d.get("reply_to_thread") or [])
         # Absent in clusters stored before refusals were remembered; those pay
         # for one more question each and then carry the answer like the rest.
         cluster.refused_docs = {
@@ -1116,6 +1128,24 @@ class Clusters:
                 continue
             filtered_clusters.append(cluster)
         return filtered_clusters
+
+    def thread_before(self, parent: Cluster, limit: int = MAX_THREAD_LINES) -> list[str]:
+        """The posts above `parent` in its thread, oldest first, as a prompt shows them.
+
+        Only what was published and is still loaded: a thread's start that has
+        left `clusters_offset` is simply not mentioned. The newest are kept
+        when there are too many, since they are what the reader saw last.
+        """
+        lines: list[str] = []
+        seen = {parent.clid}
+        current = self.clid2cluster.get(parent.reply_to_clid or -1)
+        while current is not None and current.clid not in seen:
+            seen.add(current.clid)
+            if current.stored_headline:
+                when = ts_to_dt(current.create_time or current.pub_time).strftime("%H:%M, %d.%m")
+                lines.append(f"{when} — {current.stored_headline}")
+            current = self.clid2cluster.get(current.reply_to_clid or -1)
+        return list(reversed(lines[:limit]))
 
     def add(self, cluster: Cluster) -> None:
         if cluster.clid is None:
