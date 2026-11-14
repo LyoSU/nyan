@@ -10,6 +10,7 @@
     "pending_send_ttl": 10800,
     "follow_up_gap": 3600,
     "follow_up_hold": 3600,
+    "llm_stall_minutes": 30,
     "jev_relation_shadow": {
         "questions_path": "configs/jev_relation_questions.json",
         "same_event": 0.8,

@@ -1020,3 +1020,32 @@ def test_a_failed_judgment_is_asked_again(monkeypatch: Any) -> None:
     daemon.find_relation(_cluster([1.0, 0.02]), posted, "main")
 
     assert len(seen) == 2
+
+
+def test_held_stories_are_counted_in_one_line_and_turn_into_an_error(
+    monkeypatch: Any, caplog: Any
+) -> None:
+    """An outage that runs long must reach whoever can fix it, not the reader."""
+    daemon = _daemon(llm_stall_minutes=30)
+    daemon.renderer = _FakeRenderer()  # type: ignore[assignment]
+    daemon.client = _FakeClient()  # type: ignore[assignment]
+    parent = _cluster([1.0, 0.0], message_id=11, headline="Вибух", age_seconds=3600)
+    _patch_judge(monkeypatch, FAILED)
+    now = get_current_ts()
+
+    with caplog.at_level("INFO"):
+        daemon.held_now.clear()
+        daemon.send_cluster(_cluster([1.0, 0.01]), "main", _posted(parent), None, None)
+        daemon.report_holds(now)
+        assert "Held for the LLM: 1, oldest 0 min, judge 1, writer 0" in caplog.text
+        assert "stalled" not in caplog.text
+
+        daemon.held_now.clear()
+        daemon.send_cluster(_cluster([1.0, 0.01]), "main", _posted(parent), None, None)
+        daemon.report_holds(now + 31 * 60)
+        assert "oldest 31 min" in caplog.text
+        assert "the feed is stalled" in caplog.text
+
+        daemon.held_now.clear()
+        daemon.report_holds(now + 32 * 60)
+        assert "Held for the LLM: 0" in caplog.text

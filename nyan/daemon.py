@@ -41,6 +41,17 @@ from nyan.document import (
 from nyan.util import get_current_ts, normalize_url, ts_to_dt
 
 
+# Why a story is being held: the relation judge or the writer did not answer.
+HELD_JUDGE = "judge"
+HELD_WRITER = "writer"
+
+# How long the oldest held story may wait before the hold line turns into an
+# error. Half an hour is longer than any burst of failures in the week of 7-14
+# November (they came a third of the time on one day, not as a solid outage),
+# and short enough that a real outage is noticed while its stories still fit
+# the ranker's six-hour pool.
+DEFAULT_LLM_STALL_MINUTES = 30
+
 # Judge answers kept per process; a day of questions is far below this.
 MAX_JUDGMENTS = 4096
 
@@ -199,6 +210,7 @@ class Daemon:
         logging.info("%d clusters in all issues after filtering", num_clusters)
         self.shadow_rank(new_clusters, ranked_clusters, mongo_config_path)
 
+        self.held_now.clear()
         for issue, clusters in self.drop_unpostable_issues(ranked_clusters).items():
             for cluster in clusters:
                 self.send_cluster(
@@ -208,6 +220,7 @@ class Daemon:
                     posted_clusters_path,
                     mongo_config_path,
                 )
+        self.report_holds(get_current_ts())
 
         if posted_clusters_path:
             posted_clusters.save(posted_clusters_path)
@@ -215,6 +228,55 @@ class Daemon:
         if mongo_config_path:
             saved_count = posted_clusters.save_to_mongo(mongo_config_path)
             logging.info("%d clusters saved to Mongo", saved_count)
+
+    @property
+    def held_now(self) -> dict[str, str]:
+        """Stories held for the LLM in this iteration, and which call failed.
+
+        Made on first use, like `first_held`, rather than in `__init__`, which
+        the tests skip.
+        """
+        held: dict[str, str] = self.__dict__.setdefault("_held_now", {})
+        return held
+
+    @property
+    def first_held(self) -> dict[str, int]:
+        """When each of those stories was first held, carried across iterations."""
+        first: dict[str, int] = self.__dict__.setdefault("_first_held", {})
+        return first
+
+    def hold(self, cluster: Cluster, issue_name: str, reason: str) -> None:
+        key = f"{issue_name} {normalize_url(cluster.first_doc.url)}"
+        self.held_now[key] = reason
+        self.first_held.setdefault(key, get_current_ts())
+
+    def report_holds(self, now: int) -> None:
+        """One line per iteration on what is waiting for the LLM, for an alert to read.
+
+        Held stories are not published by some other path when the outage runs
+        long. Every other path is the one this replaced: a post in one
+        channel's words, or a story nobody checked against what the channel
+        already said — 22 of the one and three duplicates of the other in a
+        single week. A feed that goes quiet during an outage tells the reader
+        nothing false; the people who can fix it are told instead, here.
+
+        A story leaves the count when it is published, folded into a post, or
+        drops out of the ranker's pool by age.
+        """
+        first = {key: self.first_held.get(key, now) for key in self.held_now}
+        self.__dict__["_first_held"] = first
+        if not first:
+            logging.info("Held for the LLM: 0")
+            return
+        oldest = (now - min(first.values())) // 60
+        reasons = Counter(self.held_now.values())
+        line = "Held for the LLM: %d, oldest %d min, judge %d, writer %d"
+        args = (len(first), oldest, reasons[HELD_JUDGE], reasons[HELD_WRITER])
+        stall = int(self.config.get("llm_stall_minutes", DEFAULT_LLM_STALL_MINUTES))
+        if oldest >= stall:
+            logging.error(line + ": the feed is stalled", *args)
+        else:
+            logging.warning(line, *args)
 
     def load_posted_clusters(
         self,
@@ -421,6 +483,7 @@ class Daemon:
             # Unjudged is not new. The story is still in the next iteration's
             # pool and is asked about again there.
             logging.warning("Could not judge, holding: %s", cluster.cropped_title)
+            self.hold(cluster, issue_name, HELD_JUDGE)
             return
         parent = relation.cluster
 
@@ -494,6 +557,7 @@ class Daemon:
             # headline of ours. Held instead and written on a later iteration:
             # a story late by minutes reads better than one that is not ours.
             logging.warning("No text written, holding: %s", cluster.cropped_title)
+            self.hold(cluster, issue_name, HELD_WRITER)
             return
         logging.info("New cluster in %s: %s", issue_name, cluster.cropped_title)
 
