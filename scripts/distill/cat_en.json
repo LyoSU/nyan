@@ -16,7 +16,7 @@
       },
       "economy": {
         "what": "money: prices, tariffs, the hryvnia, budget, taxes, banks, business, energy sector and power outages, social payments and pensions",
-        "not_for": "today's exchange rate as a routine daily post; a routine power-outage schedule for a day or a region, published or updated (emergency outages, damage to the grid and schedules being cancelled are stories)",
+        "not_for": "today's exchange rate or fuel prices as a routine daily post (a price jump or a forecast is a story); a routine power-outage schedule for a day or a region, published or updated (emergency outages, damage to the grid and schedules being cancelled are stories)",
         "examples": ["НБУ підвищив облікову ставку", "Укрзалізниця запроваджує нові тарифи"]
       },
       "incident": {
@@ -34,7 +34,7 @@
       "sports": {"what": "matches, athletes, results, transfers, interviews with athletes and coaches", "examples": ["Шахтар переміг у Лізі конференцій"]},
       "entertainment": {"what": "film, TV, music, games, celebrities, theatre, books, exhibitions", "examples": ["Вийшов трейлер нового фільму"]},
       "not_news": {
-        "what": "not a story: ads and promo, fundraising, event or stream announcements, opinion without a new event, greetings; operational: alerts, all-clear, drone and missile movement, threats, an explosion heard without what was hit; daily counters: N of M shot down, enemy losses per day, a night's attack summary even listing consequences, today's exchange rate, a power-outage schedule published or updated for a day or a region; digests: several different stories in one post, the day's or week's highlights; unit videos hitting ordinary vehicles or infantry; minute of silence, farewells",
+        "what": "not a story: ads and promo, fundraising, event or stream announcements, opinion without a new event, greetings; operational: alerts, all-clear, drone and missile movement, threats, an explosion heard without what was hit; daily counters: N of M shot down, enemy losses per day, a night's attack summary even listing consequences, today's exchange rate, today's fuel prices at filling stations as a routine daily post, a city's running traffic-jam reports, a power-outage schedule published or updated for a day or a region; digests: several different stories in one post, the day's or week's highlights; unit videos hitting ordinary vehicles or infantry; minute of silence, farewells",
         "not_for": "an event with consequences or a decision; a one-off report, rating, investigation, law explainer, interview or analysis with new facts: classify by topic; a fundraiser or event announced by the state, a company or a large organization",
         "examples": ["3х БпЛА курсом на Бровари", "У Києві пролунав вибух", "РФ атакувала 93 дронами, збито 69", "Головне за ніч: ...", "Підтримайте збір на дрони для бригади"]
       }
