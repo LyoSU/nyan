@@ -56,12 +56,17 @@ CANDIDATE_SIMILARITY = 0.86
 # something is a development of the closest thing, not the seventh closest.
 MAX_CANDIDATES = 3
 
-# How far back a story's thread is looked for. A day was too short: "the Kraków
-# shooter died in hospital" went out on its own 21 hours after the shooting's
-# own posts, because the window was measured from the first channel's post
-# rather than from when the post went out. Three days is what the daemon keeps
-# loaded anyway (`clusters_offset`).
-CANDIDATE_WINDOW = 3 * 24 * 3600
+# How far back a story's thread is looked for, counted from when each post went
+# out. Counted from its first channel instead, "the Kraków shooter died in
+# hospital" no longer saw the shooting's own posts and went out standalone.
+#
+# A day and not more, until the judge can tell a thread from a storyline. A
+# replay of 7-14 November with three days found the Kraków and Chornomorsk
+# threads, but also hung "protests in France" under protests two days earlier
+# and the daily blackout posts under each other: the judge has no answer for
+# "the same storyline" but "follow_up". `candidate_window` in the daemon config
+# widens it.
+CANDIDATE_WINDOW = 24 * 3600
 
 # Past this age a post has to be much closer to be offered. Nearly every pair of
 # posts a day apart clears 0.86 — "вибухи в Києві" is written the same way every
