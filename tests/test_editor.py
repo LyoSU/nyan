@@ -183,7 +183,7 @@ def _daemon() -> Daemon:
         "similar_min_intersection_ratio": 0.25,
         "max_time_updated": 10800,
         "sleep_time": 0,
-        "editor": {"enabled": True},
+        "editor": {"enabled": True, "full_sources": 0},
     }
     daemon.renderer = _Renderer()  # type: ignore[assignment]
     daemon.client = _Client()  # type: ignore[assignment]

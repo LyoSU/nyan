@@ -17,10 +17,10 @@ from nyan.clusterer import Clusterer
 from nyan.channels import Channels
 from nyan.logs import log_new_iteration
 from nyan.publish import notify_published
-from nyan.ranker import Ranker
+from nyan.ranker import Ranker, independent_sources
 from nyan.jev import JevRelationShadow
 from nyan.mongo import get_rank_shadow_collection, get_relation_shadow_collection
-from nyan.rank_shadow import SEEN_TTL, RankShadow, log_records
+from nyan.rank_shadow import SEEN_TTL, RankShadow, log_records, signals
 from nyan.relation import (
     CANDIDATE_WINDOW,
     FAILED,
@@ -51,9 +51,11 @@ HELD_EDITOR = "editor"
 # the ranker's four: the editor, not the count, decides whether a story with
 # three sources — a strike on Pavlohrad, three wounded — is worth a post.
 DEFAULT_EDITOR_MIN_SOURCES = 3.0
+# Below this many, the student has to call the story significant or urgent.
+DEFAULT_EDITOR_FULL_SOURCES = 4.0
+DEFAULT_EDITOR_MIN_SIGNIFICANCE = 3.0
 
-# How soon a story the editor held back, sent to the digest or skipped may be
-# asked about again, once its sources have changed.
+# How soon a story may be put to the editor again, once its coverage has grown.
 DEFAULT_REASK_MINUTES = 20
 
 # How long the oldest held story may wait before the hold line turns into an
@@ -566,6 +568,8 @@ class Daemon:
         mongo_config_path: str | None,
     ) -> None:
         """Act on the editor's decision about a story no post carries yet."""
+        if not self.worth_asking(cluster):
+            return
         decision = self.ask_editor(cluster, posted_clusters, issue_name)
         if decision is None:
             return
@@ -573,16 +577,12 @@ class Daemon:
             logging.warning("Editor did not answer, holding: %s", cluster.cropped_title)
             self.hold(cluster, issue_name, HELD_EDITOR)
             return
-        logging.info(
-            "Editor: %s/%s/%s for '%s'%s: %s",
-            decision.relation,
-            decision.decision,
-            decision.level,
-            cluster.cropped_title,
-            f" under '{decision.post.cropped_title}'" if decision.post else "",
-            decision.why,
-        )
-        post = decision.post
+        # By id, in this iteration's posts: a kept decision names the post as
+        # it was loaded when the editor was asked, and posts are loaded afresh
+        # every iteration.
+        post = None
+        if decision.post is not None and decision.post.clid is not None:
+            post = posted_clusters.clid2cluster.get(decision.post.clid)
         max_time_updated = self.config["max_time_updated"]
 
         if decision.relation in (editor.SAME, editor.UPDATE) and post is not None:
@@ -619,35 +619,53 @@ class Daemon:
             parent=parent,
         )
 
+    def worth_asking(self, cluster: Cluster) -> bool:
+        """Whether a story is worth a question to the editor yet.
+
+        Four newsrooms always are. Three are when the student reads the story
+        as significant or urgent: a strike on Pavlohrad with three wounded had
+        three sources, and asking about every three-source story would cost
+        some 360 calls a day where four cost 200 — most of the difference
+        stories the student already calls minor.
+        """
+        assert self.editor_config is not None
+        full = float(self.editor_config.get("full_sources", DEFAULT_EDITOR_FULL_SOURCES))
+        if independent_sources(cluster) >= full:
+            return True
+        found = signals(cluster)
+        if found is None:
+            return False
+        significant = float(
+            self.editor_config.get("min_significance", DEFAULT_EDITOR_MIN_SIGNIFICANCE)
+        )
+        return found.significance >= significant or found.urgent >= 0.5
+
     def ask_editor(
         self, cluster: Cluster, posted_clusters: Clusters, issue_name: str
     ) -> "editor.Decision | None":
-        """The editor's decision, asked once per version of the story.
+        """The editor's decision, asked again only when the story has grown.
 
-        Kept by what the prompt would show of the story — its texts — so the
-        story is asked about again only when a channel says something new.
-        A decision not to publish is asked again no sooner than
-        `reask_minutes` even then: a story gathering sources one channel at a
-        time would otherwise cost a call per channel. None means "not asked
-        now": the last answer stands and nothing is done.
+        A story is put to the editor on every iteration it stays in the pool,
+        and most of them gather channels one at a time for hours. Asked on
+        every change, a replay of 11 November cost some 450 calls a day for
+        stories the editor kept sending to the digest. So the answer is kept
+        per story and asked again only when its coverage has moved up a step
+        of the same ladder that decides rewrites (3, 5, 7, 11, 17 channels…),
+        and no sooner than `reask_minutes` after the last ask. Meanwhile the
+        last answer stands. None means there is nothing to act on.
         """
         assert self.editor_config is not None
         now = get_current_ts()
-        key = (issue_name, frozenset(
-            judged_text_key(doc) or normalize_url(doc.url) for doc in cluster.docs
-        ))
-        decisions: dict[Any, tuple[int, editor.Decision]] = self.__dict__.setdefault(
-            "_decisions", {}
+        asked: dict[str, tuple[int, str, editor.Decision]] = self.__dict__.setdefault(
+            "_editor_asked", {}
         )
-        last_asked: dict[str, tuple[int, str]] = self.__dict__.setdefault("_last_asked", {})
         identity = f"{issue_name} {normalize_url(cluster.first_doc.url)}"
-
-        if key in decisions:
-            return decisions[key][1]
-        previous = last_asked.get(identity)
+        previous = asked.get(identity)
         reask = int(self.editor_config.get("reask_minutes", DEFAULT_REASK_MINUTES)) * 60
-        if previous is not None and previous[1] != editor.PUBLISH and now - previous[0] < reask:
-            return None
+        if previous is not None and (
+            previous[1] == cluster.generation or now - previous[0] < reask
+        ):
+            return previous[2]
 
         published = [
             post
@@ -657,10 +675,18 @@ class Daemon:
         decision = editor.decide(cluster, published, now)
         if decision.failed:
             return decision
-        if len(decisions) >= MAX_JUDGMENTS:
-            decisions.pop(next(iter(decisions)))
-        decisions[key] = (now, decision)
-        last_asked[identity] = (now, decision.decision)
+        logging.info(
+            "Editor: %s/%s/%s for '%s'%s: %s",
+            decision.relation,
+            decision.decision,
+            decision.level,
+            cluster.cropped_title,
+            f" under '{decision.post.cropped_title}'" if decision.post else "",
+            decision.why,
+        )
+        if len(asked) >= MAX_JUDGMENTS:
+            asked.pop(next(iter(asked)))
+        asked[identity] = (now, cluster.generation, decision)
         return decision
 
     def publish(
