@@ -9,6 +9,7 @@ import numpy as np
 from numpy.typing import NDArray
 from collections import Counter as CounterT
 
+from nyan import editor
 from nyan.annotator import Annotator
 from nyan.client import MessageId, TelegramClient
 from nyan.clusters import Clusters, Cluster, judged_text_key
@@ -44,6 +45,16 @@ from nyan.util import get_current_ts, normalize_url, ts_to_dt
 # Why a story is being held: the relation judge or the writer did not answer.
 HELD_JUDGE = "judge"
 HELD_WRITER = "writer"
+HELD_EDITOR = "editor"
+
+# Newsrooms a story needs before the editor is asked about it. One fewer than
+# the ranker's four: the editor, not the count, decides whether a story with
+# three sources — a strike on Pavlohrad, three wounded — is worth a post.
+DEFAULT_EDITOR_MIN_SOURCES = 3.0
+
+# How soon a story the editor held back, sent to the digest or skipped may be
+# asked about again, once its sources have changed.
+DEFAULT_REASK_MINUTES = 20
 
 # How long the oldest held story may wait before the hold line turns into an
 # error. Half an hour is longer than any burst of failures in the week of 7-14
@@ -205,10 +216,17 @@ class Daemon:
         )
         logging.info("%d clusters overall", len(new_clusters))
 
-        ranked_clusters: dict[str, list[Cluster]] = self.ranker(new_clusters)
+        ranked_clusters: dict[str, list[Cluster]]
+        if self.editor_config:
+            ranked_clusters = self.ranker.candidates(
+                new_clusters,
+                float(self.editor_config.get("min_sources", DEFAULT_EDITOR_MIN_SOURCES)),
+            )
+        else:
+            ranked_clusters = self.ranker(new_clusters)
+            self.shadow_rank(new_clusters, ranked_clusters, mongo_config_path)
         num_clusters = sum(len(cl) for cl in ranked_clusters.values())
         logging.info("%d clusters in all issues after filtering", num_clusters)
-        self.shadow_rank(new_clusters, ranked_clusters, mongo_config_path)
 
         self.held_now.clear()
         for issue, clusters in self.drop_unpostable_issues(ranked_clusters).items():
@@ -270,8 +288,14 @@ class Daemon:
             return
         oldest = (now - min(first.values())) // 60
         reasons = Counter(self.held_now.values())
-        line = "Held for the LLM: %d, oldest %d min, judge %d, writer %d"
-        args = (len(first), oldest, reasons[HELD_JUDGE], reasons[HELD_WRITER])
+        line = "Held for the LLM: %d, oldest %d min, judge %d, writer %d, editor %d"
+        args = (
+            len(first),
+            oldest,
+            reasons[HELD_JUDGE],
+            reasons[HELD_WRITER],
+            reasons[HELD_EDITOR],
+        )
         stall = int(self.config.get("llm_stall_minutes", DEFAULT_LLM_STALL_MINUTES))
         if oldest >= stall:
             logging.error(line + ": the feed is stalled", *args)
@@ -475,6 +499,12 @@ class Daemon:
             )
             return
 
+        if self.editor_config:
+            self.send_edited(
+                cluster, issue_name, posted_clusters, posted_clusters_path, mongo_config_path
+            )
+            return
+
         # Looked up before rendering, not after: the post's text is written
         # lazily inside render_cluster, and the model has to know what the reader
         # already sees directly above this post.
@@ -518,6 +548,120 @@ class Daemon:
             mongo_config_path,
             parent=parent,
         )
+
+    @property
+    def editor_config(self) -> dict[str, Any] | None:
+        """The editor's settings, or None while the ranker and the judge decide."""
+        config = self.config.get("editor")
+        if not isinstance(config, dict) or not config.get("enabled"):
+            return None
+        return config
+
+    def send_edited(
+        self,
+        cluster: Cluster,
+        issue_name: str,
+        posted_clusters: Clusters,
+        posted_clusters_path: str | None,
+        mongo_config_path: str | None,
+    ) -> None:
+        """Act on the editor's decision about a story no post carries yet."""
+        decision = self.ask_editor(cluster, posted_clusters, issue_name)
+        if decision is None:
+            return
+        if decision.failed:
+            logging.warning("Editor did not answer, holding: %s", cluster.cropped_title)
+            self.hold(cluster, issue_name, HELD_EDITOR)
+            return
+        logging.info(
+            "Editor: %s/%s/%s for '%s'%s: %s",
+            decision.relation,
+            decision.decision,
+            decision.level,
+            cluster.cropped_title,
+            f" under '{decision.post.cropped_title}'" if decision.post else "",
+            decision.why,
+        )
+        post = decision.post
+        max_time_updated = self.config["max_time_updated"]
+
+        if decision.relation in (editor.SAME, editor.UPDATE) and post is not None:
+            message = post.get_issue_message(issue_name)
+            editable = post.accepts_updates(max_time_updated)
+            if message is not None and (editable or decision.relation == editor.SAME):
+                # New numbers are written into the post the reader already has,
+                # not sent as one more message: one strike gave five posts in
+                # ninety minutes, each a new count. Past the editing window an
+                # update has nowhere to go but a reply, below.
+                if decision.relation == editor.UPDATE:
+                    post.force_rewrite = True
+                self.update_posted_cluster(
+                    cluster, post, posted_clusters, issue_name, max_time_updated
+                )
+                return
+
+        if decision.decision != editor.PUBLISH:
+            return
+
+        cluster.level = decision.level
+        cluster.storyline = decision.storyline
+        parent = None
+        if decision.relation in (editor.FOLLOW_UP, editor.UPDATE, editor.SAME):
+            parent = post
+        elif decision.relation == editor.STORYLINE and post is not None:
+            cluster.storyline_clid = post.clid
+        self.publish(
+            cluster,
+            issue_name,
+            posted_clusters,
+            posted_clusters_path,
+            mongo_config_path,
+            parent=parent,
+        )
+
+    def ask_editor(
+        self, cluster: Cluster, posted_clusters: Clusters, issue_name: str
+    ) -> "editor.Decision | None":
+        """The editor's decision, asked once per version of the story.
+
+        Kept by what the prompt would show of the story — its texts — so the
+        story is asked about again only when a channel says something new.
+        A decision not to publish is asked again no sooner than
+        `reask_minutes` even then: a story gathering sources one channel at a
+        time would otherwise cost a call per channel. None means "not asked
+        now": the last answer stands and nothing is done.
+        """
+        assert self.editor_config is not None
+        now = get_current_ts()
+        key = (issue_name, frozenset(
+            judged_text_key(doc) or normalize_url(doc.url) for doc in cluster.docs
+        ))
+        decisions: dict[Any, tuple[int, editor.Decision]] = self.__dict__.setdefault(
+            "_decisions", {}
+        )
+        last_asked: dict[str, tuple[int, str]] = self.__dict__.setdefault("_last_asked", {})
+        identity = f"{issue_name} {normalize_url(cluster.first_doc.url)}"
+
+        if key in decisions:
+            return decisions[key][1]
+        previous = last_asked.get(identity)
+        reask = int(self.editor_config.get("reask_minutes", DEFAULT_REASK_MINUTES)) * 60
+        if previous is not None and previous[1] != editor.PUBLISH and now - previous[0] < reask:
+            return None
+
+        published = [
+            post
+            for post in posted_clusters.clid2cluster.values()
+            if post.get_issue_message(issue_name) is not None
+        ]
+        decision = editor.decide(cluster, published, now)
+        if decision.failed:
+            return decision
+        if len(decisions) >= MAX_JUDGMENTS:
+            decisions.pop(next(iter(decisions)))
+        decisions[key] = (now, decision)
+        last_asked[identity] = (now, decision.decision)
+        return decision
 
     def publish(
         self,

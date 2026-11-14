@@ -111,9 +111,38 @@ class Ranker:
         issue = by_name.get(issue_name, by_name[FALLBACK_ISSUE])
         return bool(independent_sources(cluster) >= issue["min_channels"])
 
-    def __call__(self, all_clusters: list[Cluster]) -> dict[str, list[Cluster]]:
+    def candidates(
+        self, all_clusters: list[Cluster], min_sources: float
+    ) -> dict[str, list[Cluster]]:
+        """Stories worth putting to the editor: fresh, in the language, and carried
+        by at least `min_sources` newsrooms.
+
+        The rest of `__call__` — the views border, the cap per issue — is
+        what the editor replaces. Reach measured against whatever else is in
+        the pool kept a strike on Pavlohrad with three wounded out of the feed
+        while a Lada in London got in, and waiting to clear it cost a median
+        32 minutes per post.
+        """
+        required_language = self.config.get("required_language", "uk")
+        by_name = {issue["issue_name"]: issue for issue in self.config["issues"]}
+        result: dict[str, list[Cluster]] = defaultdict(list)
+        for issue_name, clusters in self.route(all_clusters).items():
+            max_age = by_name[issue_name]["max_age_minutes"] * 60
+            for cluster in clusters:
+                if cluster.age >= max_age:
+                    continue
+                if required_language and not any(
+                    doc.language == required_language for doc in cluster.docs
+                ):
+                    continue
+                if independent_sources(cluster) >= min_sources:
+                    result[issue_name].append(cluster)
+        return result
+
+    def route(self, all_clusters: list[Cluster]) -> dict[str, list[Cluster]]:
+        """Each cluster under the configured issues it belongs to."""
         configured = {issue["issue_name"] for issue in self.config["issues"]}
-        issues = defaultdict(list)
+        issues: dict[str, list[Cluster]] = defaultdict(list)
         for cluster in all_clusters:
             # A channel's issue in channels.json is not required to have an entry
             # here, and the loop below only visits configured issues — so without
@@ -134,7 +163,10 @@ class Ranker:
                 cluster_issues = [FALLBACK_ISSUE]
             for issue in cluster_issues:
                 issues[issue].append(cluster)
+        return issues
 
+    def __call__(self, all_clusters: list[Cluster]) -> dict[str, list[Cluster]]:
+        issues = self.route(all_clusters)
         required_language = self.config.get("required_language", "uk")
         final_clusters = defaultdict(list)
         for issue_config in self.config["issues"]:

@@ -299,6 +299,15 @@ class Cluster:
         # knowing only its parent, so it could re-tell what the thread's first
         # post had said: the Kraków shooting ran as twelve posts.
         self.reply_to_thread: list[str] = []
+        # What the editor called this story's storyline ("Атаки на Одесу"), and
+        # the post of that storyline it stands next to. A storyline is not a
+        # thread: the posts are separate events and stay separate posts, but
+        # the label lets a later post list its earlier ones and lets the editor
+        # see that a topic has had its share of the day.
+        self.storyline: str | None = None
+        self.storyline_clid: int | None = None
+        # How the editor wants the post presented: breaking, normal or minor.
+        self.level: str = "normal"
 
         self.saved_annotation_doc: Document | None = None
         self.saved_first_doc: Document | None = None
@@ -310,6 +319,10 @@ class Cluster:
         # Kept so that the several reads of `analysis` one render makes cost
         # one failed call rather than one each.
         self.failed_generation: str | None = None
+        # Set when the editor read the new documents as new numbers for this
+        # same event: the post is rewritten now, whatever the coverage ladder
+        # says. Not stored: it is an instruction for this iteration.
+        self.force_rewrite: bool = False
 
         # Running mean of the members' vectors, kept unnormalized alongside the
         # number of documents that contributed, so that a cluster read back from
@@ -397,7 +410,7 @@ class Cluster:
         return key is not None and any(judged_text_key(member) == key for member in self.docs)
 
     def changed(self) -> bool:
-        return self.hash != self.saved_hash
+        return self.force_rewrite or self.hash != self.saved_hash
 
     @property
     def shown_hash(self) -> str:
@@ -617,7 +630,7 @@ class Cluster:
             # already analysed. Its post is published, and rewriting a day-old
             # story helps nobody.
             stored_generation = saved.get("generation") or current
-            if stored_generation == current:
+            if stored_generation == current and not self.force_rewrite:
                 return saved
             logging.info(
                 "Rewriting '%s': coverage grew past generation %s",
@@ -631,7 +644,7 @@ class Cluster:
         # iteration — keying on it would buy slightly better wording at the cost
         # of an LLM call per iteration, which is what this cache exists to stop.
         cache_key = (normalize_url(self.first_doc.url), current)
-        cached = _ANALYSIS_CACHE.get(cache_key)
+        cached = None if self.force_rewrite else _ANALYSIS_CACHE.get(cache_key)
         if cached is not None:
             self.saved_analysis = cached
             return cached
@@ -720,6 +733,7 @@ class Cluster:
             return saved if saved is not None else {"headline": None}
 
         self.saved_analysis = analysis
+        self.force_rewrite = False
         if len(_ANALYSIS_CACHE) >= _ANALYSIS_CACHE_MAX_SIZE:
             _ANALYSIS_CACHE.pop(next(iter(_ANALYSIS_CACHE)))
         _ANALYSIS_CACHE[cache_key] = analysis
@@ -905,6 +919,9 @@ class Cluster:
             "reply_to_text": self.reply_to_text,
             "reply_to_clid": self.reply_to_clid,
             "reply_to_thread": self.reply_to_thread,
+            "storyline": self.storyline,
+            "storyline_clid": self.storyline_clid,
+            "level": self.level,
             "embedding": self.embedding_mean,
             "embedding_count": self.embedding_count,
             # Sorted rather than a bare set dump: the dict is compared against
@@ -978,6 +995,10 @@ class Cluster:
         # Absent in clusters published before the link was kept.
         cluster.reply_to_clid = d.get("reply_to_clid")
         cluster.reply_to_thread = list(d.get("reply_to_thread") or [])
+        # Absent in clusters published before the editor.
+        cluster.storyline = d.get("storyline")
+        cluster.storyline_clid = d.get("storyline_clid")
+        cluster.level = d.get("level") or "normal"
         # Absent in clusters stored before refusals were remembered; those pay
         # for one more question each and then carry the answer like the rest.
         cluster.refused_docs = {
