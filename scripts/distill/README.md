@@ -16,11 +16,39 @@ In the order they were used:
 2. `ft_multi.py <name> <hf repo> <prefix>` — fine-tunes one encoder with a head
    per field. The epoch is chosen on the dev half of the blind 500.
 3. `hybrid_heads.py` — refits significance and urgency on the frozen v1 encoder
-   from the v3c teacher's labels. This is `e5_multi_h3c`, the model in production.
+   from the v3c teacher's labels. This is `e5_multi_h3c`, the model in production
+   from 23 September to 15 November 2026.
 4. `export_onnx.py <name>` — ONNX with an int8 embedding table, the tokenizer
    and `meta.json`; checks parity with torch on the blind 500.
 5. `drift.py` — asks the teacher about fresh production posts and compares.
    `python -m nyan.student_health` is the free daily check that says when to run it.
+   With `TEACHER_VIA=codex TEACHER_MODEL=gpt-6-luna` the teacher is asked through
+   the codex CLI and no key is needed. A run is compared only with earlier runs
+   of the same teacher: 84.6% against gpt-6-luna and 93.6% against gpt-5.6-luna
+   are two baselines, not a fall.
+6. `build_ens.py <judge dirs>` then `ft_ens.py <name>` — the retraining of
+   November 2026. It starts from the model in production and adds a later week
+   of production posts: labelled by three other models where the student was
+   unsure, by the student itself where it was sure, by the rubric patterns where
+   they match. The result, `e5_ens1`, is in production since 15 November 2026:
+   on a thousand fresh posts nothing trained on it is right on 94.3% against
+   90.3% before, and on the blind 500 one post worse in each half.
+
+## Putting a model into production
+
+The model is not in the image. Every nyan container mounts
+`/data/coolify/applications/<app>/models` from the host over `/app/models`, and
+only the sender loads the student, from `models/student_e5_multi`. To replace it:
+copy `meta.json`, `model_emb8.onnx` and the two tokenizer files of the export
+into a new directory beside it, compare checksums, rename the old directory
+aside (`student_e5_multi_h3c` is the previous one) and the new one into place,
+and restart the sender. `student.model` in `annotated_documents` then carries
+the new name. Going back is the two renames reversed and a restart.
+
+Copy the same four files into the local `models/student_e5_multi` too. `drift.py`
+reads that copy, and a stale one measures a model production does not run: in
+November it held the September v1 export, and the retrained model looked as if
+it had lost a quarter of its significance scores.
 
 ## When the owner decides something is not news
 
