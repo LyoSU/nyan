@@ -137,7 +137,7 @@ def storyline_posts(
     nearest: Cluster | None,
     exclude: Cluster | None = None,
 ) -> list[dict[str, Any]]:
-    """The channel's earlier posts on a storyline, newest first, for "Ще про це".
+    """The channel's earlier posts on a storyline, newest first, for "Раніше на цю тему".
 
     The post the editor named as the storyline's nearest comes first: posts
     published before the editor have no label, so on its first days the label

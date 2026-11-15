@@ -162,7 +162,7 @@ def test_more_on_this_links_into_the_readers_own_channel(tmp_path: Any, channels
     post = renderer.render_cluster(cluster, "main")
 
     text = json.dumps(post.blocks if post else None, ensure_ascii=False)
-    assert "Ще про це" in text and "https://t.me/UAliveNews/6119" in text
+    assert "Раніше на цю тему" in text and "https://t.me/UAliveNews/6119" in text
     assert post is not None and post.blocks is not None
     more = json.dumps(next(b for b in post.blocks if b["type"] == "list"), ensure_ascii=False)
     assert "date_time" not in more, "a client would say the date in its own language"

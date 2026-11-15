@@ -488,7 +488,7 @@ class Renderer:
         self.layout = bool(presentation.get("layout"))
         self.vision = bool(presentation.get("vision")) and self.layout
         # Where each issue's channel lives, to link its earlier posts. An issue
-        # with no address here gets no "Ще про це": a link has to lead to the
+        # with no address here gets no "Раніше на цю тему": a link has to lead to the
         # channel the reader is in, and on a host with one channel per rubric
         # the main channel's address would lead elsewhere.
         self.channel_urls: dict[str, str] = {
@@ -870,7 +870,7 @@ class Renderer:
         ]
         if not items:
             return []
-        return [rich.paragraph(rich.bold("Ще про це")), rich.bullet_list(*items)]
+        return [rich.paragraph(rich.bold("Раніше на цю тему")), rich.bullet_list(*items)]
 
     def render_summary(
         self,
