@@ -129,6 +129,14 @@ def _judgment_key(story: Cluster, candidates: list[Cluster]) -> tuple[Any, ...]:
 # thread back, few enough that the list stays a line or two.
 MAX_STORYLINE_POSTS = 3
 
+# And how far back. A theme such as "Атаки на Одесу" never ends, and a strike
+# three days old says nothing about tonight's: over three days of the channel's
+# own posts (11-14 November 2026) the links older than this were eleven earlier
+# strikes, outages and snowfalls and three that a reader would have followed,
+# while a day's limit would have cut thirty-seven, most of them yesterday's
+# turn of a story still going.
+MAX_STORYLINE_AGE = 48 * 3600
+
 
 def storyline_posts(
     posted_clusters: Clusters,
@@ -136,6 +144,7 @@ def storyline_posts(
     storyline: str,
     nearest: Cluster | None,
     exclude: Cluster | None = None,
+    now: int | None = None,
 ) -> list[dict[str, Any]]:
     """The channel's earlier posts on a storyline, newest first, for "Раніше на цю тему".
 
@@ -143,13 +152,18 @@ def storyline_posts(
     published before the editor have no label, so on its first days the label
     alone finds nothing. That post then takes the label, so the next one does.
     Only posts in this issue's channel: a link to a post the reader's channel
-    does not carry leads nowhere.
+    does not carry leads nowhere. And only posts of the last two days: the
+    older ones keep the label, so the theme is still recognised, but are not
+    offered to the reader.
     """
     if nearest is not None and nearest.storyline is None:
         nearest.storyline = storyline
+    oldest = (get_current_ts() if now is None else now) - MAX_STORYLINE_AGE
     found: list[Cluster] = []
     for post in posted_clusters.clid2cluster.values():
         if post is exclude or post.get_issue_message(issue_name) is None:
+            continue
+        if (post.create_time or 0) < oldest:
             continue
         if post is nearest or post.storyline == storyline:
             found.append(post)

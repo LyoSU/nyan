@@ -381,6 +381,35 @@ def test_a_storyline_post_lists_the_earlier_ones_of_its_channel(monkeypatch: Any
     assert story.storyline_posts[0]["message_id"] == labelled.messages[0].message_id
 
 
+def test_a_strike_three_days_ago_is_not_offered_under_tonights(monkeypatch: Any) -> None:
+    """Under a strike on Chornomorsk the only link led to one 58 hours earlier."""
+    daemon = _daemon()
+    stale = _post(
+        66401,
+        "Унаслідок удару по Одещині постраждали четверо",
+        58.5,
+        [0.9, 0.1],
+        "Удари по Одещині",
+    )
+    yesterday = _post(
+        66450, "Дрони влучили в багатоповерхівку в Одесі", 26, [0.8, 0.2], "Удари по Одещині"
+    )
+    _answer(
+        monkeypatch,
+        {
+            "relation": "storyline",
+            "post": 1,
+            "decision": "publish",
+            "storyline": "Удари по Одещині",
+        },
+    )
+    story = _story(["Російська армія вночі атакувала Чорноморськ"], [1.0, 0.02])
+
+    daemon.send_cluster(story, "main", _posted(stale, yesterday), None, None)
+
+    assert [post["clid"] for post in story.storyline_posts] == [66450]
+
+
 def test_on_a_host_with_a_channel_per_rubric_the_editor_sees_that_channel(
     monkeypatch: Any,
 ) -> None:
