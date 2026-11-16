@@ -8,7 +8,7 @@
     "presentation": {
         "levels": true,
         "update_line": true,
-        "more_on_this": true,
+        "more_on_this": false,
         "quote_parent": true,
         "short_legend": true,
         "layout": true,
